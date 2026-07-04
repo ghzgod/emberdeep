@@ -172,7 +172,8 @@ h4.tt-epic { color: #c77aff; }
 #gameover-text { font-size: 16px; opacity: 0.85; }
 
 /* ---------- Touch controls ---------- */
-#touch-ui { position: absolute; inset: 0; pointer-events: none; z-index: 12; }
+/* Above overlays (z 20) so the bag/pause buttons still work while the inventory is open. */
+#touch-ui { position: absolute; inset: 0; pointer-events: none; z-index: 25; }
 #joystick-base {
   display: none; position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px;
   border: 2px solid rgba(216, 203, 176, 0.35); border-radius: 50%;
@@ -183,12 +184,13 @@ h4.tt-epic { color: #c77aff; }
   transform: translate(-50%, -50%); border-radius: 50%;
   background: rgba(216, 203, 176, 0.4); border: 2px solid rgba(216, 203, 176, 0.6);
 }
-#touch-potion, #touch-pause {
+#touch-potion, #touch-pause, #touch-inv {
   position: absolute; pointer-events: auto; width: 56px; height: 56px;
   border-radius: 50%; border: 2px solid var(--panel-border); background: var(--panel);
   font-size: 24px; color: var(--parchment);
 }
 #touch-potion { right: 18px; bottom: 96px; }
+#touch-inv { right: 18px; bottom: 164px; }
 #touch-pause { right: 18px; top: 240px; }
 .touch-mode #hotbar { pointer-events: auto; }
 .touch-mode #hud-hints { display: none; }
