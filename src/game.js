@@ -46,7 +46,7 @@ export class Game {
 
     this.input = new Input(this.canvas);
     this.settings = Object.assign(
-      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'off', voiceThreshold: 12, taunts: true },
+      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true },
       SaveManager.loadSettings() || {}
     );
     audio.volumes = {

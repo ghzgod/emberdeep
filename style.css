@@ -269,16 +269,18 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   transform: translate(-50%, -50%); border-radius: 50%;
   background: rgba(216, 203, 176, 0.4); border: 2px solid rgba(216, 203, 176, 0.6);
 }
-#touch-potion, #touch-pause, #touch-inv {
+#touch-potion, #touch-pause, #touch-inv, #touch-mic {
   position: absolute; pointer-events: auto; width: 56px; height: 56px;
   border-radius: 50%; border: 2px solid var(--panel-border); background: var(--panel);
-  font-size: 24px; color: var(--parchment);
+  font-size: 24px; color: var(--parchment); padding: 0;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
 }
 /* One vertical stack on the right edge, bottom-up: potion, bag, pause. */
 #touch-potion { right: 14px; bottom: 96px; }
 #touch-inv { right: 14px; bottom: 164px; }
 #touch-mic { right: 14px; bottom: 300px; }
-#touch-mic:active { border-color: #7ce87c; color: #7ce87c; }
+#touch-mic.hidden { display: none; }
+#touch-mic:active { border-color: #7ce87c; background: rgba(40, 80, 40, 0.85); transform: scale(1.08); }
 #touch-pause { right: 14px; bottom: 232px; }
 
 #voice-indicator {
@@ -296,10 +298,12 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 
 /* Landscape phones: shorter screen — shrink the stack and minimap so nothing collides. */
 @media (max-height: 540px) and (pointer: coarse), (max-height: 540px) and (max-width: 1000px) {
-  #touch-potion, #touch-pause, #touch-inv { width: 46px; height: 46px; font-size: 19px; }
+  #touch-potion, #touch-pause, #touch-inv, #touch-mic { width: 46px; height: 46px; font-size: 19px; }
   #touch-potion { bottom: 74px; }
   #touch-inv { bottom: 128px; }
   #touch-pause { bottom: 182px; }
+  /* landscape: push-to-talk lives bottom-left by the movement thumb */
+  #touch-mic { left: 14px; right: auto; bottom: 74px; }
   #minimap { width: 84px; height: 84px; }
   #hud-topleft { width: 170px; }
   .hotbar-slot { width: 52px; height: 52px; }
