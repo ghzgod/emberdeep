@@ -19,7 +19,7 @@ export async function preloadHeroModels(onProgress) {
   let done = 0;
   await Promise.all(entries.map(async ([classId, file]) => {
     try {
-      const gltf = await loader.loadAsync('/' + file);
+      const gltf = await loader.loadAsync(import.meta.env.BASE_URL + file);
       const box = new THREE.Box3().setFromObject(gltf.scene);
       const height = box.max.y - box.min.y || 1;
       loaded.set(classId, {
