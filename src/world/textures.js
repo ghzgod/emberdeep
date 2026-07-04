@@ -3,18 +3,27 @@ import * as THREE from 'three';
 // Procedural canvas textures: stone floors, brick walls, wood.
 // Themed per floor band so deeper floors feel different.
 
+// One theme per act. Five acts, ten floors each.
 export const THEMES = {
   stone:    { floor: '#5a5a60', wall: '#6b6b72', mortar: '#3a3a40', accent: 0xffa95e, name: 'The Old Halls' },
   moss:     { floor: '#4e5a48', wall: '#5c6b55', mortar: '#333d2e', accent: 0x8ee87a, name: 'The Rotting Depths' },
   obsidian: { floor: '#4a3540', wall: '#553a45', mortar: '#2a1a22', accent: 0xff5e4a, name: 'The Ember Vaults' },
-  cursed:   { floor: '#3d3450', wall: '#463b5c', mortar: '#221c30', accent: 0xb35eff, name: "The Lord's Sanctum" },
+  cursed:   { floor: '#3d3450', wall: '#463b5c', mortar: '#221c30', accent: 0xb35eff, name: 'The Sunless Court' },
+  abyss:    { floor: '#2e3a48', wall: '#37465a', mortar: '#1a2230', accent: 0x4ae8d8, name: 'The Abyssal Throne' },
 };
 
+const ACT_THEMES = [null, THEMES.stone, THEMES.moss, THEMES.obsidian, THEMES.cursed, THEMES.abyss];
+
+export function actOfFloor(floor) {
+  return Math.min(5, Math.ceil(floor / 10));
+}
+export function actFloorOf(floor) {
+  return ((floor - 1) % 10) + 1;
+}
+
 export function themeForFloor(floor) {
-  if (floor >= 10) return THEMES.cursed;
-  if (floor >= 7) return THEMES.obsidian;
-  if (floor >= 4) return THEMES.moss;
-  return THEMES.stone;
+  if (floor > 50) return THEMES.abyss; // endless post-victory depths
+  return ACT_THEMES[actOfFloor(floor)];
 }
 
 function makeCanvas(size) {

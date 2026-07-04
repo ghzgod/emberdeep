@@ -66,7 +66,7 @@ export class UI {
       this.show('mp');
     };
     $('btn-mp-enter').onclick = async () => {
-      const room = $('mp-room').value.trim() || 'JOEL';
+      const room = $('mp-room').value.trim() || 'EMBER';
       $('mp-status').textContent = 'Connecting to room…';
       const result = await this.game.startMultiplayer(room);
       if (result.mode === 'error') {
@@ -92,6 +92,9 @@ export class UI {
     };
     $('btn-charselect-back').onclick = () => { this.renderSaves(); this.show('saves'); };
     $('btn-shop-close').onclick = () => this.game.closeShop();
+    $('btn-shop-restock').onclick = () => {
+      if (this.game.activeVendor) this.game.restockVendor(this.game.activeVendor);
+    };
     $('btn-title-settings').onclick = () => { this.settingsReturnTo = 'title'; this.show('settings'); };
     $('btn-pause-settings').onclick = () => { this.settingsReturnTo = 'pause'; this.show('settings'); };
     $('btn-settings-back').onclick = () => {
@@ -228,6 +231,9 @@ export class UI {
     const p = this.game.player;
     $('shop-title').textContent = vendor.name;
     $('shop-gold').textContent = `Your gold: ${p.gold} 🪙`;
+    const fee = this.game.restockFee(vendor);
+    $('btn-shop-restock').textContent = `Restock (${fee}g)`;
+    $('btn-shop-restock').disabled = p.gold < fee;
 
     const buyWrap = $('shop-buy-list');
     buyWrap.innerHTML = '';
@@ -289,6 +295,16 @@ export class UI {
     const shake = $('set-shake');
     shake.checked = s.screenShake;
     shake.onchange = () => { s.screenShake = shake.checked; this.game.saveSettings(); };
+
+    const taunts = $('set-taunts');
+    taunts.checked = s.taunts !== false;
+    taunts.onchange = async () => {
+      s.taunts = taunts.checked;
+      this.game.saveSettings();
+      const { roaster } = await import('../ai/roaster.js');
+      roaster.enabled = s.taunts;
+      if (!s.taunts && 'speechSynthesis' in window) speechSynthesis.cancel();
+    };
 
     // voice chat
     const vSel = $('set-voice');
@@ -395,7 +411,17 @@ export class UI {
     $('hud-level').textContent = `Lv ${player.level}`;
     $('hud-gold').textContent = `${player.gold} 🪙`;
     $('hud-potions').textContent = `${player.potions} 🧪`;
-    $('hud-floor').textContent = this.game.inTown ? '🏘️ Embervale' : floor >= 10 ? '☠️ Floor 10' : `Floor ${floor}`;
+    // multiplayer: show how many heroes share the room (works in both orientations)
+    const playersEl = $('hud-players');
+    const count = this.game.roomPlayerCount();
+    if (count > 0) {
+      playersEl.classList.remove('hidden');
+      playersEl.textContent = `${count} 👥`;
+      playersEl.title = `${count} heroes in this room`;
+    } else {
+      playersEl.classList.add('hidden');
+    }
+    $('hud-floor').textContent = this.game.floorLabelText();
 
     // stairs seal progress
     const clearEl = $('hud-clear');
@@ -446,10 +472,11 @@ export class UI {
     this._toastT = setTimeout(() => toast.classList.add('hidden'), 2300);
   }
 
-  showFloorBanner(floor, themeName) {
+  showFloorBanner(title, themeName, raw = false) {
     const b = $('floor-banner');
     b.classList.remove('hidden');
-    b.innerHTML = `${floor >= 10 ? 'THE FINAL DEPTH' : `FLOOR ${floor}`}<div class="banner-sub">${themeName}</div>`;
+    const text = raw ? title : (title === 0 ? 'EMBERVALE' : `FLOOR ${title}`);
+    b.innerHTML = `${text}<div class="banner-sub">${themeName}</div>`;
     b.style.animation = 'none';
     void b.offsetWidth;
     b.style.animation = '';

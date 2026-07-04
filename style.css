@@ -88,7 +88,9 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 .bar.xp { background: linear-gradient(180deg, #c9a942, #8a6d1c); }
 .bar.boss { background: linear-gradient(180deg, #a03bd9, #4d1e8b); }
 .bar-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; text-shadow: 0 1px 1px #000; }
-#hud-stats { display: flex; gap: 14px; font-size: 14px; text-shadow: 0 1px 2px #000; }
+#hud-stats { display: flex; gap: 14px; font-size: 14px; text-shadow: 0 1px 2px #000; align-items: center; }
+#hud-stats > span { display: inline-flex; align-items: center; gap: 4px; line-height: 1; }
+#hud-players { color: #8ac8ff; }
 #hud-gold { color: var(--gold); }
 #hud-potions { color: #e87a7a; }
 
@@ -129,6 +131,11 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 .floater.heal { color: #7ce87c; }
 .floater.gold { color: var(--gold); font-size: 14px; }
 .floater.xp { color: #c9a9ff; font-size: 13px; }
+.floater.roast {
+  font-style: italic; font-weight: normal; font-size: 15px; color: #ffb08a;
+  white-space: normal; width: 260px; text-align: center; line-height: 1.35;
+  text-shadow: 0 2px 4px #000, 0 0 10px rgba(0,0,0,0.8);
+}
 @keyframes float-up { 0% { opacity: 1; margin-top: 0; } 100% { opacity: 0; margin-top: -46px; } }
 
 /* ---------- Inventory ---------- */

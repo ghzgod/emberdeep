@@ -42,8 +42,8 @@
     <!-- Multiplayer room -->
     <div id="mp-screen" class="overlay">
       <h2 class="screen-heading">Multiplayer</h2>
-      <p class="mp-blurb">Up to 4 heroes share one dungeon. Everyone enters the same room name —<br>the first becomes the host; the rest join their world. Enemies grow stronger per hero.</p>
-      <label class="mp-room-label">Room name <input id="mp-room" type="text" maxlength="16" value="JOEL"></label>
+      <p class="mp-blurb">Up to 4 heroes share one dungeon. Enter the same room name as your friends —<br>rooms stay live while anyone is inside; drop in and out as you please. Enemies grow stronger per hero.</p>
+      <label class="mp-room-label">Room name <input id="mp-room" type="text" maxlength="16" value="EMBER"></label>
       <p id="mp-status" class="hint"></p>
       <div class="menu-buttons">
         <button id="btn-mp-enter" class="menu-btn">Enter Together</button>
@@ -59,7 +59,10 @@
         <div class="shop-col"><h3>Buy</h3><div id="shop-buy-list"></div></div>
         <div class="shop-col"><h3>Sell</h3><div id="shop-sell-list"></div></div>
       </div>
-      <div class="menu-buttons"><button id="btn-shop-close" class="menu-btn small">Leave</button></div>
+      <div class="menu-buttons">
+        <button id="btn-shop-restock" class="menu-btn small">Restock</button>
+        <button id="btn-shop-close" class="menu-btn small">Leave</button>
+      </div>
     </div>
 
     <!-- Character select -->
@@ -79,7 +82,7 @@
         <div class="bar-wrap"><div id="hp-bar" class="bar hp"></div><span id="hp-text" class="bar-text"></span></div>
         <div class="bar-wrap small"><div id="resource-bar" class="bar resource"></div><span id="resource-text" class="bar-text"></span></div>
         <div class="bar-wrap tiny"><div id="xp-bar" class="bar xp"></div><span id="xp-text" class="bar-text"></span></div>
-        <div id="hud-stats"><span id="hud-level"></span><span id="hud-gold"></span><span id="hud-potions"></span></div>
+        <div id="hud-stats"><span id="hud-level"></span><span id="hud-gold"></span><span id="hud-potions"></span><span id="hud-players" class="hidden"></span></div>
       </div>
       <div id="hud-topright">
         <div id="hud-floor"></div>
@@ -149,6 +152,7 @@
           </select>
         </label>
         <label>Screen Shake <input type="checkbox" id="set-shake" checked></label>
+        <label>Enemy Taunts (spoken) <input type="checkbox" id="set-taunts" checked></label>
         <label>Voice Chat (multiplayer)
           <select id="set-voice">
             <option value="off" selected>Off</option>

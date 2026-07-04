@@ -4,21 +4,24 @@ import { SaveManager } from './core/save.js';
 import { audio } from './core/audio.js';
 import { generateDungeon, generateTown, FLOOR, WALL, DOOR } from './world/dungeon.js';
 import { buildDungeonMeshes, TILE, tileToWorld } from './world/meshbuilder.js';
-import { themeForFloor } from './world/textures.js';
+import { themeForFloor, actOfFloor, actFloorOf } from './world/textures.js';
 import { Player, xpForLevel } from './entities/player.js';
 import { Enemy, Boss, ENEMY_TYPES, buildEnemyMesh, buildBossMesh } from './entities/enemies.js';
 import { buildAnimatedHero } from './entities/heroModel.js';
 import { CLASSES, buildHeroMesh } from './entities/classes.js';
 import { ProjectileSystem } from './entities/projectiles.js';
-import { LootSystem, generateGear, rollRarity, sellValue, gambleItem, RARITIES } from './entities/loot.js';
+import { LootSystem, generateGear, rollRarity, sellValue, gambleItem, dropLegendary, RARITIES } from './entities/loot.js';
 import { net } from './net/net.js';
 import { voice } from './net/voice.js';
 import { ParticleSystem } from './combat/particles.js';
 import { UI } from './ui/ui.js';
 import { learner } from './ai/learner.js';
+import { roaster } from './ai/roaster.js';
 import { TouchControls } from './core/touch.js';
 
-const MAX_FLOOR = 10;
+// Five acts × ten floors; the Dungeon Lord waits on floor 50. Beyond lies the endless abyss.
+const MAX_FLOOR = 50;
+const ROMAN = [null, 'I', 'II', 'III', 'IV', 'V'];
 
 export class Game {
   constructor() {
@@ -43,7 +46,7 @@ export class Game {
 
     this.input = new Input(this.canvas);
     this.settings = Object.assign(
-      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'off', voiceThreshold: 12 },
+      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'off', voiceThreshold: 12, taunts: true },
       SaveManager.loadSettings() || {}
     );
     audio.volumes = {
@@ -53,6 +56,7 @@ export class Game {
     };
 
     this.playerModule = { xpForLevel };
+    roaster.enabled = this.settings.taunts !== false;
     this.particles = new ParticleSystem(this.scene);
     this.projectiles = new ProjectileSystem(this.scene);
     this.loot = new LootSystem(this.scene);
@@ -81,6 +85,8 @@ export class Game {
     this.netTickTimer = 0;
     this.posSendTimer = 0;
     this.touchPtt = false;
+    this.localTown = false;   // guest: shopping in their OWN town, not the host's world
+    this.lastWorldMsg = null; // guest: latest host world snapshot
     this.shakeAmount = 0;
     this.saveTimer = 0;
     this.savePending = false;
@@ -169,24 +175,19 @@ export class Game {
     this.kills = data.kills || 0;
     this.deaths = data.deaths || 0;
     this.bossDefeated = data.bossDefeated || false;
+    // saves from the single-act era: their "victory" was only Act I's boss
+    if (this.bossDefeated && this.floor <= 11) this.bossDefeated = false;
     if (this.floor === MAX_FLOOR && this.bossDefeated) this.floor = MAX_FLOOR + 1;
     this.ui.buildHotbar(this.player);
     this.enterWorld();
   }
 
-  // Everyone starts in town. Multiplayer guests instead wait for (or already
-  // have) the host's world snapshot.
+  // Everyone starts in their OWN town — guests included. A guest only joins
+  // the host's world by stepping through the dungeon portal.
   enterWorld() {
     if (net.active && !net.isHost) {
       net.send({ t: 'hello', cls: this.player.classId });
-      if (this.pendingWorld) {
-        this.applyWorld(this.pendingWorld);
-        this.pendingWorld = null;
-      } else {
-        this.ui.showFloorBanner(0, 'Waiting for the host…');
-      }
-      this.enterPlaying();
-      return;
+      this.localTown = true;
     }
     this.loadTown();
     this.enterPlaying();
@@ -241,6 +242,7 @@ export class Game {
 
   onPlayerDeath() {
     this.deaths++;
+    roaster.onPlayerDeath(this, this.player.classDef.name);
     this.player.gold = Math.floor(this.player.gold * 0.8);
     this.requestSave(true);
     setTimeout(() => {
@@ -258,13 +260,8 @@ export class Game {
     this.player.resource = this.player.maxResource;
     this.player.statuses = [];
     this.player.buffs = [];
-    if (net.active && !net.isHost) {
-      // guest: revive at the shared world's spawn
-      const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
-      this.player.pos.set(spawn.x, 0, spawn.z);
-    } else {
-      this.loadTown();
-    }
+    if (net.active && !net.isHost) this.localTown = true;
+    this.loadTown();
     this.enterPlaying();
   }
 
@@ -361,8 +358,11 @@ export class Game {
         stock.push({ kind: 'gamble', icon: '❓', label: 'Mystery Relic — fate decides', price });
       }
     } else {
+      // The smith sells solid basics only — epics and better must be earned
+      // in the dungeon (or gambled from Zoltan).
       for (let i = 0; i < 4; i++) {
-        const item = generateGear(Math.min(MAX_FLOOR, this.floor + 1));
+        const rarity = Math.random() < 0.35 ? 'rare' : 'common';
+        const item = generateGear(Math.min(MAX_FLOOR, this.floor + 1), rarity);
         stock.push({ kind: 'gear', icon: item.icon, label: item.name, price: Math.round((item.value || 30) * 2.2), item });
       }
     }
@@ -412,9 +412,30 @@ export class Game {
     this.requestSave();
   }
 
+  // Heroes currently in the room (0 = single player, badge hidden).
+  roomPlayerCount() {
+    if (!net.active) return 0;
+    return net.isHost ? 1 + net.conns.size : Math.max(2, (net.lastRoster?.length || 2));
+  }
+
+  restockFee(vendor) {
+    return vendor.type === 'mystery' ? 60 : 25;
+  }
+
+  restockVendor(vendor) {
+    const fee = this.restockFee(vendor);
+    if (this.player.gold < fee) return;
+    this.player.gold -= fee;
+    vendor.stock = this.makeVendorStock(vendor);
+    audio.play('coin_pickup');
+    this.ui.renderShop(vendor);
+    this.requestSave();
+  }
+
   openShop(vendor) {
     this.activeVendor = vendor;
     this.state = 'shop';
+    this.touch.setVisible(false); // touch buttons aren't needed at a counter
     this.ui.openShop(vendor);
   }
 
@@ -422,6 +443,7 @@ export class Game {
     this.activeVendor = null;
     this.state = 'playing';
     this.ui.hideAll();
+    this.touch.setVisible(true);
     this.shopCooldown = 1.5;
     audio.play('ui_close');
   }
@@ -471,8 +493,8 @@ export class Game {
       this.enemies.push(e);
     }
 
-    // boss
-    if (this.dungeon.boss && !this.bossDefeated) {
+    // act boss (the final one stays dead once slain)
+    if (this.dungeon.boss && !(actOfFloor(floor) === 5 && this.bossDefeated)) {
       this.boss = new Boss(floor);
       const w = tileToWorld(this.dungeon.boss.x, this.dungeon.boss.y);
       this.boss.pos.set(w.x, 0, w.z);
@@ -492,14 +514,29 @@ export class Game {
 
     this.setupTorchLights(theme);
     this.ui.minimap.setDungeon(this.dungeon);
-    this.ui.showFloorBanner(floor, theme.name);
-    audio.playMusic(floor === MAX_FLOOR && !this.bossDefeated ? 'boss' : 'dungeon');
+    this.ui.showFloorBanner(this.floorBannerTitle(), theme.name, true);
+    audio.playMusic(this.dungeon.boss && this.boss ? 'boss' : 'dungeon');
     audio.play('stairs', { volume: 0.7 });
     this.stairsCooldown = 1.5;
     this.returnPortalArmed = false; // arms once you walk away from the entrance
     this.requestSave(true);
 
     if (net.isHost) this.broadcastWorld();
+  }
+
+  currentAct() { return actOfFloor(Math.min(this.floor, MAX_FLOOR)); }
+
+  floorBannerTitle() {
+    if (this.floor > MAX_FLOOR) return `THE ENDLESS ABYSS — ${this.floor}`;
+    const act = actOfFloor(this.floor), af = actFloorOf(this.floor);
+    return af === 10 ? `ACT ${ROMAN[act]} — THE LORD'S ARENA` : `ACT ${ROMAN[act]} · FLOOR ${af}`;
+  }
+
+  floorLabelText() {
+    if (this.inTown) return '🏘️ Embervale';
+    if (this.floor > MAX_FLOOR) return `🌀 Depths ${this.floor}`;
+    const act = actOfFloor(this.floor), af = actFloorOf(this.floor);
+    return af === 10 ? `Act ${ROMAN[act]} · ☠️ Boss` : `Act ${ROMAN[act]} · Floor ${af}`;
   }
 
   applyMpScaling(e, mult) {
@@ -535,6 +572,7 @@ export class Game {
       rp.aim = msg.aim;
       rp.moving = !!msg.mv;
       rp.dead = !!msg.dead;
+      rp.away = !!msg.aw;
     });
     net.on('dmg', (msg, from) => {
       const e = this.enemies.find((en) => en.netId === msg.ei && !en.dead);
@@ -568,11 +606,22 @@ export class Game {
 
     // --- guest side ---
     net.on('world', (msg) => {
-      if (!this.player) { this.pendingWorld = msg; return; }
+      this.lastWorldMsg = msg;
+      if (!this.player) return;
+      // guests browsing their own town are not dragged along
+      if (this.localTown) return;
       this.applyWorld(msg);
+    });
+    net.on('roast', (msg) => {
+      if (net.isHost || !this.player) return;
+      const e = this.enemies.find((en) => en.netId === msg.ei && !en.dead);
+      if (e) this.ui.floaters.spawn(e.pos, `“${msg.txt}”`, 'roast', 3.2);
+      roaster.speak(msg.txt, msg.ty);
     });
     net.on('state', (msg) => {
       if (net.isHost || !this.player) return;
+      // browsing our own town: the shared world's avatars/enemies don't apply
+      if (this.localTown) return;
       const myId = net.peer?.id;
       for (const pl of msg.pl) {
         if (pl.id === myId) continue;
@@ -608,7 +657,15 @@ export class Game {
       }
       this.player.gainXp(msg.xp, this);
       this.rollDeathLoot(msg.x, msg.z, { miniboss: msg.mb, isBoss: msg.boss });
-      if (msg.boss) { this.bossDefeated = true; this.onVictory(); }
+      if (msg.boss) {
+        if (this.currentAct() < 5 && this.floor <= MAX_FLOOR) {
+          this.spawnActExit(msg.x, msg.z);
+          this.ui.showFloorBanner(`ACT ${ROMAN[this.currentAct()]} CLEARED`, 'The way deeper opens…', true);
+        } else {
+          this.bossDefeated = true;
+          this.onVictory();
+        }
+      }
     });
     net.on('ehit', (msg) => {
       if (!net.isHost && this.player && !this.player.dead) this.player.takeDamage(msg.dmg, this);
@@ -621,15 +678,11 @@ export class Game {
         });
       }
     });
-    net.on('host_left', () => {
-      if (this.player) {
-        alert('The host has left the dungeon.');
-        this.quitToTitle();
-      } else {
-        net.stop();
-      }
+    net.on('host_left', () => this.onHostLost());
+    net.on('peers', (msg) => {
+      net.lastRoster = msg.ids;
+      voice.syncPeers(msg.ids);
     });
-    net.on('peers', (msg) => voice.syncPeers(msg.ids));
     net.on('notice', (msg) => {
       if (this.player) this.ui.floaters.spawn(this.player.pos, msg.txt, 'crit');
     });
@@ -637,6 +690,61 @@ export class Game {
       net.stop();
       alert('That room already has 4 heroes.');
     });
+  }
+
+  // The simulating peer left. The room lives on: lowest surviving id takes
+  // over the simulation; everyone else quietly reconnects.
+  async onHostLost() {
+    if (!this.player || this._migrating) { if (!this.player) net.stop(); return; }
+    this._migrating = true;
+    const myId = net.peer?.id;
+    const survivors = (net.lastRoster || []).filter((id) => id !== net.roomId && id !== undefined);
+    const shouldHost = survivors.length === 0 || myId === [...survivors].sort()[0];
+    this.ui.floaters.spawn(this.player.pos, 'A hero departed — holding the room…', 'xp');
+    const res = await net.migrate(shouldHost);
+    this._migrating = false;
+    if (res.mode === 'error') {
+      alert('The room was lost. Returning to town in single player.');
+      net.stop();
+      this.clearRemotePlayers();
+      this.localTown = false;
+      if (!this.inTown) this.loadTown();
+      return;
+    }
+    if (res.mode === 'host') {
+      this.becomeSimulationOwner();
+      voice.attachToPeer(net.peer);
+      if (this.settings.voiceMode !== 'off') voice.enable(this.settings.voiceMode, this.settings.voiceThreshold);
+      net.broadcastRoster();
+    } else {
+      net.send({ t: 'hello', cls: this.player.classId });
+      this.ui.floaters.spawn(this.player.pos, 'Room restored.', 'heal');
+    }
+  }
+
+  // Promote guest mirrors into real simulated enemies (same ids, hp, spots).
+  becomeSimulationOwner() {
+    this.clearRemotePlayers();
+    const mirrors = this.enemies.filter((e) => e.mirror && !e.dead);
+    const real = [];
+    let maxId = this.netEnemySeq;
+    for (const mo of mirrors) {
+      const e = mo.isBoss ? new Boss(this.floor) : new Enemy(mo.typeId, this.floor, { miniboss: mo.miniboss, elite: mo.elite });
+      e.maxHp = mo.maxHp;
+      e.hp = mo.hp;
+      e.pos.copy(mo.pos);
+      e.mesh.position.copy(mo.pos);
+      e.netId = mo.netId;
+      e.state = 'chase';
+      maxId = Math.max(maxId, mo.netId);
+      this.scene.remove(mo.mesh);
+      this.scene.add(e.mesh);
+      real.push(e);
+      if (mo.isBoss) this.boss = e;
+    }
+    this.enemies = this.enemies.filter((e) => !e.mirror).concat(real);
+    this.netEnemySeq = maxId;
+    this.ui.floaters.spawn(this.player.pos, 'The room is yours to hold.', 'heal');
   }
 
   serializeEnemy(e) {
@@ -657,10 +765,11 @@ export class Game {
     }, toId);
   }
 
-  // Guest: rebuild the world from the host's snapshot.
+  // Guest: rebuild the world from the shared snapshot.
   applyWorld(msg) {
     this.teardownFloor();
     this.inTown = !!msg.inTown;
+    this.localTown = this.inTown; // arriving in a town = your own peaceful copy
     this.floor = msg.floor;
     this.dungeon = msg.dungeon;
     const theme = themeForFloor(this.inTown ? 1 : this.floor);
@@ -679,8 +788,12 @@ export class Game {
     this.floorEnemyTotal = msg.fe || 0;
     this.setupTorchLights(theme);
     this.ui.minimap.setDungeon(this.dungeon);
-    this.ui.showFloorBanner(this.inTown ? 0 : this.floor, this.inTown ? 'Embervale — the host’s hometown' : theme.name);
-    audio.playMusic(this.floor === MAX_FLOOR && !this.inTown ? 'boss' : 'dungeon');
+    this.ui.showFloorBanner(
+      this.inTown ? 0 : this.floorBannerTitle(),
+      this.inTown ? 'Embervale — rest, trade, prepare' : theme.name,
+      !this.inTown
+    );
+    audio.playMusic(!this.inTown && this.dungeon.boss ? 'boss' : 'dungeon');
     this.stairsCooldown = 1.5;
   }
 
@@ -747,7 +860,7 @@ export class Game {
     for (const rp of this.remotePlayers.values()) {
       rp.mesh.position.lerp(rp.target, Math.min(1, 10 * dt));
       rp.mesh.rotation.y = Math.PI / 2 - rp.aim;
-      rp.mesh.visible = !rp.dead;
+      rp.mesh.visible = !rp.dead && !rp.away && !this.localTown;
       if (rp.anim) {
         rp.anim.mixer.update(dt);
         rp.anim.setLocomotion(rp.moving);
@@ -760,6 +873,7 @@ export class Game {
     const candidates = [{ pos: this.player.pos, dead: this.player.dead, local: true, id: 'host' }];
     if (net.isHost) {
       for (const [id, rp] of this.remotePlayers) {
+        if (rp.away) continue;
         candidates.push({ pos: rp.target, dead: rp.dead, local: false, id });
       }
     }
@@ -902,8 +1016,38 @@ export class Game {
       net.send({ t: 'edead', id: e.netId, x: e.pos.x, z: e.pos.z, xp: e.xp, mb: e.miniboss, boss: !!e.isBoss });
     }
 
-    if (e.isBoss) this.onVictory();
+    if (e.isBoss) {
+      if (this.currentAct() < 5 && this.floor <= MAX_FLOOR) {
+        // act cleared: open the way down to the next act
+        this.spawnActExit(e.pos.x, e.pos.z);
+        this.ui.showFloorBanner(`ACT ${ROMAN[this.currentAct()]} CLEARED`, 'The way deeper opens…', true);
+        audio.play('level_up');
+        audio.playMusic('dungeon', 2);
+      } else {
+        this.onVictory();
+      }
+    }
     this.requestSave();
+  }
+
+  // Golden exit portal where the act boss fell → next act's first floor.
+  spawnActExit(x, z) {
+    const tx = Math.floor(x / TILE), ty = Math.floor(z / TILE);
+    this.dungeon.stairs = { x: tx, y: ty };
+    const g = new THREE.Group();
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.0, 0.09, 8, 28),
+      new THREE.MeshBasicMaterial({ color: 0xffd75e })
+    );
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.15;
+    g.add(ring);
+    g.position.set(tx * TILE + TILE / 2, 0, ty * TILE + TILE / 2);
+    this.scene.add(g);
+    this.dungeonMeshes.group.add(g);
+    g.position.set(tx * TILE + TILE / 2, 0, ty * TILE + TILE / 2);
+    this.dungeonMeshes.stairsMesh = g;
+    this.particles.ring(g.position.x, 0.3, g.position.z, 2.5, 0xffd75e);
   }
 
   // Impact feedback: sparks fly on every hit; crits explode bigger and shake.
@@ -930,6 +1074,10 @@ export class Game {
     if (Math.random() < gearChance) {
       const rarity = opts.isBoss || opts.miniboss ? 'epic' : null;
       this.loot.dropGear(x, z + 0.5, generateGear(this.floor, rarity));
+    }
+    // fight-only legendaries: the Dungeon Lord and minibosses alone drop these
+    if ((opts.isBoss && Math.random() < 0.35) || (opts.miniboss && Math.random() < 0.05)) {
+      this.loot.dropGear(x + 0.8, z - 0.5, dropLegendary(this.floor));
     }
     // very rare bag drop: +3 inventory slots
     if (Math.random() < (opts.isBoss ? 0.5 : opts.miniboss ? 0.08 : 0.012)) {
@@ -973,7 +1121,7 @@ export class Game {
     }
     if (net.isHost) {
       for (const [id, rp] of this.remotePlayers) {
-        if (!rp.dead && Math.hypot(rp.target.x - x, rp.target.z - z) < radius) {
+        if (!rp.dead && !rp.away && Math.hypot(rp.target.x - x, rp.target.z - z) < radius) {
           net.send({ t: 'ehit', dmg: Math.round(dmg) }, id);
         }
       }
@@ -1015,7 +1163,7 @@ export class Game {
 
   bossSummon(boss) {
     audio.play('boss_roar', { volume: 0.7, rate: 1.3 });
-    const types = ['skeleton', 'skeleton', 'spider'];
+    const types = boss.summonTypes || ['skeleton', 'skeleton', 'spider'];
     for (const type of types) {
       const a = Math.random() * Math.PI * 2;
       const x = boss.pos.x + Math.cos(a) * 4;
@@ -1174,12 +1322,16 @@ export class Game {
       p.aimDir.z = dz / alen;
     }
 
-    // ---- input: actions ----
-    if (input.mouse.down || this.touch.attacking) p.tryBasicAttack(this);
-    if (input.wasPressed('Digit1')) p.tryAbility(0, this);
-    if (input.wasPressed('Digit2')) p.tryAbility(1, this);
-    if (input.wasPressed('Digit3')) p.tryAbility(2, this);
-    if (input.wasPressed('Digit4')) p.tryAbility(3, this);
+    // ---- input: actions (Embervale is a place of peace — no weapons drawn) ----
+    if (!this.inTown) {
+      if (input.mouse.down || this.touch.attacking) p.tryBasicAttack(this);
+      if (input.wasPressed('Digit1')) p.tryAbility(0, this);
+      if (input.wasPressed('Digit2')) p.tryAbility(1, this);
+      if (input.wasPressed('Digit3')) p.tryAbility(2, this);
+      if (input.wasPressed('Digit4')) p.tryAbility(3, this);
+    } else if (input.mouse.clicked || input.wasPressed('Digit1')) {
+      this.ui.floaters.spawn(p.pos, 'Peace reigns in Embervale.', 'heal');
+    }
     if (input.wasPressed('KeyQ')) p.drinkPotion(this);
     if (input.wasPressed('Tab') || input.wasPressed('KeyI')) {
       this.state = 'inventory';
@@ -1207,6 +1359,7 @@ export class Game {
     this.updatePits();
     this.updateTownInteractions(dt);
     this.updateTorches(dt);
+    roaster.update(dt, this);
     if (net.active) {
       this.updateRemotePlayers(dt);
       this.netPlayTick(dt);
@@ -1436,8 +1589,10 @@ export class Game {
       } else if (d < 1.2 && this.stairsCooldown <= 0) {
         audio.play('stairs', { volume: 0.8, rate: 1.2 });
         if (net.active && !net.isHost) {
+          // slip back to your own town; the others keep fighting
           this.stairsCooldown = 2;
-          net.send({ t: 'townportal' });
+          this.localTown = true;
+          this.loadTown();
         } else {
           this.loadTown();
         }
@@ -1453,8 +1608,17 @@ export class Game {
       if (this.stairsCooldown <= 0 && Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 1.5) {
         audio.play('stairs', { volume: 0.8 });
         if (net.active && !net.isHost) {
+          // join the shared world wherever it currently is
           this.stairsCooldown = 2;
-          net.send({ t: 'portal' });
+          if (this.lastWorldMsg && !this.lastWorldMsg.inTown) {
+            this.localTown = false;
+            this.applyWorld(this.lastWorldMsg);
+          } else if (this.lastWorldMsg) {
+            this.localTown = false;
+            this.applyWorld(this.lastWorldMsg); // party is gathered in town
+          } else {
+            this.ui.floaters.spawn(p.pos, 'The dungeon has not been opened yet…', 'xp');
+          }
         } else {
           this.loadFloor(this.floor);
         }
@@ -1488,6 +1652,7 @@ export class Game {
           t: 'pos', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
           aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
           dead: p.dead ? 1 : 0, cls: p.classId,
+          aw: this.localTown ? 1 : 0, // "away" = in their own town instance
         });
       }
     }
@@ -1507,6 +1672,7 @@ export class Game {
       dead: p.dead ? 1 : 0, cls: p.classId,
     }];
     for (const [id, rp] of this.remotePlayers) {
+      if (rp.away) continue; // town-browsing guests aren't in this world
       pl.push({
         id, x: +rp.target.x.toFixed(2), z: +rp.target.z.toFixed(2),
         aim: +(rp.aim || 0).toFixed(2), mv: rp.moving ? 1 : 0, dead: rp.dead ? 1 : 0, cls: rp.cls,

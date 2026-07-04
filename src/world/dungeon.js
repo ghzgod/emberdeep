@@ -16,8 +16,10 @@ function roomCenter(r) {
   return { x: Math.floor(r.x + r.w / 2), y: Math.floor(r.y + r.h / 2) };
 }
 
+// Five acts of ten floors; every act's 10th floor is a boss arena.
 export function generateDungeon(floor) {
-  if (floor === 10) return generateBossFloor(floor);
+  const actFloor = floor <= 50 ? ((floor - 1) % 10) + 1 : 0;
+  if (actFloor === 10) return generateBossFloor(floor);
 
   const grid = Array.from({ length: GRID }, () => new Array(GRID).fill(VOID));
   const rooms = [];
@@ -87,13 +89,14 @@ export function generateDungeon(floor) {
 
   // Enemy spawns: every non-spawn room, count scaled by depth.
   const enemies = [];
-  const minibossFloor = floor === 3 || floor === 6 || floor === 9;
+  const af = ((floor - 1) % 10) + 1;
+  const minibossFloor = af === 3 || af === 6 || af === 9;
   let minibossPlaced = false;
   for (const r of rooms) {
     if (r === spawnRoom) continue;
     const c = roomCenter(r);
     const distFromSpawn = Math.hypot(c.x - spawn.x, c.y - spawn.y);
-    let count = randInt(2, 4) + Math.floor(floor / 2);
+    let count = Math.min(8, randInt(2, 4) + Math.floor(Math.min(floor, 12) / 2));
     if (r === stairsRoom) count += 2;
     for (let i = 0; i < count; i++) {
       enemies.push({
@@ -143,7 +146,7 @@ export function generateDungeon(floor) {
   scuffs.push(...take(14, 2).map((t) => ({ ...t, r: Math.random() * Math.PI * 2, s: 0.5 + Math.random() * 0.8 })));
   rubble.push(...take(8, 3));
   if (floor >= 2) {
-    for (const t of take(2 + Math.floor(floor / 4), 6)) {
+    for (const t of take(2 + Math.floor(Math.min(floor, 12) / 4), 6)) {
       pits.push(t);
       grid[t.y][t.x] = PIT;
     }
@@ -234,12 +237,13 @@ function placeTorches(grid) {
 }
 
 function pickEnemyType(floor) {
-  // Weighted pools shift with depth.
+  // Weighted pools shift with depth within act 1, then all types roam.
+  const af = floor > 10 ? 10 : floor;
   const pools = [
     { type: 'skeleton', w: 4 },
-    { type: 'spider', w: floor >= 2 ? 3 : 0 },
-    { type: 'imp', w: floor >= 3 ? 3 : 0 },
-    { type: 'golem', w: floor >= 5 ? 2 : 0 },
+    { type: 'spider', w: af >= 2 ? 3 : 0 },
+    { type: 'imp', w: af >= 3 ? 3 : 0 },
+    { type: 'golem', w: af >= 5 ? 2 : 0 },
   ];
   const total = pools.reduce((s, p) => s + p.w, 0);
   let roll = Math.random() * total;

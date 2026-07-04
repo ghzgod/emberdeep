@@ -9,13 +9,14 @@ export class Floaters {
     this._v = new THREE.Vector3();
   }
 
-  spawn(worldPos, text, cssClass = '') {
+  spawn(worldPos, text, cssClass = '', dur = 0.9) {
     const el = document.createElement('div');
     el.className = `floater ${cssClass}`;
     el.textContent = text;
+    el.style.animationDuration = `${dur}s`;
     this.container.appendChild(el);
     const jx = (Math.random() - 0.5) * 30;
-    this.active.push({ el, x: worldPos.x, y: (worldPos.y ?? 0) + 1.6, z: worldPos.z, t: 0.9, jx });
+    this.active.push({ el, x: worldPos.x, y: (worldPos.y ?? 0) + 1.6, z: worldPos.z, t: dur, jx });
     // place immediately so it doesn't flash at 0,0
     this.place(this.active[this.active.length - 1]);
   }

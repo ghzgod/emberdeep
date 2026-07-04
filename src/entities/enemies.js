@@ -282,24 +282,38 @@ export class Enemy {
   }
 }
 
-// ---------------- Boss ----------------
+// ---------------- Act bosses ----------------
+// One lord per act; The Dungeon Lord himself waits at the bottom of Act V.
+export const ACT_BOSSES = [
+  null,
+  { name: 'Gravewarden Malruk', glow: 0xff5a4a, summons: ['skeleton', 'skeleton', 'spider'] },
+  { name: 'Broodqueen Sszarra', glow: 0x8ade5a, summons: ['spider', 'spider', 'spider'] },
+  { name: 'Pyrarch Vexmal', glow: 0xff8c1a, summons: ['imp', 'imp', 'skeleton'] },
+  { name: 'The Obsidian Colossus', glow: 0xb35eff, summons: ['golem', 'imp', 'spider'] },
+  { name: 'The Dungeon Lord', glow: 0x4ae8d8, summons: ['skeleton', 'imp', 'golem'] },
+];
+
 export class Boss extends Enemy {
   constructor(floor) {
     super('golem', floor, {});
-    this.name = 'The Dungeon Lord';
+    const act = Math.min(5, Math.max(1, Math.ceil(floor / 10)));
+    const def = ACT_BOSSES[act];
+    this.act = act;
+    this.name = def.name;
+    this.summonTypes = def.summons;
     this.isBoss = true;
-    this.maxHp = 1100 + floor * 60;
+    this.maxHp = 500 + act * 550 + floor * 25;
     this.hp = this.maxHp;
-    this.damage = 26;
-    this.speed = 2.8;
+    this.damage = 14 + act * 6;
+    this.speed = 2.5 + act * 0.12;
     this.radius = 1.0;
-    this.xp = 500;
-    this.goldRange = [120, 200];
+    this.xp = 220 + act * 160;
+    this.goldRange = [60 + act * 25, 120 + act * 40];
     this.phase = 1;
     this.summonCd = 6;
     this.barrageCd = 4;
 
-    this.mesh = buildBossMesh();
+    this.mesh = buildBossMesh(def.glow);
   }
 
   update(dt, game) {
@@ -341,12 +355,13 @@ export class Boss extends Enemy {
   fireBarrage(game) {
     audio.play('imp_shoot', { pos: this.pos, rate: 0.7 });
     const count = this.phase === 3 ? 10 : 6;
+    const glow = ACT_BOSSES[this.act]?.glow ?? 0xb35eff;
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2 + Math.random() * 0.3;
       game.spawnProjectile({
         x: this.pos.x, z: this.pos.z, dir: { x: Math.cos(a), z: Math.sin(a) },
         speed: 7, radius: 0.35, damage: this.damage * 0.6,
-        friendly: false, color: 0xb35eff, size: 0.24, trail: 0x8a3ad9,
+        friendly: false, color: glow, size: 0.24, trail: glow,
       });
     }
   }
@@ -444,10 +459,10 @@ export function buildEnemyMesh(typeId, scale = 1) {
   return g;
 }
 
-export function buildBossMesh() {
+export function buildBossMesh(glow = 0xb35eff) {
   const g = new THREE.Group();
   const dark = makeMat(0x2f2438, 0.9);
-  const glowMat = new THREE.MeshBasicMaterial({ color: 0xb35eff });
+  const glowMat = new THREE.MeshBasicMaterial({ color: glow });
 
   const torso = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.7, 1.1), dark);
   torso.position.y = 1.6;
