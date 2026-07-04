@@ -119,7 +119,7 @@ export class AudioEngine {
     let done = 0;
     await Promise.all(jobs.map(async (job) => {
       try {
-        const res = await fetch('/' + job.file);
+        const res = await fetch(import.meta.env.BASE_URL + job.file);
         if (!res.ok) throw new Error(res.status);
         const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
         if (job.music) this.musicBuffers.set(job.key.slice(6), buf);
