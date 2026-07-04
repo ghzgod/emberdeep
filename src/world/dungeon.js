@@ -1,6 +1,6 @@
 // Procedural dungeon: room-scatter + L-corridors on a tile grid.
 // Tile values:
-export const VOID = 0, FLOOR = 1, WALL = 2, DOOR = 3;
+export const VOID = 0, FLOOR = 1, WALL = 2, DOOR = 3, PIT = 4;
 
 const GRID = 48;
 
@@ -113,7 +113,43 @@ export function generateDungeon(floor) {
     enemies.push({ x: c.x, y: c.y, type: pickEnemyType(floor), miniboss: true });
   }
 
-  return { grid, size: GRID, rooms, spawn, stairs, torches, chests, doors, enemies, boss: null };
+  // Every floor: an ELITE guards the stairs. It must die (and 70% of the
+  // floor must be culled) before the way down unlocks.
+  const sc = roomCenter(stairsRoom);
+  enemies.push({ x: sc.x + 1, y: sc.y, type: pickEnemyType(Math.min(10, floor + 1)), elite: true });
+
+  // Environmental variety: scuff/scorch decals, rubble piles, and (floor 2+)
+  // treacherous pit holes that drop you to the next floor.
+  const scuffs = [];
+  const rubble = [];
+  const pits = [];
+  const floorTiles = [];
+  for (let y = 0; y < GRID; y++) {
+    for (let x = 0; x < GRID; x++) {
+      if (grid[y][x] === FLOOR) floorTiles.push({ x, y });
+    }
+  }
+  shuffle(floorTiles);
+  const farFrom = (t, p, d) => !p || Math.hypot(t.x - p.x, t.y - p.y) > d;
+  let idx = 0;
+  const take = (count, minDist) => {
+    const out = [];
+    while (out.length < count && idx < floorTiles.length) {
+      const t = floorTiles[idx++];
+      if (farFrom(t, spawn, minDist) && farFrom(t, stairs, minDist)) out.push(t);
+    }
+    return out;
+  };
+  scuffs.push(...take(14, 2).map((t) => ({ ...t, r: Math.random() * Math.PI * 2, s: 0.5 + Math.random() * 0.8 })));
+  rubble.push(...take(8, 3));
+  if (floor >= 2) {
+    for (const t of take(2 + Math.floor(floor / 4), 6)) {
+      pits.push(t);
+      grid[t.y][t.x] = PIT;
+    }
+  }
+
+  return { grid, size: GRID, rooms, spawn, stairs, torches, chests, doors, enemies, boss: null, scuffs, rubble, pits };
 }
 
 function carveCorridor(grid, a, b, horizFirst, doorSpots) {
@@ -219,6 +255,83 @@ function shuffle(arr) {
     const j = Math.floor(Math.random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
+}
+
+// Embervale: the safe hometown hub. No enemies — vendors, a healer's fountain
+// feel, and the dungeon portal.
+export function generateTown() {
+  const n = 28;
+  const grid = Array.from({ length: n }, () => new Array(n).fill(VOID));
+  // village green with rounded corners
+  for (let y = 2; y < n - 2; y++) {
+    for (let x = 2; x < n - 2; x++) {
+      const dx = Math.min(x - 2, n - 3 - x);
+      const dy = Math.min(y - 2, n - 3 - y);
+      if (dx + dy >= 2) grid[y][x] = FLOOR;
+    }
+  }
+  addWalls(grid);
+
+  const spawn = { x: 14, y: 21 };
+  const portal = { x: 14, y: 5 };
+  const vendors = [
+    { type: 'potions', name: 'Maribel the Alchemist', x: 8, y: 11 },
+    { type: 'gear', name: 'Torvald the Smith', x: 20, y: 11 },
+    { type: 'mystery', name: 'Zoltan the Mysterious', x: 20, y: 17 },
+  ];
+
+  // cobbled market square + a lane running spawn -> portal
+  const cobbles = [];
+  for (let y = 9; y <= 19; y++)
+    for (let x = 11; x <= 17; x++) cobbles.push({ x, y });
+  for (let y = 5; y <= 21; y++) { cobbles.push({ x: 13, y }, { x: 14, y }, { x: 15, y }); }
+
+  // tavern "The Sleeping Golem": 5x4 footprint, west side; tiles solid
+  const tavern = { x: 4, y: 15, w: 5, h: 4 };
+  for (let y = tavern.y; y < tavern.y + tavern.h; y++)
+    for (let x = tavern.x; x < tavern.x + tavern.w; x++)
+      grid[y][x] = WALL;
+
+  // trees ring the green (solid), never on cobbles or near features
+  const trees = [];
+  const treeSpots = [
+    [4, 4], [7, 3], [11, 3], [18, 3], [22, 4], [24, 7], [24, 12], [24, 20],
+    [21, 23], [16, 24], [10, 24], [6, 23], [3, 19], [3, 10], [3, 7], [18, 21],
+  ];
+  for (const [x, y] of treeSpots) {
+    if (grid[y]?.[x] === FLOOR) {
+      grid[y][x] = WALL;
+      trees.push({ x, y, s: 0.8 + Math.random() * 0.5, kind: Math.random() < 0.3 ? 'pine' : 'oak' });
+    }
+  }
+
+  // bushes + flowerbeds (walk-through decor)
+  const plants = [];
+  const plantSpots = [
+    [6, 8], [9, 6], [17, 6], [21, 8], [22, 15], [19, 20], [11, 21], [7, 19],
+    [5, 12], [16, 8], [12, 7], [23, 10], [9, 17], [17, 19],
+  ];
+  for (const [x, y] of plantSpots) {
+    if (grid[y]?.[x] === FLOOR) {
+      plants.push({ x, y, kind: Math.random() < 0.5 ? 'bush' : 'flowers' });
+    }
+  }
+
+  const well = { x: 10, y: 14 };
+  // lamp posts light the lane and square (reuse the torch light pool)
+  const torches = [
+    { x: 13, y: 8, fx: 12.6, fy: 8 }, { x: 15, y: 8, fx: 15.4, fy: 8 },
+    { x: 13, y: 13, fx: 12.6, fy: 13 }, { x: 15, y: 13, fx: 15.4, fy: 13 },
+    { x: 13, y: 18, fx: 12.6, fy: 18 }, { x: 15, y: 18, fx: 15.4, fy: 18 },
+    { x: 8, y: 12, fx: 8, fy: 12.4 }, { x: 20, y: 12, fx: 20, fy: 12.4 },
+  ];
+
+  return {
+    grid, size: n, rooms: [], spawn, stairs: null,
+    torches, chests: [], doors: [], enemies: [],
+    boss: null, town: true, portal, vendors,
+    cobbles, tavern, trees, plants, well,
+  };
 }
 
 // Floor 10: hand-shaped arena — entry corridor into a large octagonal hall.

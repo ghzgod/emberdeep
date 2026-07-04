@@ -94,6 +94,9 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 
 #hud-topright { position: absolute; top: 16px; right: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 #hud-floor { font-size: 20px; color: var(--gold); text-shadow: 0 2px 2px #000; letter-spacing: 1px; }
+#hud-clear { font-size: 13px; text-shadow: 0 1px 2px #000; opacity: 0.9; }
+#hud-clear.sealed { color: #e88a8a; }
+#hud-clear.open { color: #7ce87c; }
 #minimap { border: 1px solid var(--panel-border); border-radius: 6px; background: rgba(0,0,0,0.7); }
 
 #boss-bar-wrap { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); width: 460px; text-align: center; }
@@ -143,6 +146,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 .inv-slot.rarity-common { border-color: #8a8a8a; }
 .inv-slot.rarity-rare { border-color: #4f8bd9; box-shadow: 0 0 8px rgba(79,139,217,0.35); }
 .inv-slot.rarity-epic { border-color: #a03bd9; box-shadow: 0 0 10px rgba(160,59,217,0.45); }
+.inv-slot.rarity-legendary { border-color: #ff8c1a; box-shadow: 0 0 14px rgba(255,140,26,0.6); }
 #item-tooltip {
   position: absolute; z-index: 40; background: var(--panel); border: 1px solid var(--panel-border);
   border-radius: 6px; padding: 10px 14px; font-size: 13px; text-align: left; pointer-events: none; max-width: 240px;
@@ -151,6 +155,8 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #item-tooltip .tt-common h4, h4.tt-common { color: #cfcfcf; }
 h4.tt-rare { color: #6fa8ff; }
 h4.tt-epic { color: #c77aff; }
+h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
+.shop-item.r-legendary .shop-item-name { color: #ffab4a; }
 #item-tooltip .tt-stat { color: #9fd89f; }
 
 /* ---------- Settings ---------- */
@@ -186,6 +192,63 @@ h4.tt-epic { color: #c77aff; }
 #victory-stats b { color: var(--gold); }
 #gameover-text { font-size: 16px; opacity: 0.85; }
 
+/* ---------- Save slots ---------- */
+#saves-list { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow-y: auto; min-width: min(88vw, 480px); }
+.save-row {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel);
+  cursor: pointer; transition: border-color 0.15s; text-align: left;
+}
+.save-row:hover { border-color: var(--gold); }
+.save-row .save-icon { font-size: 26px; }
+.save-row .save-main { flex: 1; }
+.save-row .save-name { font-size: 17px; color: var(--gold); }
+.save-row .save-sub { font-size: 12px; opacity: 0.65; }
+.save-row .save-del {
+  background: none; border: 1px solid transparent; color: #a05a5a; font-size: 17px;
+  cursor: pointer; padding: 6px 9px; border-radius: 5px; font-family: inherit;
+}
+.save-row .save-del:hover { border-color: var(--blood); color: var(--blood); }
+.saves-empty { opacity: 0.6; font-style: italic; }
+
+/* ---------- Multiplayer ---------- */
+.mp-blurb { font-size: 14px; opacity: 0.8; line-height: 1.6; }
+.mp-room-label { font-size: 16px; display: flex; align-items: center; gap: 10px; }
+#mp-room {
+  font-family: inherit; font-size: 20px; letter-spacing: 2px; text-transform: uppercase;
+  background: #1a1424; color: var(--gold); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 8px 12px; width: 180px; text-align: center;
+}
+
+/* ---------- Shop ---------- */
+.shop-gold { font-size: 18px; color: var(--gold); }
+.shop-columns { display: flex; gap: 26px; max-height: 52vh; }
+.shop-col { width: min(42vw, 320px); display: flex; flex-direction: column; gap: 8px; }
+.shop-col h3 { color: var(--parchment); opacity: 0.8; font-size: 16px; letter-spacing: 2px; text-transform: uppercase; }
+.shop-col > div { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.shop-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; text-align: left;
+  border: 1px solid var(--panel-border); border-radius: 6px; background: var(--panel);
+  cursor: pointer; font-size: 13px;
+}
+.shop-item:hover { border-color: var(--gold); }
+.shop-item.disabled { opacity: 0.45; cursor: default; }
+.shop-item.disabled:hover { border-color: var(--panel-border); }
+.shop-item .shop-item-name { flex: 1; }
+.shop-item .shop-item-price { color: var(--gold); white-space: nowrap; }
+.shop-item.r-rare .shop-item-name { color: #6fa8ff; }
+.shop-item.r-epic .shop-item-name { color: #c77aff; }
+.shop-empty { opacity: 0.55; font-style: italic; font-size: 13px; }
+
+/* ---------- Item actions (inventory) ---------- */
+#item-actions {
+  margin-top: 14px; padding: 12px 16px; border: 1px solid var(--panel-border);
+  border-radius: 8px; background: var(--panel); min-width: 300px;
+}
+#item-actions-info { font-size: 14px; margin-bottom: 10px; text-align: left; }
+#item-actions-info .tt-stat { color: #9fd89f; font-size: 12px; }
+.item-actions-btns { display: flex; gap: 10px; justify-content: center; }
+
 /* ---------- Touch controls ---------- */
 /* Above overlays (z 20) so the bag/pause buttons still work while the inventory is open. */
 #touch-ui { position: absolute; inset: 0; pointer-events: none; z-index: 25; }
@@ -207,7 +270,22 @@ h4.tt-epic { color: #c77aff; }
 /* One vertical stack on the right edge, bottom-up: potion, bag, pause. */
 #touch-potion { right: 14px; bottom: 96px; }
 #touch-inv { right: 14px; bottom: 164px; }
+#touch-mic { right: 14px; bottom: 300px; }
+#touch-mic:active { border-color: #7ce87c; color: #7ce87c; }
 #touch-pause { right: 14px; bottom: 232px; }
+
+#voice-indicator {
+  position: absolute; bottom: 20px; left: 18px; font-size: 14px; color: #7ce87c;
+  text-shadow: 0 0 8px rgba(124,232,124,0.6), 0 1px 2px #000; letter-spacing: 1px;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mic-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+#voice-meter-row {
+  width: 100%; height: 10px; background: #120d18; border: 1px solid var(--panel-border);
+  border-radius: 5px; overflow: hidden;
+}
+#voice-meter { height: 100%; width: 0%; background: #4f7bd9; transition: width 0.1s; }
+#voice-meter.hot { background: #7ce87c; }
 
 /* Landscape phones: shorter screen — shrink the stack and minimap so nothing collides. */
 @media (max-height: 540px) and (pointer: coarse), (max-height: 540px) and (max-width: 1000px) {

@@ -16,6 +16,7 @@ export class Player {
     this.gold = 0;
     this.potions = 2;
     this.inventory = [];     // gear items
+    this.invSize = 12;       // expandable via rare bag drops, max 24
     this.equipped = { weapon: null, armor: null, trinket: null };
 
     this.pos = new THREE.Vector3();
@@ -141,6 +142,7 @@ export class Player {
     this.hp -= final;
     audio.play('player_hurt', { throttleMs: 200 });
     game.ui.floaters.spawn(this.pos, `-${final}`, 'player-dmg');
+    game.particles.burst(this.pos.x, 1.0, this.pos.z, 10, 0xd94a4a, { speed: 3.5, life: 0.35, size: 0.11 });
     game.shake(0.25);
     this.invulnTimer = 0.25;
     if (this.hp <= 0) {
@@ -301,6 +303,7 @@ export class Player {
       gold: this.gold,
       potions: this.potions,
       inventory: this.inventory,
+      invSize: this.invSize,
       equipped: this.equipped,
     };
   }
@@ -312,6 +315,7 @@ export class Player {
     p.gold = data.gold;
     p.potions = data.potions;
     p.inventory = data.inventory || [];
+    p.invSize = data.invSize || 12;
     p.equipped = data.equipped || { weapon: null, armor: null, trinket: null };
     p.recompute();
     p.hp = p.maxHp;

@@ -2,13 +2,17 @@ import * as THREE from 'three';
 import { Input } from './core/input.js';
 import { SaveManager } from './core/save.js';
 import { audio } from './core/audio.js';
-import { generateDungeon, FLOOR, WALL, DOOR } from './world/dungeon.js';
+import { generateDungeon, generateTown, FLOOR, WALL, DOOR } from './world/dungeon.js';
 import { buildDungeonMeshes, TILE, tileToWorld } from './world/meshbuilder.js';
 import { themeForFloor } from './world/textures.js';
 import { Player, xpForLevel } from './entities/player.js';
-import { Enemy, Boss } from './entities/enemies.js';
+import { Enemy, Boss, ENEMY_TYPES, buildEnemyMesh, buildBossMesh } from './entities/enemies.js';
+import { buildAnimatedHero } from './entities/heroModel.js';
+import { CLASSES, buildHeroMesh } from './entities/classes.js';
 import { ProjectileSystem } from './entities/projectiles.js';
-import { LootSystem, generateGear, rollRarity } from './entities/loot.js';
+import { LootSystem, generateGear, rollRarity, sellValue, gambleItem, RARITIES } from './entities/loot.js';
+import { net } from './net/net.js';
+import { voice } from './net/voice.js';
 import { ParticleSystem } from './combat/particles.js';
 import { UI } from './ui/ui.js';
 import { learner } from './ai/learner.js';
@@ -39,7 +43,7 @@ export class Game {
 
     this.input = new Input(this.canvas);
     this.settings = Object.assign(
-      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true },
+      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'off', voiceThreshold: 12 },
       SaveManager.loadSettings() || {}
     );
     audio.volumes = {
@@ -67,6 +71,16 @@ export class Game {
     this.kills = 0;
     this.deaths = 0;
     this.bossDefeated = false;
+    this.inTown = false;
+    this.slotId = null;
+    this.shopCooldown = 0;
+    this.activeVendor = null;
+    // multiplayer
+    this.remotePlayers = new Map();  // id -> { mesh, anim, target, cls }
+    this.netEnemySeq = 0;
+    this.netTickTimer = 0;
+    this.posSendTimer = 0;
+    this.touchPtt = false;
     this.shakeAmount = 0;
     this.saveTimer = 0;
     this.savePending = false;
@@ -84,7 +98,31 @@ export class Game {
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
+  // ---------------- multiplayer session ----------------
+  setMultiplayer(on) {
+    if (!on) net.stop();
+  }
+
+  async startMultiplayer(room) {
+    net.stop();
+    this.wireNet();
+    const result = await net.start(room);
+    if (result.mode === 'error') { net.stop(); return result; }
+    voice.attachToPeer(net.peer);
+    if (this.settings.voiceMode !== 'off') {
+      voice.enable(this.settings.voiceMode, this.settings.voiceThreshold);
+    }
+    voice.onTransmitChange = (on) => this.ui.setMicIndicator(on);
+    if (net.isHost) net.broadcastRoster();
+    return result;
+  }
+
+  leaveMultiplayerLobby() {
+    net.stop();
+  }
+
   async boot() {
+    SaveManager.migrate();
     // Audio decode requires a user gesture in most browsers: init lazily too.
     const unlock = () => { audio.init(); audio.resume(); };
     window.addEventListener('pointerdown', unlock, { once: true });
@@ -105,12 +143,12 @@ export class Game {
     // Enemy movement-learning net loads in the background (non-blocking).
     learner.init();
     this.state = 'title';
-    this.ui.showTitle(SaveManager.hasSave());
+    this.ui.showTitle();
   }
 
   // ---------------- state / flow ----------------
   startNewGame(classId) {
-    SaveManager.clear();
+    this.slotId = SaveManager.newSlotId();
     this.player = new Player(classId);
     this.scene.add(this.player.mesh);
     this.floor = 1;
@@ -118,13 +156,13 @@ export class Game {
     this.deaths = 0;
     this.bossDefeated = false;
     this.ui.buildHotbar(this.player);
-    this.loadFloor(1);
-    this.enterPlaying();
+    this.enterWorld();
   }
 
-  continueGame() {
-    const data = SaveManager.load();
+  continueGame(slotId) {
+    const data = SaveManager.loadSlot(slotId);
     if (!data) return;
+    this.slotId = slotId;
     this.player = Player.fromSave(data.player);
     this.scene.add(this.player.mesh);
     this.floor = data.floor || 1;
@@ -133,7 +171,24 @@ export class Game {
     this.bossDefeated = data.bossDefeated || false;
     if (this.floor === MAX_FLOOR && this.bossDefeated) this.floor = MAX_FLOOR + 1;
     this.ui.buildHotbar(this.player);
-    this.loadFloor(this.floor);
+    this.enterWorld();
+  }
+
+  // Everyone starts in town. Multiplayer guests instead wait for (or already
+  // have) the host's world snapshot.
+  enterWorld() {
+    if (net.active && !net.isHost) {
+      net.send({ t: 'hello', cls: this.player.classId });
+      if (this.pendingWorld) {
+        this.applyWorld(this.pendingWorld);
+        this.pendingWorld = null;
+      } else {
+        this.ui.showFloorBanner(0, 'Waiting for the host…');
+      }
+      this.enterPlaying();
+      return;
+    }
+    this.loadTown();
     this.enterPlaying();
   }
 
@@ -147,17 +202,19 @@ export class Game {
 
   quitToTitle() {
     this.requestSave(true);
+    voice.disable();
+    net.stop();
+    this.clearRemotePlayers();
     this.teardownFloor();
     if (this.player) {
       this.scene.remove(this.player.mesh);
       this.player = null;
     }
-    audio.playMusic(null);
     audio.stopMusic();
     this.state = 'title';
     this.ui.showHud(false);
     this.touch.setVisible(false);
-    this.ui.showTitle(SaveManager.hasSave());
+    this.ui.showTitle();
   }
 
   toggleInventory() {
@@ -194,19 +251,19 @@ export class Game {
     }, 900);
   }
 
+  // Death sends you home to Embervale; your dungeon checkpoint is kept.
   respawn() {
-    const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
     this.player.dead = false;
     this.player.hp = this.player.maxHp;
     this.player.resource = this.player.maxResource;
-    this.player.pos.set(spawn.x, 0, spawn.z);
     this.player.statuses = [];
     this.player.buffs = [];
-    // reset enemies aggro
-    for (const e of this.enemies) if (!e.dead) e.state = 'idle';
-    if (this.boss && !this.boss.dead) {
-      this.boss.state = 'idle';
-      this.boss.hp = Math.min(this.boss.maxHp, this.boss.hp + this.boss.maxHp * 0.3);
+    if (net.active && !net.isHost) {
+      // guest: revive at the shared world's spawn
+      const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
+      this.player.pos.set(spawn.x, 0, spawn.z);
+    } else {
+      this.loadTown();
     }
     this.enterPlaying();
   }
@@ -258,8 +315,136 @@ export class Game {
     this.torchLights = [];
   }
 
+  // ---------------- town ----------------
+  loadTown() {
+    this.teardownFloor();
+    this.inTown = true;
+    const theme = themeForFloor(1);
+    this.dungeon = generateTown();
+    this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme);
+    this.scene.add(this.dungeonMeshes.group);
+    this.openedDoors = new Set();
+
+    const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
+    this.player.pos.set(spawn.x, 0, spawn.z);
+    this.player.dead = false;
+
+    // fresh vendor stock each town visit
+    for (const v of this.dungeonMeshes.vendorMeshes) {
+      v.stock = this.makeVendorStock(v);
+    }
+    this.setTownAtmosphere(true);
+
+    this.setupTorchLights(theme);
+    this.ui.minimap.setDungeon(this.dungeon);
+    this.ui.showFloorBanner(0, 'Embervale — rest, trade, prepare');
+    audio.playMusic('dungeon');
+    this.shopCooldown = 1;
+    this.requestSave(true);
+
+    if (net.isHost) this.broadcastWorld();
+  }
+
+  makeVendorStock(vendor) {
+    const stock = [];
+    if (vendor.type === 'potions') {
+      for (let i = 0; i < 3; i++) {
+        stock.push({ kind: 'potion', icon: '🧪', label: 'Health Potion', price: 20 + this.floor * 4 });
+      }
+      if (Math.random() < 0.35 && this.player.invSize < 24) {
+        stock.push({ kind: 'bag', icon: '🎒', label: 'Traveler’s Satchel (+3 slots)', price: 400 });
+      }
+    } else if (vendor.type === 'mystery') {
+      // Zoltan: pay dearly, roll the dice. Small chance of a legendary unique.
+      const price = 150 + this.floor * 30;
+      for (let i = 0; i < 3; i++) {
+        stock.push({ kind: 'gamble', icon: '❓', label: 'Mystery Relic — fate decides', price });
+      }
+    } else {
+      for (let i = 0; i < 4; i++) {
+        const item = generateGear(Math.min(MAX_FLOOR, this.floor + 1));
+        stock.push({ kind: 'gear', icon: item.icon, label: item.name, price: Math.round((item.value || 30) * 2.2), item });
+      }
+    }
+    return stock;
+  }
+
+  buyFromVendor(vendor, entry) {
+    const p = this.player;
+    if (entry.sold || p.gold < entry.price) return;
+    if ((entry.kind === 'gear' || entry.kind === 'gamble') && p.inventory.length >= p.invSize) {
+      this.ui.floaters.spawn(p.pos, 'Inventory full!', 'player-dmg');
+      return;
+    }
+    p.gold -= entry.price;
+    entry.sold = true;
+    audio.play('coin_pickup');
+    if (entry.kind === 'potion') { p.potions++; audio.play('potion_pickup'); }
+    else if (entry.kind === 'bag') {
+      p.invSize = Math.min(24, p.invSize + 3);
+      this.ui.floaters.spawn(p.pos, '🎒 +3 inventory slots!', 'crit');
+    } else if (entry.kind === 'gear') {
+      p.inventory.push(entry.item);
+      audio.play('gear_pickup');
+    } else if (entry.kind === 'gamble') {
+      const item = gambleItem(this.floor);
+      p.inventory.push(item);
+      audio.play('gear_pickup');
+      if (item.rarity === 'legendary') {
+        audio.play('level_up');
+        this.ui.floaters.spawn(p.pos, `🌟 LEGENDARY: ${item.name}!`, 'crit');
+        this.particles.burst(p.pos.x, 1.2, p.pos.z, 40, 0xff8c1a, { speed: 5, life: 1 });
+        this.shake(0.4);
+      } else {
+        this.ui.floaters.spawn(p.pos, `${item.icon} ${item.name}`, item.rarity === 'common' ? '' : 'crit');
+      }
+    }
+    this.requestSave();
+  }
+
+  sellItem(item) {
+    const p = this.player;
+    const idx = p.inventory.indexOf(item);
+    if (idx === -1) return;
+    p.inventory.splice(idx, 1);
+    p.gold += sellValue(item);
+    audio.play('coin_pickup');
+    this.requestSave();
+  }
+
+  openShop(vendor) {
+    this.activeVendor = vendor;
+    this.state = 'shop';
+    this.ui.openShop(vendor);
+  }
+
+  closeShop() {
+    this.activeVendor = null;
+    this.state = 'playing';
+    this.ui.hideAll();
+    this.shopCooldown = 1.5;
+    audio.play('ui_close');
+  }
+
+  // Town is an open evening square: brighter, bluer, softer fog than the dungeon.
+  setTownAtmosphere(on) {
+    if (on) {
+      this.scene.background = new THREE.Color(0x151d30);
+      this.scene.fog = new THREE.Fog(0x151d30, 24, 52);
+      this.ambient.color.setHex(0x9aa4c8);
+      this.ambient.intensity = 0.85;
+    } else {
+      this.scene.background = new THREE.Color(0x08060c);
+      this.scene.fog = new THREE.Fog(0x08060c, 18, 42);
+      this.ambient.color.setHex(0x8a7a9a);
+      this.ambient.intensity = 0.55;
+    }
+  }
+
   loadFloor(floor) {
     this.teardownFloor();
+    this.inTown = false;
+    this.setTownAtmosphere(false);
     this.floor = floor;
     const theme = themeForFloor(floor);
     this.dungeon = generateDungeon(floor);
@@ -273,12 +458,15 @@ export class Game {
     this.player.pos.set(spawn.x, 0, spawn.z);
     this.player.dead = false;
 
-    // enemies
+    // enemies — stats scale up with connected player count in multiplayer
+    const mpMult = 1 + 0.5 * (net.playerCount - 1);
     for (const spec of this.dungeon.enemies) {
-      const e = new Enemy(spec.type, floor > MAX_FLOOR ? floor + 2 : floor, { miniboss: spec.miniboss });
+      const e = new Enemy(spec.type, floor > MAX_FLOOR ? floor + 2 : floor, { miniboss: spec.miniboss, elite: spec.elite });
       const w = tileToWorld(spec.x, spec.y);
       e.pos.set(w.x, 0, w.z);
       e.mesh.position.copy(e.pos);
+      this.applyMpScaling(e, mpMult);
+      e.netId = ++this.netEnemySeq;
       this.scene.add(e.mesh);
       this.enemies.push(e);
     }
@@ -289,12 +477,39 @@ export class Game {
       const w = tileToWorld(this.dungeon.boss.x, this.dungeon.boss.y);
       this.boss.pos.set(w.x, 0, w.z);
       this.boss.mesh.position.copy(this.boss.pos);
+      this.applyMpScaling(this.boss, mpMult);
+      this.boss.netId = ++this.netEnemySeq;
       this.scene.add(this.boss.mesh);
       this.enemies.push(this.boss);
       audio.play('boss_roar', { volume: 0.9 });
     }
 
-    // torch light pool
+    // Stairs are sealed until 70% of the floor is culled AND the elite falls.
+    this.floorEnemyTotal = this.enemies.filter((e) => !e.isBoss).length;
+    this.floorKills = 0;
+    this._stairsWasLocked = this.stairsLocked();
+    this._sealNoticeT = 0;
+
+    this.setupTorchLights(theme);
+    this.ui.minimap.setDungeon(this.dungeon);
+    this.ui.showFloorBanner(floor, theme.name);
+    audio.playMusic(floor === MAX_FLOOR && !this.bossDefeated ? 'boss' : 'dungeon');
+    audio.play('stairs', { volume: 0.7 });
+    this.stairsCooldown = 1.5;
+    this.returnPortalArmed = false; // arms once you walk away from the entrance
+    this.requestSave(true);
+
+    if (net.isHost) this.broadcastWorld();
+  }
+
+  applyMpScaling(e, mult) {
+    if (mult <= 1) return;
+    e.maxHp = Math.round(e.maxHp * mult);
+    e.hp = e.maxHp;
+    e.damage *= 1 + (mult - 1) * 0.5;
+  }
+
+  setupTorchLights(theme) {
     const maxLights = { low: 4, medium: 8, high: 14 }[this.settings.quality] || 8;
     const count = Math.min(maxLights, this.dungeonMeshes.torchPositions.length);
     for (let i = 0; i < count; i++) {
@@ -303,13 +518,258 @@ export class Game {
       this.torchLights.push(l);
     }
     this.torchAssignTimer = 0;
+  }
 
+  // ---------------- multiplayer wiring ----------------
+  wireNet() {
+    // --- host side ---
+    net.on('guest_joined', ({ id }) => {
+      if (this.player && this.dungeon) this.broadcastWorld(id);
+      if (this.player) this.ui.floaters.spawn(this.player.pos, 'A hero has joined!', 'crit');
+    });
+    net.on('guest_left', ({ id }) => this.removeRemotePlayer(id));
+    net.on('hello', (msg, from) => this.ensureRemotePlayer(from, msg.cls));
+    net.on('pos', (msg, from) => {
+      const rp = this.ensureRemotePlayer(from, msg.cls);
+      rp.target.set(msg.x, 0, msg.z);
+      rp.aim = msg.aim;
+      rp.moving = !!msg.mv;
+      rp.dead = !!msg.dead;
+    });
+    net.on('dmg', (msg, from) => {
+      const e = this.enemies.find((en) => en.netId === msg.ei && !en.dead);
+      if (!e) return;
+      const rp = this.remotePlayers.get(from);
+      this.damageEnemy(e, msg.a, {
+        dot: true, // damage already rolled on the guest; no double crit
+        status: msg.st || undefined,
+        knockback: msg.kb || undefined,
+        kbFrom: rp ? rp.target : e.pos,
+      });
+    });
+    net.on('portal', (msg, from) => {
+      if (!net.isHost || this.stairsCooldown > 0) return;
+      if (!this.inTown && this.stairsLocked()) {
+        net.send({
+          t: 'notice',
+          txt: `Sealed! Cull the horde (${this.floorKills}/${this.stairsClearNeed()})`,
+        }, from);
+        return;
+      }
+      this.stairsCooldown = 1.5;
+      if (this.inTown) this.loadFloor(this.floor);
+      else if (this.dungeon.stairs) this.loadFloor(this.floor + 1);
+    });
+    net.on('townportal', () => {
+      if (!net.isHost || this.stairsCooldown > 0 || this.inTown) return;
+      this.stairsCooldown = 1.5;
+      this.loadTown();
+    });
+
+    // --- guest side ---
+    net.on('world', (msg) => {
+      if (!this.player) { this.pendingWorld = msg; return; }
+      this.applyWorld(msg);
+    });
+    net.on('state', (msg) => {
+      if (net.isHost || !this.player) return;
+      const myId = net.peer?.id;
+      for (const pl of msg.pl) {
+        if (pl.id === myId) continue;
+        const rp = this.ensureRemotePlayer(pl.id, pl.cls);
+        rp.target.set(pl.x, 0, pl.z);
+        rp.aim = pl.aim;
+        rp.moving = !!pl.mv;
+        rp.dead = !!pl.dead;
+      }
+      const seen = new Set(msg.pl.map((p) => p.id));
+      for (const id of [...this.remotePlayers.keys()]) {
+        if (!seen.has(id) && id !== myId) this.removeRemotePlayer(id);
+      }
+      for (const en of msg.en) {
+        const [id, x, z, hp] = en;
+        const m = this.enemies.find((e) => e.netId === id);
+        if (m && !m.dead) { m.targetPos.set(x, 0, z); m.hp = hp; }
+      }
+    });
+    net.on('espawn', (msg) => {
+      if (!net.isHost && this.player) this.addEnemyMirror(msg.e);
+    });
+    net.on('edead', (msg) => {
+      if (net.isHost || !this.player) return;
+      const m = this.enemies.find((e) => e.netId === msg.id);
+      if (m && !m.dead) {
+        m.dead = true;
+        this.scene.remove(m.mesh);
+        this.kills++;
+        this.floorKills++;
+        if (m.def) audio.play(m.def.sounds.death, { pos: m.pos, volume: 0.85 });
+        this.particles.burst(msg.x, 0.8, msg.z, 22, 0xd8d4c8, { speed: 4, life: 0.7 });
+      }
+      this.player.gainXp(msg.xp, this);
+      this.rollDeathLoot(msg.x, msg.z, { miniboss: msg.mb, isBoss: msg.boss });
+      if (msg.boss) { this.bossDefeated = true; this.onVictory(); }
+    });
+    net.on('ehit', (msg) => {
+      if (!net.isHost && this.player && !this.player.dead) this.player.takeDamage(msg.dmg, this);
+    });
+    net.on('eproj', (msg) => {
+      if (!net.isHost) {
+        this.projectiles.spawn({
+          x: msg.x, z: msg.z, dir: { x: msg.dx, z: msg.dz }, speed: msg.sp,
+          radius: 0.35, damage: msg.dmg, friendly: false, color: msg.c, size: msg.s || 0.22,
+        });
+      }
+    });
+    net.on('host_left', () => {
+      if (this.player) {
+        alert('The host has left the dungeon.');
+        this.quitToTitle();
+      } else {
+        net.stop();
+      }
+    });
+    net.on('peers', (msg) => voice.syncPeers(msg.ids));
+    net.on('notice', (msg) => {
+      if (this.player) this.ui.floaters.spawn(this.player.pos, msg.txt, 'crit');
+    });
+    net.on('room_full', () => {
+      net.stop();
+      alert('That room already has 4 heroes.');
+    });
+  }
+
+  serializeEnemy(e) {
+    return {
+      id: e.netId, ty: e.typeId, x: e.pos.x, z: e.pos.z,
+      hp: e.hp, mhp: e.maxHp, mb: e.miniboss, el: e.elite, boss: !!e.isBoss, name: e.name,
+    };
+  }
+
+  broadcastWorld(toId = null) {
+    net.send({
+      t: 'world',
+      floor: this.floor,
+      inTown: this.inTown,
+      dungeon: this.dungeon,
+      enemies: this.enemies.filter((e) => !e.dead).map((e) => this.serializeEnemy(e)),
+      fk: this.floorKills, fe: this.floorEnemyTotal,
+    }, toId);
+  }
+
+  // Guest: rebuild the world from the host's snapshot.
+  applyWorld(msg) {
+    this.teardownFloor();
+    this.inTown = !!msg.inTown;
+    this.floor = msg.floor;
+    this.dungeon = msg.dungeon;
+    const theme = themeForFloor(this.inTown ? 1 : this.floor);
+    this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme);
+    this.scene.add(this.dungeonMeshes.group);
+    this.openedDoors = new Set();
+    this.setTownAtmosphere(this.inTown);
+    if (this.inTown) {
+      for (const v of this.dungeonMeshes.vendorMeshes) v.stock = this.makeVendorStock(v);
+    }
+    const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
+    this.player.pos.set(spawn.x, 0, spawn.z);
+    this.player.dead = false;
+    for (const spec of msg.enemies || []) this.addEnemyMirror(spec);
+    this.floorKills = msg.fk || 0;
+    this.floorEnemyTotal = msg.fe || 0;
+    this.setupTorchLights(theme);
     this.ui.minimap.setDungeon(this.dungeon);
-    this.ui.showFloorBanner(floor, theme.name);
-    audio.playMusic(floor === MAX_FLOOR && !this.bossDefeated ? 'boss' : 'dungeon');
-    audio.play('stairs', { volume: 0.7 });
+    this.ui.showFloorBanner(this.inTown ? 0 : this.floor, this.inTown ? 'Embervale — the host’s hometown' : theme.name);
+    audio.playMusic(this.floor === MAX_FLOOR && !this.inTown ? 'boss' : 'dungeon');
     this.stairsCooldown = 1.5;
-    this.requestSave(true);
+  }
+
+  // Guest-side lightweight enemy stand-in (host runs the real AI).
+  addEnemyMirror(spec) {
+    if (this.enemies.some((e) => e.netId === spec.id)) return;
+    const mesh = spec.boss ? buildBossMesh() : buildEnemyMesh(spec.ty, spec.mb ? 1.5 : spec.el ? 1.25 : 1);
+    mesh.position.set(spec.x, 0, spec.z);
+    this.scene.add(mesh);
+    this.enemies.push({
+      netId: spec.id, typeId: spec.ty,
+      def: ENEMY_TYPES[spec.ty] || ENEMY_TYPES.golem,
+      pos: new THREE.Vector3(spec.x, 0, spec.z),
+      targetPos: new THREE.Vector3(spec.x, 0, spec.z),
+      radius: spec.boss ? 1.0 : (ENEMY_TYPES[spec.ty]?.radius || 0.4) * (spec.mb ? 1.4 : 1),
+      hp: spec.hp, maxHp: spec.mhp,
+      miniboss: spec.mb, elite: spec.el, isBoss: spec.boss, name: spec.name,
+      dead: false, state: 'chase', hitFlash: 0, mesh,
+      mirror: true,
+    });
+    if (spec.boss) this.boss = this.enemies[this.enemies.length - 1];
+  }
+
+  updateGuestMirrors(dt) {
+    for (const m of this.enemies) {
+      if (m.dead) continue;
+      m.pos.lerp(m.targetPos, Math.min(1, 12 * dt));
+      m.mesh.position.copy(m.pos);
+      if (!this.player.dead) {
+        m.mesh.rotation.y = Math.atan2(this.player.pos.x - m.pos.x, this.player.pos.z - m.pos.z);
+      }
+      m.hitFlash = Math.max(0, m.hitFlash - dt);
+      m.mesh.traverse((o) => {
+        if (o.isMesh && o.material?.emissive !== undefined) {
+          o.material.emissive.setScalar(m.hitFlash > 0 ? 0.6 : 0);
+        }
+      });
+    }
+  }
+
+  ensureRemotePlayer(id, cls = 'knight') {
+    let rp = this.remotePlayers.get(id);
+    if (rp) return rp;
+    const anim = buildAnimatedHero(cls);
+    const mesh = anim ? anim.mesh : buildHeroMesh(CLASSES[cls] || CLASSES.knight);
+    this.scene.add(mesh);
+    rp = { mesh, anim, cls, target: new THREE.Vector3(), aim: 0, moving: false, dead: false };
+    this.remotePlayers.set(id, rp);
+    return rp;
+  }
+
+  removeRemotePlayer(id) {
+    const rp = this.remotePlayers.get(id);
+    if (!rp) return;
+    this.scene.remove(rp.mesh);
+    this.remotePlayers.delete(id);
+  }
+
+  clearRemotePlayers() {
+    for (const id of [...this.remotePlayers.keys()]) this.removeRemotePlayer(id);
+  }
+
+  updateRemotePlayers(dt) {
+    for (const rp of this.remotePlayers.values()) {
+      rp.mesh.position.lerp(rp.target, Math.min(1, 10 * dt));
+      rp.mesh.rotation.y = Math.PI / 2 - rp.aim;
+      rp.mesh.visible = !rp.dead;
+      if (rp.anim) {
+        rp.anim.mixer.update(dt);
+        rp.anim.setLocomotion(rp.moving);
+      }
+    }
+  }
+
+  // Enemies pick the nearest living hero (host + remote guests).
+  getNearestTarget(pos) {
+    const candidates = [{ pos: this.player.pos, dead: this.player.dead, local: true, id: 'host' }];
+    if (net.isHost) {
+      for (const [id, rp] of this.remotePlayers) {
+        candidates.push({ pos: rp.target, dead: rp.dead, local: false, id });
+      }
+    }
+    let best = null, bestD = Infinity;
+    for (const c of candidates) {
+      if (c.dead) continue;
+      const d = Math.hypot(c.pos.x - pos.x, c.pos.z - pos.z);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    return best || candidates[0];
   }
 
   // ---------------- collision / queries ----------------
@@ -364,6 +824,20 @@ export class Game {
 
   damageEnemy(e, amount, opts = {}) {
     if (e.dead) return;
+    // Multiplayer guest: host is authoritative — send the damage event and
+    // show optimistic local feedback.
+    if (net.active && !net.isHost) {
+      let dmg = amount;
+      let crit = false;
+      if (!opts.dot && this.player && Math.random() < this.player.crit) { dmg *= 1.8; crit = true; }
+      dmg = Math.max(1, Math.round(dmg));
+      e.hitFlash = 0.12;
+      this.hitSparks(e.pos, crit, opts);
+      this.ui.floaters.spawn(e.pos, `${dmg}`, crit ? 'crit' : '');
+      if (!opts.silent && e.def) audio.play(e.def.sounds.hurt, { pos: e.pos, volume: 0.7, throttleMs: 90 });
+      net.send({ t: 'dmg', ei: e.netId, a: dmg, kb: opts.knockback || 0, st: opts.status || null });
+      return;
+    }
     let dmg = amount;
     let crit = false;
     if (!opts.dot && this.player && Math.random() < this.player.crit) {
@@ -372,7 +846,10 @@ export class Game {
     }
     dmg = Math.max(1, Math.round(dmg));
     e.hp -= dmg;
-    if (!opts.noFlash) e.hitFlash = 0.12;
+    if (!opts.noFlash) {
+      e.hitFlash = 0.12;
+      this.hitSparks(e.pos, crit, opts);
+    }
     const cls = opts.color === 'burn' ? 'crit' : opts.color === 'poison' ? 'heal' : crit ? 'crit' : '';
     this.ui.floaters.spawn(e.pos, `${dmg}`, cls);
     if (!opts.silent) audio.play(e.def.sounds.hurt, { pos: e.pos, volume: 0.7, throttleMs: 90 });
@@ -387,30 +864,77 @@ export class Game {
     if (e.hp <= 0) this.killEnemy(e);
   }
 
+  stairsClearNeed() {
+    return Math.ceil((this.floorEnemyTotal || 0) * 0.7);
+  }
+
+  stairsLocked() {
+    if (!this.dungeon?.stairs) return false;
+    if (this.floorKills < this.stairsClearNeed()) return true;
+    return this.enemies.some((en) => !en.dead && en.elite);
+  }
+
   killEnemy(e) {
     e.dead = true;
     this.kills++;
+    this.floorKills++;
+    if (e.elite) {
+      this.ui.floaters.spawn(e.pos, `${e.name} falls!`, 'crit');
+    }
+    // seal-break moment
+    if (this._stairsWasLocked && !this.stairsLocked()) {
+      this._stairsWasLocked = false;
+      audio.play('door_open', { volume: 0.9 });
+      audio.play('level_up', { volume: 0.4, rate: 1.3 });
+      this.ui.floaters.spawn(this.player.pos, '⛓️ The seal breaks — the stairs open!', 'crit');
+      this.setStairsRingColor(0x54e87a);
+      if (net.isHost) net.send({ t: 'notice', txt: '⛓️ The seal breaks — the stairs open!' });
+    }
     audio.play(e.def.sounds.death, { pos: e.pos, volume: 0.85 });
     this.particles.burst(e.pos.x, 0.8, e.pos.z, 22, e.def.color, { speed: 4, life: 0.7 });
     this.scene.remove(e.mesh);
 
-    // rewards
     this.player.gainXp(e.xp, this);
-    const [gMin, gMax] = e.goldRange;
-    const goldPiles = e.isBoss ? 8 : e.miniboss ? 4 : 1 + Math.floor(Math.random() * 2);
-    const total = Math.round(gMin + Math.random() * (gMax - gMin));
-    for (let i = 0; i < goldPiles; i++) {
-      this.loot.dropGold(e.pos.x, e.pos.z, Math.max(1, Math.round(total / goldPiles)));
-    }
-    if (Math.random() < 0.10) this.loot.dropPotion(e.pos.x + 0.5, e.pos.z);
-    const gearChance = e.isBoss ? 1 : e.miniboss ? 1 : 0.09;
-    if (Math.random() < gearChance) {
-      const rarity = e.isBoss || e.miniboss ? 'epic' : null;
-      this.loot.dropGear(e.pos.x, e.pos.z + 0.5, generateGear(this.floor, rarity));
+    this.rollDeathLoot(e.pos.x, e.pos.z, { miniboss: e.miniboss, isBoss: e.isBoss, goldRange: e.goldRange });
+
+    // In co-op every hero gets full XP and rolls their own personal loot.
+    if (net.isHost) {
+      net.send({ t: 'edead', id: e.netId, x: e.pos.x, z: e.pos.z, xp: e.xp, mb: e.miniboss, boss: !!e.isBoss });
     }
 
     if (e.isBoss) this.onVictory();
     this.requestSave();
+  }
+
+  // Impact feedback: sparks fly on every hit; crits explode bigger and shake.
+  hitSparks(pos, crit, opts = {}) {
+    const color = opts.status?.burn ? 0xff8a3a
+      : opts.status?.poison ? 0x8ade5a
+      : opts.status?.slow ? 0x9adfff
+      : crit ? 0xffd75e : 0xffe9b0;
+    this.particles.burst(pos.x, 0.9, pos.z, crit ? 18 : 8, color, {
+      speed: crit ? 5.5 : 3.5, life: crit ? 0.5 : 0.32, size: crit ? 0.14 : 0.1, up: 0.5,
+    });
+    if (crit) this.shake(0.18);
+  }
+
+  rollDeathLoot(x, z, opts) {
+    const [gMin, gMax] = opts.goldRange || (opts.isBoss ? [120, 200] : opts.miniboss ? [20, 40] : [2, 8]);
+    const goldPiles = opts.isBoss ? 8 : opts.miniboss ? 4 : 1 + Math.floor(Math.random() * 2);
+    const total = Math.round(gMin + Math.random() * (gMax - gMin));
+    for (let i = 0; i < goldPiles; i++) {
+      this.loot.dropGold(x, z, Math.max(1, Math.round(total / goldPiles)));
+    }
+    if (Math.random() < 0.10) this.loot.dropPotion(x + 0.5, z);
+    const gearChance = opts.isBoss || opts.miniboss ? 1 : 0.09;
+    if (Math.random() < gearChance) {
+      const rarity = opts.isBoss || opts.miniboss ? 'epic' : null;
+      this.loot.dropGear(x, z + 0.5, generateGear(this.floor, rarity));
+    }
+    // very rare bag drop: +3 inventory slots
+    if (Math.random() < (opts.isBoss ? 0.5 : opts.miniboss ? 0.08 : 0.012)) {
+      this.loot.dropBag(x - 0.5, z - 0.5);
+    }
   }
 
   aoeDamage(x, z, radius, damage, opts = {}) {
@@ -430,12 +954,42 @@ export class Game {
 
   stunEnemiesNear(x, z, radius, duration) {
     for (const e of this.enemies) {
-      if (e.dead || e.isBoss) continue;
+      if (e.dead || e.isBoss || !e.stun) continue;
       if (Math.hypot(e.pos.x - x, e.pos.z - z) < radius) e.stun(duration);
     }
   }
 
-  spawnProjectile(opts) { this.projectiles.spawn(opts); }
+  // Enemy attack landing on whichever hero was targeted (local or remote).
+  hitTarget(target, dmg) {
+    if (!target) return;
+    if (target.local) this.player.takeDamage(dmg, this);
+    else net.send({ t: 'ehit', dmg: Math.round(dmg) }, target.id);
+  }
+
+  // AoE enemy attacks (golem slam) hit every hero in range.
+  aoeHitPlayers(x, z, radius, dmg) {
+    if (!this.player.dead && Math.hypot(this.player.pos.x - x, this.player.pos.z - z) < radius) {
+      this.player.takeDamage(dmg, this);
+    }
+    if (net.isHost) {
+      for (const [id, rp] of this.remotePlayers) {
+        if (!rp.dead && Math.hypot(rp.target.x - x, rp.target.z - z) < radius) {
+          net.send({ t: 'ehit', dmg: Math.round(dmg) }, id);
+        }
+      }
+    }
+  }
+
+  spawnProjectile(opts) {
+    this.projectiles.spawn(opts);
+    // guests must see (and dodge) host-simulated enemy projectiles
+    if (net.isHost && !opts.friendly) {
+      net.send({
+        t: 'eproj', x: opts.x, z: opts.z, dx: opts.dir.x, dz: opts.dir.z,
+        sp: opts.speed, dmg: opts.damage, c: opts.color, s: opts.size,
+      });
+    }
+  }
 
   addZone(opts) {
     const geo = new THREE.CircleGeometry(opts.radius, 24);
@@ -470,9 +1024,12 @@ export class Game {
       const e = new Enemy(type, this.floor);
       e.pos.set(x, 0, z);
       e.state = 'chase';
+      e.netId = ++this.netEnemySeq;
+      this.applyMpScaling(e, 1 + 0.5 * (net.playerCount - 1));
       this.scene.add(e.mesh);
       this.enemies.push(e);
       this.particles.burst(x, 0.6, z, 16, 0xb35eff, { speed: 3, life: 0.5 });
+      if (net.isHost) net.send({ t: 'espawn', e: this.serializeEnemy(e) });
     }
   }
 
@@ -498,7 +1055,7 @@ export class Game {
   unequip(slotName) {
     const p = this.player;
     const item = p.equipped[slotName];
-    if (!item || p.inventory.length >= 12) return;
+    if (!item || p.inventory.length >= p.invSize) return;
     p.equipped[slotName] = null;
     p.inventory.push(item);
     p.recompute();
@@ -523,11 +1080,11 @@ export class Game {
   }
 
   flushSave() {
-    if (!this.player || !this.savePending) return;
+    if (!this.player || !this.savePending || !this.slotId) return;
     this.savePending = false;
-    SaveManager.save({
+    SaveManager.saveSlot(this.slotId, {
       player: this.player.toSave(),
-      floor: this.floor,
+      floor: Math.max(1, this.floor),
       kills: this.kills,
       deaths: this.deaths,
       bossDefeated: this.bossDefeated,
@@ -554,15 +1111,20 @@ export class Game {
 
     if (this.state === 'playing') {
       this.updatePlaying(dt);
-    } else if (this.state === 'dead' || this.state === 'victory' || this.state === 'inventory' || this.state === 'paused') {
+    } else if (['dead', 'victory', 'inventory', 'paused', 'shop'].includes(this.state)) {
       // world is frozen; still render + light flicker for life
       this.updateTorches(dt, true);
+      if (net.active) this.netFrozenTick(dt);
       if (this.state === 'inventory' && (this.input.wasPressed('Tab') || this.input.wasPressed('Escape') || this.input.wasPressed('KeyI'))) {
         this.state = 'playing';
         this.ui.closeInventory();
       }
+      if (this.state === 'shop' && this.input.wasPressed('Escape')) this.closeShop();
       if (this.state === 'paused' && this.input.wasPressed('Escape')) this.togglePause(false);
     }
+
+    // push-to-talk (V) works in every state while connected
+    if (voice.active && voice.mode === 'ptt') voice.ptt = this.input.isDown('KeyV') || this.touchPtt;
 
     // debounced save
     this.saveTimer -= dt;
@@ -628,7 +1190,11 @@ export class Game {
 
     // ---- systems ----
     p.update(dt, this);
-    for (const e of this.enemies) e.update(dt, this);
+    if (net.active && !net.isHost) {
+      this.updateGuestMirrors(dt);   // host runs the real enemy AI
+    } else {
+      for (const e of this.enemies) e.update(dt, this);
+    }
     this.enemies = this.enemies.filter((e) => !e.dead || e.isBoss);
     this.projectiles.update(dt, this);
     this.loot.update(dt, this);
@@ -638,7 +1204,13 @@ export class Game {
     this.updateDoors();
     this.updateChests();
     this.updateStairs(dt);
+    this.updatePits();
+    this.updateTownInteractions(dt);
     this.updateTorches(dt);
+    if (net.active) {
+      this.updateRemotePlayers(dt);
+      this.netPlayTick(dt);
+    }
 
     // ---- camera follow + shake ----
     const target = p.pos;
@@ -771,6 +1343,7 @@ export class Game {
         for (let i = 0; i < 3; i++) this.loot.dropGold(c.x, c.z, Math.round(gold / 3));
         if (Math.random() < 0.65) this.loot.dropGear(c.x + 0.6, c.z, generateGear(this.floor, null));
         if (Math.random() < 0.4) this.loot.dropPotion(c.x - 0.6, c.z);
+        if (Math.random() < 0.03) this.loot.dropBag(c.x, c.z + 0.7);
       }
     }
   }
@@ -786,9 +1359,163 @@ export class Game {
         if (ch.geometry?.type === 'TorusGeometry') ch.rotation.z += dt * 1.5;
       });
     }
-    if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 1.1) {
-      this.loadFloor(this.floor + 1);
+    if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 1.4) {
+      if (this.stairsLocked() && (!net.active || net.isHost)) {
+        this._sealNoticeT -= dt;
+        if (this._sealNoticeT <= 0) {
+          this._sealNoticeT = 2.5;
+          const eliteLeft = this.enemies.some((en) => !en.dead && en.elite);
+          this.ui.floaters.spawn(p.pos,
+            `Sealed! Cull the horde (${this.floorKills}/${this.stairsClearNeed()})${eliteLeft ? ' · slay the Elite' : ''}`,
+            'player-dmg');
+          audio.play('shield_block', { volume: 0.5, rate: 0.7 });
+        }
+        return;
+      }
+      if (net.active && !net.isHost) {
+        this.stairsCooldown = 2;
+        net.send({ t: 'portal' });
+      } else if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 1.1) {
+        this.loadFloor(this.floor + 1);
+      }
     }
+  }
+
+  setStairsRingColor(hex) {
+    this.dungeonMeshes?.stairsMesh?.children.forEach((ch) => {
+      if (ch.geometry?.type === 'TorusGeometry') ch.material.color.setHex(hex);
+    });
+  }
+
+  // Pit holes: fall through to the next floor (solo) — it hurts.
+  updatePits() {
+    if (!this.dungeon?.pits?.length || this.stairsCooldown > 0 || this.player.dead) return;
+    const p = this.player;
+    for (const pit of this.dungeon.pits) {
+      const w = tileToWorld(pit.x, pit.y);
+      if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 0.7) {
+        this.stairsCooldown = 2;
+        this.shake(0.5);
+        audio.play('player_hurt');
+        const dmg = Math.round(p.maxHp * 0.15);
+        if (net.active) {
+          // co-op: don't split the party — just take the fall damage and climb out
+          p.takeDamage(dmg, this);
+          p.pos.set(p.pos.x + 1.6, 0, p.pos.z + 1.6);
+          this.ui.floaters.spawn(p.pos, 'You clamber out of the pit!', 'player-dmg');
+        } else {
+          p.hp = Math.max(1, p.hp - dmg);
+          audio.play('stairs', { volume: 0.9, rate: 0.8 });
+          this.loadFloor(this.floor + 1);
+          this.ui.floaters.spawn(p.pos, `You fell! -${dmg}`, 'player-dmg');
+        }
+        return;
+      }
+    }
+  }
+
+  // Bricks and dust burst off walls when projectiles strike them.
+  wallDebris(x, z) {
+    this.particles.burst(x, 1.0, z, 7, 0x8a8590, { speed: 3, life: 0.4, size: 0.11, up: 0.9 });
+    this.particles.burst(x, 1.0, z, 3, 0x5a5560, { speed: 1.6, life: 0.55, size: 0.18, up: 1.2 });
+  }
+
+  // Town: vendors open their shop when you walk up; the portal descends.
+  updateTownInteractions(dt) {
+    this.shopCooldown = Math.max(0, this.shopCooldown - dt);
+    if (!this.dungeonMeshes) return;
+    const p = this.player;
+
+    // dungeon-side return portal → back to Embervale (checkpoint kept)
+    const rp = this.dungeonMeshes.returnPortalMesh;
+    if (!this.inTown && rp) {
+      rp.rotation.y += dt * 1.2;
+      const d = Math.hypot(p.pos.x - rp.position.x, p.pos.z - rp.position.z);
+      if (!this.returnPortalArmed) {
+        if (d > 3.5) this.returnPortalArmed = true;
+      } else if (d < 1.2 && this.stairsCooldown <= 0) {
+        audio.play('stairs', { volume: 0.8, rate: 1.2 });
+        if (net.active && !net.isHost) {
+          this.stairsCooldown = 2;
+          net.send({ t: 'townportal' });
+        } else {
+          this.loadTown();
+        }
+        return;
+      }
+    }
+
+    if (!this.inTown) return;
+
+    if (this.dungeonMeshes.portalMesh) {
+      this.dungeonMeshes.portalMesh.rotation.y += dt * 0.6;
+      const w = tileToWorld(this.dungeon.portal.x, this.dungeon.portal.y);
+      if (this.stairsCooldown <= 0 && Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 1.5) {
+        audio.play('stairs', { volume: 0.8 });
+        if (net.active && !net.isHost) {
+          this.stairsCooldown = 2;
+          net.send({ t: 'portal' });
+        } else {
+          this.loadFloor(this.floor);
+        }
+      }
+    }
+
+    if (this.shopCooldown <= 0) {
+      for (const v of this.dungeonMeshes.vendorMeshes) {
+        if (Math.hypot(p.pos.x - v.wx, p.pos.z - v.wz) < 1.9) {
+          this.openShop(v);
+          return;
+        }
+      }
+    }
+  }
+
+  // ---------------- network ticks ----------------
+  netPlayTick(dt) {
+    if (net.isHost) {
+      this.netTickTimer -= dt;
+      if (this.netTickTimer <= 0) {
+        this.netTickTimer = 0.1;
+        this.sendHostState();
+      }
+    } else {
+      this.posSendTimer -= dt;
+      if (this.posSendTimer <= 0) {
+        this.posSendTimer = 0.066;
+        const p = this.player;
+        net.send({
+          t: 'pos', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
+          aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
+          dead: p.dead ? 1 : 0, cls: p.classId,
+        });
+      }
+    }
+  }
+
+  // keep sending presence while in menus so others don't freeze
+  netFrozenTick(dt) {
+    this.netPlayTick(dt);
+    if (net.active) this.updateRemotePlayers(dt);
+  }
+
+  sendHostState() {
+    const p = this.player;
+    const pl = [{
+      id: 'host', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
+      aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
+      dead: p.dead ? 1 : 0, cls: p.classId,
+    }];
+    for (const [id, rp] of this.remotePlayers) {
+      pl.push({
+        id, x: +rp.target.x.toFixed(2), z: +rp.target.z.toFixed(2),
+        aim: +(rp.aim || 0).toFixed(2), mv: rp.moving ? 1 : 0, dead: rp.dead ? 1 : 0, cls: rp.cls,
+      });
+    }
+    const en = this.enemies
+      .filter((e) => !e.dead)
+      .map((e) => [e.netId, +e.pos.x.toFixed(2), +e.pos.z.toFixed(2), e.hp]);
+    net.send({ t: 'state', pl, en });
   }
 
   updateTorches(dt, flickerOnly = false) {

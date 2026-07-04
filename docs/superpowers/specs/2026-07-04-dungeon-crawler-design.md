@@ -32,6 +32,9 @@ Esc pause, M minimap toggle.
 Skeleton (melee), Imp (ranged fireballs), Spider (fast swarmer), Golem (slow tank),
 per-floor miniboss variants (scaled + named), Floor-10 multi-phase boss.
 AI: idle → aggro (proximity/LOS) → chase → attack. Stats scale with depth.
+ML: TensorFlow.js movement-prediction model (CPU backend) trains on player
+movement and persists across sessions via localStorage — enemies keep learning
+between visits.
 
 ## World
 - Grid ~48×48 tiles/floor; 8–14 rooms, L-corridors, spawn and stairs far apart.
@@ -42,9 +45,39 @@ AI: idle → aggro (proximity/LOS) → chase → attack. Stats scale with depth.
 ## Progression
 - XP → levels → stat growth + ability upgrades.
 - Loot: gold, potions (health/resource), gear (weapon/armor/trinket) with
-  common/rare/epic rarity; inventory + equip screen.
-- Auto-save at floor entrance + on changes. Death: respawn at current floor start,
-  lose 20% carried gold. Victory screen with run stats.
+  common/rare/epic/legendary rarity (legendary = orange tier); inventory + equip screen.
+- Inventory: 12 slots, expandable to 24 via very rare Bag drops (~1.2% enemies,
+  8% minibosses, 50% boss, 3% chests; occasionally sold by the alchemist).
+  Item action panel: tap item → Equip / Sell (town only) / Drop — mobile-friendly.
+- Save slots: up to 8 hero saves; list screen shows class/level/floor/last-played
+  with delete + resume. Old single save auto-migrates to a slot.
+- Auto-save at floor entrance + on changes. Death: return to town of Embervale,
+  keep checkpoint floor, lose 20% carried gold. Victory screen with run stats.
+
+## Town Hub — Embervale
+Safe hometown where every session starts; a dungeon portal resumes at the
+player's checkpoint floor. Vendors (any inventory item can be sold to any vendor):
+- Maribel the Alchemist — potions; occasionally stocks a Traveler's Satchel (bag).
+- Torvald the Smith — gear for sale.
+- Zoltan the Mysterious — gambling: pay 150g + 30/floor for a Mystery Relic
+  (50% common, 30% rare, 15% epic, 5% LEGENDARY uniques such as
+  "Doomblade Vharkûl" and "The Emberdeep Heart").
+
+## Multiplayer (Co-op)
+- Up to 4 players via PeerJS/WebRTC using the public PeerJS broker.
+- Title screen: Single Player and Multiplayer modes. Multiplayer joins a shared
+  room name; the first player in becomes host — authoritative for enemies and
+  world state — and later players join the host's world.
+- Enemy HP/damage scale up with player count.
+- Personal loot: each player rolls their own drops; everyone gets full XP.
+- Single player is fully isolated from multiplayer code paths.
+
+## Environment & Combat Feel
+- Scuff/scorch decals, rubble piles; pit holes (floor 2+) drop the player to the
+  next floor with damage in single player (damage only in multiplayer).
+- Bricks/debris fly when projectiles hit walls.
+- Hit sparks on every hit (status-colored), bigger crit bursts with screen shake,
+  projectile impact sparks, red burst when the player is hit.
 
 ## Audio (per user goal: many real online sounds, contextually mapped)
 CC0 packs (Kenney RPG audio, impact/UI packs; OpenGameArt music). Distinct sounds:
