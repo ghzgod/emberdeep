@@ -33,6 +33,7 @@ export class TouchControls {
       if (el) el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); fn(); });
     };
     bind('touch-potion', () => game.player?.drinkPotion(game));
+    bind('touch-inv', () => game.toggleInventory());
     bind('touch-pause', () => game.togglePause(true));
 
     // hotbar taps

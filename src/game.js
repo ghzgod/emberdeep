@@ -160,6 +160,16 @@ export class Game {
     this.ui.showTitle(SaveManager.hasSave());
   }
 
+  toggleInventory() {
+    if (this.state === 'playing') {
+      this.state = 'inventory';
+      this.ui.openInventory();
+    } else if (this.state === 'inventory') {
+      this.state = 'playing';
+      this.ui.closeInventory();
+    }
+  }
+
   togglePause(paused) {
     if (!this.player) return;
     if (paused === undefined) paused = this.state === 'playing';
