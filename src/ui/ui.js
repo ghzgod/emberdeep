@@ -64,9 +64,12 @@ export class UI {
     };
     $('btn-multi').onclick = () => {
       $('mp-status').textContent = '';
+      $('mp-name').value = localStorage.getItem('emberdeep-name-v1') || '';
       this.show('mp');
     };
     $('btn-mp-enter').onclick = async () => {
+      const name = $('mp-name').value.trim().slice(0, 14);
+      if (name) localStorage.setItem('emberdeep-name-v1', name);
       const room = $('mp-room').value.trim() || 'EMBER';
       $('mp-status').textContent = 'Connecting to room…';
       const result = await this.game.startMultiplayer(room);
