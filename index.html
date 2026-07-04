@@ -87,6 +87,7 @@
       <div id="hud-topright">
         <div id="hud-floor"></div>
         <div id="hud-clear"></div>
+        <div id="hud-quest"></div>
         <canvas id="minimap" width="180" height="180"></canvas>
       </div>
       <div id="boss-bar-wrap" class="hidden">
@@ -94,7 +95,7 @@
         <div class="bar-wrap boss"><div id="boss-bar" class="bar boss"></div></div>
       </div>
       <div id="hotbar"></div>
-      <div id="hud-hints">Q potion · Tab inventory · Esc pause</div>
+      <div id="hud-hints">R potion · Q/E rotate view · Tab inventory · J quests · Esc pause</div>
       <div id="voice-indicator" class="hidden">🎤 LIVE</div>
     </div>
 
@@ -108,6 +109,8 @@
       <button id="touch-inv">🎒</button>
       <button id="touch-mic" class="hidden">🎤</button>
       <button id="touch-pause">⏸</button>
+      <button id="touch-rotl">⟲</button>
+      <button id="touch-rotr">⟳</button>
     </div>
 
     <!-- Inventory -->
@@ -127,11 +130,20 @@
       <p class="hint">Tap an item for actions · Tab/Esc to close</p>
     </div>
 
+    <!-- Quest log -->
+    <div id="quest-screen" class="overlay panel">
+      <h2 class="screen-heading">Quest Log</h2>
+      <div id="quest-list"></div>
+      <div id="quest-stats"></div>
+      <div class="menu-buttons"><button id="btn-quest-close" class="menu-btn small">Close</button></div>
+    </div>
+
     <!-- Pause -->
     <div id="pause-screen" class="overlay panel">
       <h2 class="screen-heading">Paused</h2>
       <div class="menu-buttons">
         <button id="btn-resume" class="menu-btn">Resume</button>
+        <button id="btn-pause-quests" class="menu-btn">Quest Log</button>
         <button id="btn-pause-settings" class="menu-btn">Settings</button>
         <button id="btn-quit-title" class="menu-btn">Save & Quit to Title</button>
       </div>

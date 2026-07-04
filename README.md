@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Then open the printed local URL. Works on desktop (WASD + mouse, 1–4 abilities, Q potion, Tab inventory) and mobile (virtual joystick + touch aim, tappable hotbar).
+Then open the printed local URL. Works on desktop (WASD + mouse, 1–4 abilities, R potion, Q/E rotate, Tab inventory) and mobile (virtual joystick + touch aim, tappable hotbar).
 
 From the title screen pick **Single Player** or **Multiplayer** (enter a shared room name — the first player in becomes host and friends join their world), then choose one of up to 8 hero save slots. Every session starts in the town of Embervale: browse the vendors (tap an inventory item for Equip / Sell / Drop), then step through the dungeon portal to resume at your checkpoint floor.
 

@@ -99,6 +99,27 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #hud-clear { font-size: 13px; text-shadow: 0 1px 2px #000; opacity: 0.9; }
 #hud-clear.sealed { color: #e88a8a; }
 #hud-clear.open { color: #7ce87c; }
+#hud-quest { font-size: 12px; opacity: 0.7; text-shadow: 0 1px 2px #000; max-width: 200px; }
+
+/* ---------- Quest log ---------- */
+#quest-list { display: flex; flex-direction: column; gap: 8px; width: min(88vw, 460px); max-height: 44vh; overflow-y: auto; }
+.quest-row {
+  display: flex; gap: 12px; align-items: center; text-align: left;
+  padding: 10px 14px; border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel);
+}
+.quest-row .quest-mark { font-size: 20px; }
+.quest-row .quest-title { font-size: 15px; color: var(--parchment); }
+.quest-row .quest-obj { font-size: 12px; opacity: 0.7; }
+.quest-row.active { border-color: var(--gold); box-shadow: 0 0 10px rgba(232,192,90,0.25); }
+.quest-row.active .quest-title { color: var(--gold); }
+.quest-row.done { opacity: 0.65; }
+.quest-row.locked { opacity: 0.4; }
+#quest-stats {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center;
+  width: min(88vw, 460px); font-size: 13px; opacity: 0.85; padding-top: 6px;
+  border-top: 1px solid var(--panel-border);
+}
+#quest-stats b { color: var(--gold); font-weight: normal; }
 #minimap { border: 1px solid var(--panel-border); border-radius: 6px; background: rgba(0,0,0,0.7); }
 
 #boss-bar-wrap { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); width: 460px; text-align: center; }
@@ -269,12 +290,16 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   transform: translate(-50%, -50%); border-radius: 50%;
   background: rgba(216, 203, 176, 0.4); border: 2px solid rgba(216, 203, 176, 0.6);
 }
-#touch-potion, #touch-pause, #touch-inv, #touch-mic {
+#touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr {
   position: absolute; pointer-events: auto; width: 56px; height: 56px;
   border-radius: 50%; border: 2px solid var(--panel-border); background: var(--panel);
   font-size: 24px; color: var(--parchment); padding: 0;
   display: flex; align-items: center; justify-content: center; line-height: 1;
 }
+/* camera rotate pair, left edge above the hotbar */
+#touch-rotl { left: 14px; bottom: 96px; font-size: 28px; }
+#touch-rotr { left: 82px; bottom: 96px; font-size: 28px; }
+#touch-rotl:active, #touch-rotr:active { border-color: var(--gold); color: var(--gold); }
 /* One vertical stack on the right edge, bottom-up: potion, bag, pause. */
 #touch-potion { right: 14px; bottom: 96px; }
 #touch-inv { right: 14px; bottom: 164px; }
@@ -298,12 +323,14 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 
 /* Landscape phones: shorter screen — shrink the stack and minimap so nothing collides. */
 @media (max-height: 540px) and (pointer: coarse), (max-height: 540px) and (max-width: 1000px) {
-  #touch-potion, #touch-pause, #touch-inv, #touch-mic { width: 46px; height: 46px; font-size: 19px; }
+  #touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr { width: 46px; height: 46px; font-size: 19px; }
   #touch-potion { bottom: 74px; }
   #touch-inv { bottom: 128px; }
   #touch-pause { bottom: 182px; }
   /* landscape: push-to-talk lives bottom-left by the movement thumb */
   #touch-mic { left: 14px; right: auto; bottom: 74px; }
+  #touch-rotl { left: 14px; bottom: 20px; font-size: 22px; }
+  #touch-rotr { left: 70px; bottom: 20px; font-size: 22px; }
   #minimap { width: 84px; height: 84px; }
   #hud-topleft { width: 170px; }
   .hotbar-slot { width: 52px; height: 52px; }
