@@ -11,6 +11,9 @@ All sounds were sourced from OpenGameArt.org and converted to MP3 for the game.
 | [Level Up Sound Effects](https://opengameart.org/content/level-up-sound-effects) | Bart Kelsey (commissioned by Will Corwin for OpenGameArt.org) | CC-BY 3.0 | Level-up fanfare (orchestra) |
 | [Dungeon Ambience](https://opengameart.org/content/dungeon-ambience) | yd | CC0 | Dungeon exploration music loop |
 | [Boss Battle Theme](https://opengameart.org/content/boss-battle-theme) | Cleyton Kauffman (soundcloud.com/cleytonkauffman) | CC0 | Final boss music |
+| [Male Grunt/Yelling Sounds](https://opengameart.org/content/male-gruntyelling-sounds) | HaelDB | CC0 | War Cry battle roar, Charge grunt, player hurt/death vocals |
+
+Several ability sounds are layered mixes (ffmpeg) of the above: Whirlwind = triple sword swing + metal ring, Charge = swish + chainmail + grunt, Multishot = triple bow at varied pitch, Rain of Arrows = bow + swish volley, Shield Block = armor + metal ring.
 
 # Model Credits
 
