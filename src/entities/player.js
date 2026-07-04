@@ -164,6 +164,7 @@ export class Player {
   drinkPotion(game) {
     if (this.potions <= 0 || this.hp >= this.maxHp) return false;
     this.potions--;
+    this._lastPotionAt = performance.now();
     audio.play('potion_drink');
     this.heal(Math.round(this.maxHp * 0.45), game);
     return true;
@@ -190,6 +191,7 @@ export class Player {
     const basic = this.classDef.basic;
     this.attackCd = basic.cooldown;
     this.attackAnim = 0.22;
+    this._lastAttackAt = performance.now();
     if (this.anim) this.anim.playAttack();
     audio.play(basic.sound);
     if (basic.kind === 'melee') {

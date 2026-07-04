@@ -12,7 +12,9 @@ export class Minimap {
 
   setDungeon(dungeon) {
     this.dungeon = dungeon;
-    this.explored = Array.from({ length: dungeon.size }, () => new Array(dungeon.size).fill(false));
+    // town is small and safe — reveal the whole map immediately
+    this.explored = Array.from({ length: dungeon.size }, () =>
+      new Array(dungeon.size).fill(!!dungeon.town));
   }
 
   revealAround(px, pz, radius = 6) {
@@ -53,6 +55,26 @@ export class Minimap {
       if (this.explored[st.y]?.[st.x]) {
         ctx.fillStyle = '#e8c05a';
         ctx.fillRect(st.x * s - 1, st.y * s - 1, s + 2, s + 2);
+      }
+    }
+
+    // town: vendor + portal markers so the shops are findable
+    if (this.dungeon.town) {
+      const colors = { potions: '#e05a6a', gear: '#5a8ae0', mystery: '#b45aff' };
+      for (const v of this.dungeon.vendors || []) {
+        ctx.fillStyle = colors[v.type] || '#fff';
+        ctx.fillRect(v.x * s - 2, v.y * s - 2, s + 4, s + 4);
+        ctx.fillStyle = '#000';
+        ctx.font = `bold ${Math.max(6, s + 2)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(v.type === 'potions' ? 'P' : v.type === 'gear' ? 'S' : '?', v.x * s + s / 2, v.y * s + s / 2 + 0.5);
+      }
+      if (this.dungeon.portal) {
+        ctx.fillStyle = '#c77aff';
+        ctx.beginPath();
+        ctx.arc(this.dungeon.portal.x * s + s / 2, this.dungeon.portal.y * s + s / 2, 4, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
 

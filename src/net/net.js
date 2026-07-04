@@ -16,6 +16,8 @@ export class Net {
     this.hostConn = null;     // guest: connection to host
     this.handlers = {};
     this.playerCount = 1;
+    this.roomId = null;
+    this.lastRoster = [];     // full peer-id roster, used for host migration
   }
 
   get active() { return this.mode !== 'off'; }
@@ -25,10 +27,14 @@ export class Net {
   emitLocal(type, msg, from) { this.handlers[type]?.(msg, from); }
 
   // Try to become host of the room; if the id is taken, join as guest.
-  start(room, callbacks) {
-    const roomId = ROOM_PREFIX + room.toLowerCase().replace(/[^a-z0-9]/g, '');
+  start(room) {
+    this.roomId = ROOM_PREFIX + room.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return this._claimOrJoin();
+  }
+
+  _claimOrJoin() {
     return new Promise((resolve) => {
-      const hostPeer = new Peer(roomId);
+      const hostPeer = new Peer(this.roomId);
       let settled = false;
 
       hostPeer.on('open', () => {
@@ -45,15 +51,53 @@ export class Net {
         if (err.type === 'unavailable-id') {
           settled = true;
           hostPeer.destroy();
-          this._joinAsGuest(roomId).then(resolve);
+          this._joinAsGuest(this.roomId).then(resolve);
         } else {
           settled = true;
           resolve({ mode: 'error', error: err.type });
         }
       });
-      // callbacks piped through this.on(...) by the game
-      void callbacks;
     });
+  }
+
+  // Host migration: when the simulating peer leaves, the surviving peer with
+  // the lowest id takes over the room id; everyone else reconnects. From the
+  // players' point of view the room simply stays alive.
+  async migrate(shouldHost) {
+    const oldPeer = this.peer;
+    this.mode = 'off';
+    this.conns.clear();
+    this.hostConn = null;
+    if (shouldHost) {
+      try { oldPeer?.destroy(); } catch {}
+      for (let attempt = 0; attempt < 8; attempt++) {
+        await new Promise((r) => setTimeout(r, attempt === 0 ? 800 : 1600));
+        const res = await this._claimOrJoin();
+        if (res.mode !== 'error') return res;
+      }
+      return { mode: 'error', error: 'migration-failed' };
+    }
+    // rejoining guests keep their peer; retry until the new host is up
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await new Promise((r) => setTimeout(r, 2000 + attempt * 500));
+      const res = await new Promise((resolve) => {
+        const conn = this.peer.connect(this.roomId, { reliable: true });
+        const to = setTimeout(() => { try { conn.close(); } catch {} resolve(null); }, 4000);
+        conn.on('open', () => {
+          clearTimeout(to);
+          this.mode = 'guest';
+          this.hostConn = conn;
+          this.playerCount = 2;
+          conn.on('data', (msg) => this.emitLocal(msg.t, msg, 'host'));
+          conn.on('close', () => this.emitLocal('host_left', {}));
+          conn.on('error', () => this.emitLocal('host_left', {}));
+          resolve({ mode: 'guest' });
+        });
+        conn.on('error', () => { clearTimeout(to); resolve(null); });
+      });
+      if (res) return res;
+    }
+    return { mode: 'error', error: 'migration-failed' };
   }
 
   _acceptGuest(conn) {
@@ -112,6 +156,7 @@ export class Net {
   broadcastRoster() {
     if (this.mode !== 'host') return;
     const ids = [this.peer.id, ...this.conns.keys()];
+    this.lastRoster = ids;
     this.send({ t: 'peers', ids });
     this.emitLocal('peers', { ids });
   }

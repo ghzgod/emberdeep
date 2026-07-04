@@ -10,25 +10,39 @@ export const RARITIES = {
   legendary: { name: 'Legendary', mult: 4.0, color: 0xff8c1a, css: 'legendary', weight: 0 }, // gamble-only
 };
 
-// Super-unique legendary items — only from Zoltan's gamble.
-const LEGENDARIES = [
-  { slot: 'weapon', icon: '🗡️', name: 'Doomblade Vharkûl', stats: (f) => ({ damagePct: 45 + f * 4, crit: 12 }) },
+// Legendary uniques come in two pools:
+//  - GAMBLE pool: only Zoltan's risky Mystery Relics can produce these.
+//  - DROP pool: money can't buy them — only minibosses and the Dungeon Lord
+//    have a chance to drop them. Some things you have to fight for.
+const GAMBLE_LEGENDARIES = [
   { slot: 'weapon', icon: '🔨', name: 'Starfall, Hammer of Dawn', stats: (f) => ({ damagePct: 35 + f * 3, maxHp: 40 + f * 6 }) },
-  { slot: 'armor', icon: '🛡️', name: 'Aegis of the Fallen King', stats: (f) => ({ maxHp: 90 + f * 12, armor: 14, regen: 4 }) },
   { slot: 'armor', icon: '🥋', name: 'Shroud of the Last Ember', stats: (f) => ({ maxHp: 55 + f * 8, speed: 10, crit: 8 }) },
-  { slot: 'trinket', icon: '💎', name: 'The Emberdeep Heart', stats: (f) => ({ crit: 12, speed: 8, regen: 5 + Math.floor(f / 2) }) },
   { slot: 'trinket', icon: '🗝️', name: 'Zoltan’s Loaded Die', stats: (f) => ({ crit: 18 + f, speed: 5 }) },
 ];
+const DROP_LEGENDARIES = [
+  { slot: 'weapon', icon: '🗡️', name: 'Doomblade Vharkûl', stats: (f) => ({ damagePct: 45 + f * 4, crit: 12 }) },
+  { slot: 'armor', icon: '🛡️', name: 'Aegis of the Fallen King', stats: (f) => ({ maxHp: 90 + f * 12, armor: 14, regen: 4 }) },
+  { slot: 'trinket', icon: '💎', name: 'The Emberdeep Heart', stats: (f) => ({ crit: 12, speed: 8, regen: 5 + Math.floor(f / 2) }) },
+  { slot: 'trinket', icon: '👑', name: 'Crown of the Dungeon Lord', stats: (f) => ({ maxHp: 60 + f * 8, crit: 10, regen: 4 }) },
+];
 
-// Zoltan's gamble: pricey, usually junk, sometimes glory.
+function makeLegendary(def, floor) {
+  return {
+    id: nextItemId++, slot: def.slot, rarity: 'legendary', name: def.name,
+    icon: def.icon, stats: def.stats(floor), value: 500 + floor * 40, unique: true,
+  };
+}
+
+// Boss/miniboss-only legendaries. Never sold, never gambled.
+export function dropLegendary(floor) {
+  return makeLegendary(DROP_LEGENDARIES[Math.floor(Math.random() * DROP_LEGENDARIES.length)], floor);
+}
+
+// Zoltan's gamble: pricey, usually junk, sometimes glory (his own uniques only).
 export function gambleItem(floor) {
   const roll = Math.random();
   if (roll < 0.05) {
-    const def = LEGENDARIES[Math.floor(Math.random() * LEGENDARIES.length)];
-    return {
-      id: nextItemId++, slot: def.slot, rarity: 'legendary', name: def.name,
-      icon: def.icon, stats: def.stats(floor), value: 500 + floor * 40, unique: true,
-    };
+    return makeLegendary(GAMBLE_LEGENDARIES[Math.floor(Math.random() * GAMBLE_LEGENDARIES.length)], floor);
   }
   if (roll < 0.20) return generateGear(floor + 1, 'epic');
   if (roll < 0.50) return generateGear(floor, 'rare');
