@@ -10,6 +10,7 @@ export class TouchControls {
     this.move = { x: 0, z: 0 };
     this.joyActive = false;
     this.attacking = false;
+    this.rotDir = 0; // -1 / +1 while a rotate button is held
     this._joyId = null;
     this._aimId = null;
 
@@ -35,6 +36,18 @@ export class TouchControls {
     bind('touch-potion', () => game.player?.drinkPotion(game));
     bind('touch-inv', () => game.toggleInventory());
     bind('touch-pause', () => game.togglePause(true));
+
+    // hold-to-rotate camera buttons
+    const bindRotate = (id, dir) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.rotDir = dir; });
+      for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
+        el.addEventListener(ev, () => { if (this.rotDir === dir) this.rotDir = 0; });
+      }
+    };
+    bindRotate('touch-rotl', 1);
+    bindRotate('touch-rotr', -1);
 
     // hold-to-talk mic button
     const mic = document.getElementById('touch-mic');

@@ -14,16 +14,19 @@ export const RARITIES = {
 //  - GAMBLE pool: only Zoltan's risky Mystery Relics can produce these.
 //  - DROP pool: money can't buy them — only minibosses and the Dungeon Lord
 //    have a chance to drop them. Some things you have to fight for.
+// Legendaries sit meaningfully ABOVE a same-floor epic on every stat — the
+// runtime caps in Player.recompute keep them powerful, never game-breaking.
+const L = (f) => Math.sqrt(Math.min(f, 60)); // shared depth factor
 const GAMBLE_LEGENDARIES = [
-  { slot: 'weapon', icon: '🔨', name: 'Starfall, Hammer of Dawn', stats: (f) => ({ damagePct: 35 + f * 3, maxHp: 40 + f * 6 }) },
-  { slot: 'armor', icon: '🥋', name: 'Shroud of the Last Ember', stats: (f) => ({ maxHp: 55 + f * 8, speed: 10, crit: 8 }) },
-  { slot: 'trinket', icon: '🗝️', name: 'Zoltan’s Loaded Die', stats: (f) => ({ crit: 18 + f, speed: 5 }) },
+  { slot: 'weapon', icon: '🔨', name: 'Starfall, Hammer of Dawn', stats: (f) => ({ damagePct: Math.round(45 + L(f) * 14), maxHp: Math.round(60 + L(f) * 22), crit: 8 }) },
+  { slot: 'armor', icon: '🥋', name: 'Shroud of the Last Ember', stats: (f) => ({ maxHp: Math.round(110 + L(f) * 30), speed: 15, crit: 12, armor: 8 }) },
+  { slot: 'trinket', icon: '🗝️', name: 'Zoltan’s Loaded Die', stats: (f) => ({ crit: Math.round(24 + L(f) * 2), speed: 10, regen: Math.round(4 + L(f)) }) },
 ];
 const DROP_LEGENDARIES = [
-  { slot: 'weapon', icon: '🗡️', name: 'Doomblade Vharkûl', stats: (f) => ({ damagePct: 45 + f * 4, crit: 12 }) },
-  { slot: 'armor', icon: '🛡️', name: 'Aegis of the Fallen King', stats: (f) => ({ maxHp: 90 + f * 12, armor: 14, regen: 4 }) },
-  { slot: 'trinket', icon: '💎', name: 'The Emberdeep Heart', stats: (f) => ({ crit: 12, speed: 8, regen: 5 + Math.floor(f / 2) }) },
-  { slot: 'trinket', icon: '👑', name: 'Crown of the Dungeon Lord', stats: (f) => ({ maxHp: 60 + f * 8, crit: 10, regen: 4 }) },
+  { slot: 'weapon', icon: '🗡️', name: 'Doomblade Vharkûl', stats: (f) => ({ damagePct: Math.round(60 + L(f) * 16), crit: 18 }) },
+  { slot: 'armor', icon: '🛡️', name: 'Aegis of the Fallen King', stats: (f) => ({ maxHp: Math.round(150 + L(f) * 36), armor: 18, regen: 7 }) },
+  { slot: 'trinket', icon: '💎', name: 'The Emberdeep Heart', stats: (f) => ({ crit: 18, speed: 12, regen: Math.round(7 + L(f) * 1.5) }) },
+  { slot: 'trinket', icon: '👑', name: 'Crown of the Dungeon Lord', stats: (f) => ({ maxHp: Math.round(110 + L(f) * 26), crit: 16, regen: 6 }) },
 ];
 
 function makeLegendary(def, floor) {
@@ -49,18 +52,20 @@ export function gambleItem(floor) {
   return generateGear(floor, 'common');
 }
 
+// Item power grows with the square root of floor depth (not linearly), so
+// late-act gear is strong but never explodes into free-win territory.
 const SLOT_DEFS = {
   weapon: {
     icon: '⚔️',
     names: ['Sword', 'Blade', 'Edge', 'Cleaver', 'Fang'],
     prefixes: ['Rusty', 'Fine', 'Steel', 'Tempered', 'Runed', 'Ancient'],
-    stats: (power) => ({ damagePct: Math.round(6 + power * 9) }),
+    stats: (power) => ({ damagePct: Math.round(5 + power * 4) }),
   },
   armor: {
     icon: '🛡️',
     names: ['Mail', 'Plate', 'Cuirass', 'Vestments', 'Hide'],
     prefixes: ['Worn', 'Sturdy', 'Reinforced', 'Warded', 'Dragonscale'],
-    stats: (power) => ({ maxHp: Math.round(15 + power * 22), armor: Math.round(2 + power * 3) }),
+    stats: (power) => ({ maxHp: Math.round(14 + power * 11), armor: Math.round(2 + power * 0.9) }),
   },
   trinket: {
     icon: '💍',
@@ -68,9 +73,9 @@ const SLOT_DEFS = {
     prefixes: ['Cracked', 'Polished', 'Gleaming', 'Enchanted', 'Fabled'],
     stats: (power) => {
       const roll = Math.random();
-      if (roll < 0.34) return { crit: Math.round(3 + power * 4) };
-      if (roll < 0.67) return { speed: Math.round(3 + power * 3) };
-      return { regen: Math.round(2 + power * 2.5) };
+      if (roll < 0.34) return { crit: Math.round(2 + power * 0.9) };
+      if (roll < 0.67) return { speed: Math.round(2 + power * 0.6) };
+      return { regen: Math.round(1 + power * 0.4) };
     },
   },
 };
@@ -90,16 +95,17 @@ export function generateGear(floor, forcedRarity = null) {
   const slot = ['weapon', 'armor', 'trinket'][Math.floor(Math.random() * 3)];
   const rarity = forcedRarity || rollRarity(floor);
   const def = SLOT_DEFS[slot];
-  const power = (floor * 0.5 + Math.random()) * RARITIES[rarity].mult;
+  const power = (Math.sqrt(floor) * 1.7 + Math.random()) * RARITIES[rarity].mult;
 
   const stats = def.stats(power);
   // rare/epic get a bonus secondary stat
   if (rarity !== 'common') {
-    const extras = { rare: 1, epic: 2 }[rarity];
+    const extras = { rare: 1, epic: 2, legendary: 2 }[rarity] || 1;
     for (let i = 0; i < extras; i++) {
       const pool = ['maxHp', 'crit', 'speed', 'regen'];
       const stat = pool[Math.floor(Math.random() * pool.length)];
-      stats[stat] = (stats[stat] || 0) + Math.round(2 + power * 2);
+      const gain = stat === 'maxHp' ? Math.round(8 + power * 5) : Math.round(1 + power * 0.5);
+      stats[stat] = (stats[stat] || 0) + gain;
     }
   }
 

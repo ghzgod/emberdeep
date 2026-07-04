@@ -6,7 +6,7 @@ import { generateDungeon, generateTown, FLOOR, WALL, DOOR } from './world/dungeo
 import { buildDungeonMeshes, TILE, tileToWorld } from './world/meshbuilder.js';
 import { themeForFloor, actOfFloor, actFloorOf } from './world/textures.js';
 import { Player, xpForLevel } from './entities/player.js';
-import { Enemy, Boss, ENEMY_TYPES, buildEnemyMesh, buildBossMesh } from './entities/enemies.js';
+import { Enemy, Boss, ENEMY_TYPES, ACT_BOSSES, buildEnemyMesh, buildBossMesh } from './entities/enemies.js';
 import { buildAnimatedHero } from './entities/heroModel.js';
 import { CLASSES, buildHeroMesh } from './entities/classes.js';
 import { ProjectileSystem } from './entities/projectiles.js';
@@ -36,6 +36,7 @@ export class Game {
 
     this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
     this.cameraOffset = new THREE.Vector3(0, 11, 9.5);
+    this.camYaw = 0; // Q/E (or touch buttons) orbit the camera around the hero
 
     // lights
     this.ambient = new THREE.AmbientLight(0x8a7a9a, 0.55);
@@ -75,6 +76,8 @@ export class Game {
     this.kills = 0;
     this.deaths = 0;
     this.bossDefeated = false;
+    this.actsCleared = 0;
+    this.elitesKilled = 0;
     this.inTown = false;
     this.slotId = null;
     this.shopCooldown = 0;
@@ -161,6 +164,8 @@ export class Game {
     this.kills = 0;
     this.deaths = 0;
     this.bossDefeated = false;
+    this.actsCleared = 0;
+    this.elitesKilled = 0;
     this.ui.buildHotbar(this.player);
     this.enterWorld();
   }
@@ -177,6 +182,8 @@ export class Game {
     this.bossDefeated = data.bossDefeated || false;
     // saves from the single-act era: their "victory" was only Act I's boss
     if (this.bossDefeated && this.floor <= 11) this.bossDefeated = false;
+    this.elitesKilled = data.elitesKilled || 0;
+    this.actsCleared = data.actsCleared ?? (this.bossDefeated ? 5 : Math.min(4, Math.floor((this.floor - 1) / 10)));
     if (this.floor === MAX_FLOOR && this.bossDefeated) this.floor = MAX_FLOOR + 1;
     this.ui.buildHotbar(this.player);
     this.enterWorld();
@@ -416,6 +423,59 @@ export class Game {
   roomPlayerCount() {
     if (!net.active) return 0;
     return net.isHost ? 1 + net.conns.size : Math.max(2, (net.lastRoster?.length || 2));
+  }
+
+  // Quest log data: main quest chain (one act boss per act) + run stats.
+  questState() {
+    const themeNames = [null, 'The Old Halls', 'The Rotting Depths', 'The Ember Vaults', 'The Sunless Court', 'The Abyssal Throne'];
+    const current = Math.min(5, this.actsCleared + 1);
+    const acts = [];
+    for (let a = 1; a <= 5; a++) {
+      acts.push({
+        act: a,
+        title: `Act ${ROMAN[a]} — ${themeNames[a]}`,
+        objective: `Slay ${ACT_BOSSES[a].name}`,
+        cleared: this.actsCleared >= a,
+        current: !this.bossDefeated && a === current,
+      });
+    }
+    const p = this.player;
+    const legendaries = p
+      ? [...p.inventory, ...Object.values(p.equipped)].filter((i) => i && i.rarity === 'legendary').length
+      : 0;
+    return {
+      acts,
+      done: this.bossDefeated,
+      stats: {
+        Floor: this.inTown ? `Embervale (checkpoint ${this.floor})` : this.floorLabelText(),
+        Level: p?.level ?? 1,
+        'Monsters slain': this.kills,
+        'Elites slain': this.elitesKilled,
+        Deaths: this.deaths,
+        Gold: p?.gold ?? 0,
+        'Legendaries owned': legendaries,
+        'Pack size': `${p?.invSize ?? 12} slots`,
+      },
+    };
+  }
+
+  // Short objective line for the HUD.
+  currentObjectiveText() {
+    if (this.bossDefeated) return 'Victory won — the endless abyss beckons';
+    const act = Math.min(5, this.actsCleared + 1);
+    const boss = ACT_BOSSES[act].name;
+    if (!this.inTown && actFloorOf(this.floor) === 10 && actOfFloor(this.floor) === act) return `☠️ Slay ${boss}!`;
+    return `Hunt ${boss} (Act ${ROMAN[act]})`;
+  }
+
+  toggleQuestLog() {
+    if (this.state === 'playing') {
+      this.state = 'quest';
+      this.ui.openQuestLog();
+    } else if (this.state === 'quest') {
+      this.state = 'playing';
+      this.ui.hideAll();
+    }
   }
 
   restockFee(vendor) {
@@ -658,6 +718,7 @@ export class Game {
       this.player.gainXp(msg.xp, this);
       this.rollDeathLoot(msg.x, msg.z, { miniboss: msg.mb, isBoss: msg.boss });
       if (msg.boss) {
+        this.actsCleared = Math.max(this.actsCleared, this.currentAct());
         if (this.currentAct() < 5 && this.floor <= MAX_FLOOR) {
           this.spawnActExit(msg.x, msg.z);
           this.ui.showFloorBanner(`ACT ${ROMAN[this.currentAct()]} CLEARED`, 'The way deeper opens…', true);
@@ -993,6 +1054,7 @@ export class Game {
     this.kills++;
     this.floorKills++;
     if (e.elite) {
+      this.elitesKilled++;
       this.ui.floaters.spawn(e.pos, `${e.name} falls!`, 'crit');
     }
     // seal-break moment
@@ -1017,6 +1079,7 @@ export class Game {
     }
 
     if (e.isBoss) {
+      this.actsCleared = Math.max(this.actsCleared, this.currentAct());
       if (this.currentAct() < 5 && this.floor <= MAX_FLOOR) {
         // act cleared: open the way down to the next act
         this.spawnActExit(e.pos.x, e.pos.z);
@@ -1236,6 +1299,8 @@ export class Game {
       kills: this.kills,
       deaths: this.deaths,
       bossDefeated: this.bossDefeated,
+      actsCleared: this.actsCleared,
+      elitesKilled: this.elitesKilled,
     });
   }
 
@@ -1259,7 +1324,7 @@ export class Game {
 
     if (this.state === 'playing') {
       this.updatePlaying(dt);
-    } else if (['dead', 'victory', 'inventory', 'paused', 'shop'].includes(this.state)) {
+    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest'].includes(this.state)) {
       // world is frozen; still render + light flicker for life
       this.updateTorches(dt, true);
       if (net.active) this.netFrozenTick(dt);
@@ -1268,6 +1333,7 @@ export class Game {
         this.ui.closeInventory();
       }
       if (this.state === 'shop' && this.input.wasPressed('Escape')) this.closeShop();
+      if (this.state === 'quest' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyJ'))) this.toggleQuestLog();
       if (this.state === 'paused' && this.input.wasPressed('Escape')) this.togglePause(false);
     }
 
@@ -1290,20 +1356,29 @@ export class Game {
     const p = this.player;
     const input = this.input;
 
-    // ---- input: movement ----
+    // ---- input: camera rotation (Q/E or touch rotate buttons) ----
+    if (input.isDown('KeyQ')) this.camYaw += 2.2 * dt;
+    if (input.isDown('KeyE')) this.camYaw -= 2.2 * dt;
+    if (this.touch.rotDir) this.camYaw += this.touch.rotDir * 2.0 * dt;
+
+    // ---- input: movement (screen-space, rotated into the world by camYaw) ----
     let mx = 0, mz = 0;
     if (input.isDown('KeyW') || input.isDown('ArrowUp')) mz -= 1;
     if (input.isDown('KeyS') || input.isDown('ArrowDown')) mz += 1;
     if (input.isDown('KeyA') || input.isDown('ArrowLeft')) mx -= 1;
     if (input.isDown('KeyD') || input.isDown('ArrowRight')) mx += 1;
     const len = Math.hypot(mx, mz) || 1;
-    p.moveDir.x = mx / len;
-    p.moveDir.z = mz / len;
+    mx /= len; mz /= len;
     // touch joystick overrides keyboard when engaged
     if (this.touch.joyActive) {
-      p.moveDir.x = this.touch.move.x;
-      p.moveDir.z = this.touch.move.z;
+      mx = this.touch.move.x;
+      mz = this.touch.move.z;
     }
+    // rotate screen-relative input into world axes so "up" is always away
+    // from the camera regardless of orbit angle
+    const cy = Math.cos(this.camYaw), sy = Math.sin(this.camYaw);
+    p.moveDir.x = mx * cy + mz * sy;
+    p.moveDir.z = -mx * sy + mz * cy;
 
     // ---- input: aim via mouse raycast to ground ----
     this._mouseNdc.set(
@@ -1332,12 +1407,13 @@ export class Game {
     } else if (input.mouse.clicked || input.wasPressed('Digit1')) {
       this.ui.floaters.spawn(p.pos, 'Peace reigns in Embervale.', 'heal');
     }
-    if (input.wasPressed('KeyQ')) p.drinkPotion(this);
+    if (input.wasPressed('KeyR')) p.drinkPotion(this);
     if (input.wasPressed('Tab') || input.wasPressed('KeyI')) {
       this.state = 'inventory';
       this.ui.openInventory();
       return;
     }
+    if (input.wasPressed('KeyJ')) { this.toggleQuestLog(); return; }
     if (input.wasPressed('Escape')) { this.togglePause(true); return; }
 
     // ---- systems ----
@@ -1365,11 +1441,13 @@ export class Game {
       this.netPlayTick(dt);
     }
 
-    // ---- camera follow + shake ----
+    // ---- camera follow + orbit + shake ----
     const target = p.pos;
-    this.camera.position.x += (target.x + this.cameraOffset.x - this.camera.position.x) * Math.min(1, 8 * dt);
+    const camX = target.x + Math.sin(this.camYaw) * this.cameraOffset.z;
+    const camZ = target.z + Math.cos(this.camYaw) * this.cameraOffset.z;
+    this.camera.position.x += (camX - this.camera.position.x) * Math.min(1, 8 * dt);
     this.camera.position.y += (target.y + this.cameraOffset.y - this.camera.position.y) * Math.min(1, 8 * dt);
-    this.camera.position.z += (target.z + this.cameraOffset.z - this.camera.position.z) * Math.min(1, 8 * dt);
+    this.camera.position.z += (camZ - this.camera.position.z) * Math.min(1, 8 * dt);
     if (this.shakeAmount > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.shakeAmount;
       this.camera.position.y += (Math.random() - 0.5) * this.shakeAmount * 0.6;

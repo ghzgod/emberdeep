@@ -20,6 +20,7 @@ export class UI {
       mp: $('mp-screen'),
       charselect: $('charselect-screen'),
       pause: $('pause-screen'),
+      quest: $('quest-screen'),
       settings: $('settings-screen'),
       inventory: $('inventory-screen'),
       shop: $('shop-screen'),
@@ -102,6 +103,8 @@ export class UI {
       else this.show('title');
     };
     $('btn-resume').onclick = () => this.game.togglePause(false);
+    $('btn-pause-quests').onclick = () => { this.game.state = 'quest'; this.openQuestLog(); };
+    $('btn-quest-close').onclick = () => { this.game.state = 'playing'; this.hideAll(); };
     $('btn-quit-title').onclick = () => this.game.quitToTitle();
     $('btn-respawn').onclick = () => this.game.respawn();
     $('btn-gameover-title').onclick = () => this.game.quitToTitle();
@@ -218,6 +221,35 @@ export class UI {
       };
       wrap.appendChild(row);
     }
+  }
+
+  // ---------- quest log ----------
+  openQuestLog() {
+    const qs = this.game.questState();
+    const list = $('quest-list');
+    list.innerHTML = '';
+    for (const a of qs.acts) {
+      const row = document.createElement('div');
+      row.className = `quest-row ${a.cleared ? 'done' : a.current ? 'active' : 'locked'}`;
+      const mark = a.cleared ? '✅' : a.current ? '⚔️' : '🔒';
+      row.innerHTML = `
+        <span class="quest-mark">${mark}</span>
+        <span class="quest-main">
+          <div class="quest-title">${a.title}</div>
+          <div class="quest-obj">${a.objective}${a.cleared ? ' — done' : a.current ? ' — in progress' : ''}</div>
+        </span>`;
+      list.appendChild(row);
+    }
+    if (qs.done) {
+      const row = document.createElement('div');
+      row.className = 'quest-row done';
+      row.innerHTML = '<span class="quest-mark">🌀</span><span class="quest-main"><div class="quest-title">The Endless Abyss</div><div class="quest-obj">Descend as far as you dare.</div></span>';
+      list.appendChild(row);
+    }
+    $('quest-stats').innerHTML = Object.entries(qs.stats)
+      .map(([k, v]) => `<span class="qs-item"><b>${k}:</b> ${v}</span>`).join('');
+    this.show('quest');
+    audio.play('ui_open');
   }
 
   // ---------- vendor shop ----------
@@ -435,6 +467,7 @@ export class UI {
       clearEl.textContent = '🔓 Stairs open';
       clearEl.className = 'open';
     }
+    $('hud-quest').textContent = this.game.currentObjectiveText();
 
     player.classDef.abilities.forEach((ab, i) => {
       const slot = this.hotbarSlots[i];

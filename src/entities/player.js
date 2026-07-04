@@ -57,23 +57,34 @@ export class Player {
     let maxResource = this.classDef.resource.max + lvl * 6;
     let regen = this.classDef.resource.regen + lvl * 0.6;
 
+    // Gear percentages pool ADDITIVELY across items, then hit hard caps and
+    // diminishing returns — no stat can stack into an auto-win:
+    //   damage: full value to +100%, half value beyond
+    //   move speed: capped at +30% · crit: capped 50% total · armor: 60%
+    let dmgPct = 0, speedPct = 0, critPct = 0, armorPct = 0, regenFlat = 0;
     for (const item of Object.values(this.equipped)) {
       if (!item) continue;
       for (const [stat, val] of Object.entries(item.stats)) {
-        if (stat === 'damagePct') damage *= 1 + val / 100;
+        if (stat === 'damagePct') dmgPct += val;
         else if (stat === 'maxHp') maxHp += val;
-        else if (stat === 'armor') armor += val / 100;
-        else if (stat === 'crit') crit += val / 100;
-        else if (stat === 'speed') speed *= 1 + val / 100;
-        else if (stat === 'regen') regen += val;
+        else if (stat === 'armor') armorPct += val;
+        else if (stat === 'crit') critPct += val;
+        else if (stat === 'speed') speedPct += val;
+        else if (stat === 'regen') regenFlat += val;
       }
     }
+    const effDmg = dmgPct <= 100 ? dmgPct : 100 + (dmgPct - 100) * 0.5;
+    damage *= 1 + effDmg / 100;
+    speed *= 1 + Math.min(30, speedPct) / 100;
+    crit += Math.min(35, critPct) / 100;
+    armor += Math.min(45, armorPct) / 100;
+    regen += Math.min(15, regenFlat);
 
     this.maxHp = Math.round(maxHp);
     this.baseDamage = damage;
     this.speed = speed;
-    this.armor = Math.min(0.75, armor);
-    this.crit = Math.min(0.6, crit);
+    this.armor = Math.min(0.6, armor);
+    this.crit = Math.min(0.5, crit);
     this.maxResource = Math.round(maxResource);
     this.resourceRegen = regen;
     if (this.hp !== undefined) this.hp = Math.min(this.hp, this.maxHp);
