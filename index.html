@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Emberdeep</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Loading -->
+    <div id="loading-screen" class="overlay visible">
+      <h1 class="game-title">EMBERDEEP</h1>
+      <div class="loading-bar-outer"><div id="loading-bar" class="loading-bar-inner"></div></div>
+      <p id="loading-text">Loading…</p>
+    </div>
+
+    <!-- Title -->
+    <div id="title-screen" class="overlay">
+      <h1 class="game-title">EMBERDEEP</h1>
+      <p class="subtitle">Descend. Fight. Survive.</p>
+      <div class="menu-buttons">
+        <button id="btn-continue" class="menu-btn hidden">Continue</button>
+        <button id="btn-new-game" class="menu-btn">New Game</button>
+        <button id="btn-title-settings" class="menu-btn">Settings</button>
+      </div>
+      <p class="hint">WASD to move · Mouse to aim & attack · 1–4 abilities</p>
+    </div>
+
+    <!-- Character select -->
+    <div id="charselect-screen" class="overlay">
+      <h2 class="screen-heading">Choose Your Hero</h2>
+      <div class="class-cards" id="class-cards"></div>
+      <div class="menu-buttons">
+        <button id="btn-charselect-back" class="menu-btn small">Back</button>
+      </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div id="hud-topleft">
+        <div class="bar-wrap"><div id="hp-bar" class="bar hp"></div><span id="hp-text" class="bar-text"></span></div>
+        <div class="bar-wrap small"><div id="resource-bar" class="bar resource"></div><span id="resource-text" class="bar-text"></span></div>
+        <div class="bar-wrap tiny"><div id="xp-bar" class="bar xp"></div><span id="xp-text" class="bar-text"></span></div>
+        <div id="hud-stats"><span id="hud-level"></span><span id="hud-gold"></span><span id="hud-potions"></span></div>
+      </div>
+      <div id="hud-topright">
+        <div id="hud-floor"></div>
+        <canvas id="minimap" width="180" height="180"></canvas>
+      </div>
+      <div id="boss-bar-wrap" class="hidden">
+        <span id="boss-name"></span>
+        <div class="bar-wrap boss"><div id="boss-bar" class="bar boss"></div></div>
+      </div>
+      <div id="hotbar"></div>
+      <div id="hud-hints">Q potion · Tab inventory · Esc pause</div>
+    </div>
+
+    <!-- Floating combat text layer -->
+    <div id="floaters"></div>
+
+    <!-- Touch controls (coarse-pointer devices) -->
+    <div id="touch-ui" class="hidden">
+      <div id="joystick-base"><div id="joystick-knob"></div></div>
+      <button id="touch-potion">🧪</button>
+      <button id="touch-pause">⏸</button>
+    </div>
+
+    <!-- Inventory -->
+    <div id="inventory-screen" class="overlay panel">
+      <h2 class="screen-heading">Inventory</h2>
+      <div id="equip-slots" class="equip-row"></div>
+      <div id="inv-grid" class="inv-grid"></div>
+      <div id="item-tooltip" class="hidden"></div>
+      <p class="hint">Click an item to equip · Right-click to drop · Tab/Esc to close</p>
+    </div>
+
+    <!-- Pause -->
+    <div id="pause-screen" class="overlay panel">
+      <h2 class="screen-heading">Paused</h2>
+      <div class="menu-buttons">
+        <button id="btn-resume" class="menu-btn">Resume</button>
+        <button id="btn-pause-settings" class="menu-btn">Settings</button>
+        <button id="btn-quit-title" class="menu-btn">Save & Quit to Title</button>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div id="settings-screen" class="overlay panel">
+      <h2 class="screen-heading">Settings</h2>
+      <div class="settings-rows">
+        <label>Master Volume <input type="range" id="set-master" min="0" max="100" value="80"><span id="set-master-val"></span></label>
+        <label>Music Volume <input type="range" id="set-music" min="0" max="100" value="60"><span id="set-music-val"></span></label>
+        <label>SFX Volume <input type="range" id="set-sfx" min="0" max="100" value="90"><span id="set-sfx-val"></span></label>
+        <label>Quality
+          <select id="set-quality">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <label>Screen Shake <input type="checkbox" id="set-shake" checked></label>
+      </div>
+      <div class="menu-buttons"><button id="btn-settings-back" class="menu-btn">Back</button></div>
+    </div>
+
+    <!-- Level up toast -->
+    <div id="levelup-toast" class="hidden"></div>
+
+    <!-- Floor transition -->
+    <div id="floor-banner" class="hidden"></div>
+
+    <!-- Game over -->
+    <div id="gameover-screen" class="overlay">
+      <h2 class="screen-heading death">You Have Fallen</h2>
+      <p id="gameover-text"></p>
+      <div class="menu-buttons">
+        <button id="btn-respawn" class="menu-btn">Rise Again</button>
+        <button id="btn-gameover-title" class="menu-btn small">Quit to Title</button>
+      </div>
+    </div>
+
+    <!-- Victory -->
+    <div id="victory-screen" class="overlay">
+      <h2 class="screen-heading victory">The Dungeon Lord is Slain!</h2>
+      <div id="victory-stats"></div>
+      <div class="menu-buttons">
+        <button id="btn-victory-continue" class="menu-btn">Keep Exploring</button>
+        <button id="btn-victory-title" class="menu-btn small">Quit to Title</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

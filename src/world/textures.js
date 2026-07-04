@@ -1,0 +1,117 @@
+import * as THREE from 'three';
+
+// Procedural canvas textures: stone floors, brick walls, wood.
+// Themed per floor band so deeper floors feel different.
+
+export const THEMES = {
+  stone:    { floor: '#5a5a60', wall: '#6b6b72', mortar: '#3a3a40', accent: 0xffa95e, name: 'The Old Halls' },
+  moss:     { floor: '#4e5a48', wall: '#5c6b55', mortar: '#333d2e', accent: 0x8ee87a, name: 'The Rotting Depths' },
+  obsidian: { floor: '#4a3540', wall: '#553a45', mortar: '#2a1a22', accent: 0xff5e4a, name: 'The Ember Vaults' },
+  cursed:   { floor: '#3d3450', wall: '#463b5c', mortar: '#221c30', accent: 0xb35eff, name: "The Lord's Sanctum" },
+};
+
+export function themeForFloor(floor) {
+  if (floor >= 10) return THEMES.cursed;
+  if (floor >= 7) return THEMES.obsidian;
+  if (floor >= 4) return THEMES.moss;
+  return THEMES.stone;
+}
+
+function makeCanvas(size) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  return [c, c.getContext('2d')];
+}
+
+function jitterColor(hex, amount) {
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const j = () => Math.floor((Math.random() - 0.5) * 2 * amount);
+  r = Math.min(255, Math.max(0, r + j()));
+  g = Math.min(255, Math.max(0, g + j()));
+  b = Math.min(255, Math.max(0, b + j()));
+  return `rgb(${r},${g},${b})`;
+}
+
+function speckle(ctx, size, count, alpha) {
+  for (let i = 0; i < count; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random() * alpha})`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    ctx.fillStyle = `rgba(255,255,255,${Math.random() * alpha * 0.5})`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 1, 1);
+  }
+}
+
+export function makeFloorTexture(theme) {
+  const size = 256;
+  const [canvas, ctx] = makeCanvas(size);
+  const tiles = 4, ts = size / tiles;
+  ctx.fillStyle = theme.mortar;
+  ctx.fillRect(0, 0, size, size);
+  for (let y = 0; y < tiles; y++) {
+    for (let x = 0; x < tiles; x++) {
+      ctx.fillStyle = jitterColor(theme.floor, 14);
+      ctx.fillRect(x * ts + 2, y * ts + 2, ts - 4, ts - 4);
+      // cracked corner detail
+      if (Math.random() < 0.3) {
+        ctx.strokeStyle = theme.mortar;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        const cx = x * ts + Math.random() * ts, cy = y * ts + Math.random() * ts;
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + (Math.random() - 0.5) * 24, cy + (Math.random() - 0.5) * 24);
+        ctx.stroke();
+      }
+    }
+  }
+  speckle(ctx, size, 600, 0.16);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function makeWallTexture(theme) {
+  const size = 256;
+  const [canvas, ctx] = makeCanvas(size);
+  ctx.fillStyle = theme.mortar;
+  ctx.fillRect(0, 0, size, size);
+  const rows = 6, bh = size / rows;
+  for (let r = 0; r < rows; r++) {
+    const offset = (r % 2) * 0.5;
+    const cols = 3;
+    const bw = size / cols;
+    for (let c = -1; c < cols + 1; c++) {
+      const x = (c + offset) * bw;
+      ctx.fillStyle = jitterColor(theme.wall, 12);
+      ctx.fillRect(x + 3, r * bh + 3, bw - 6, bh - 6);
+    }
+  }
+  speckle(ctx, size, 500, 0.18);
+  // subtle top-down shading
+  const grad = ctx.createLinearGradient(0, 0, 0, size);
+  grad.addColorStop(0, 'rgba(255,255,255,0.06)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.22)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function makeWoodTexture() {
+  const size = 128;
+  const [canvas, ctx] = makeCanvas(size);
+  ctx.fillStyle = '#5a4028';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = jitterColor('#6b4c30', 16);
+    ctx.fillRect(i * (size / 6) + 1, 0, size / 6 - 2, size);
+  }
+  speckle(ctx, size, 200, 0.2);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
