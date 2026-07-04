@@ -100,6 +100,74 @@ export function makeWallTexture(theme) {
   return tex;
 }
 
+export function makeGrassTexture() {
+  const size = 256;
+  const [canvas, ctx] = makeCanvas(size);
+  ctx.fillStyle = '#3d5a33';
+  ctx.fillRect(0, 0, size, size);
+  // mottled patches
+  for (let i = 0; i < 40; i++) {
+    ctx.fillStyle = jitterColor(Math.random() < 0.5 ? '#46653a' : '#35502c', 10);
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.ellipse(Math.random() * size, Math.random() * size, 14 + Math.random() * 26, 10 + Math.random() * 18, Math.random() * 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // grass blade strokes
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * size, y = Math.random() * size;
+    ctx.strokeStyle = jitterColor(Math.random() < 0.7 ? '#4e7040' : '#5d8148', 14);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (Math.random() - 0.5) * 3, y - 2 - Math.random() * 3);
+    ctx.stroke();
+  }
+  // scattered tiny wildflowers
+  for (let i = 0; i < 26; i++) {
+    ctx.fillStyle = ['#d8c95a', '#c96a6a', '#b98ad8', '#e8e0d0'][Math.floor(Math.random() * 4)];
+    ctx.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function makeCobbleTexture() {
+  const size = 256;
+  const [canvas, ctx] = makeCanvas(size);
+  ctx.fillStyle = '#4b4740';
+  ctx.fillRect(0, 0, size, size);
+  // irregular flagstones: offset rows, varied sizes, tight joints
+  const rows = 5;
+  const ch = size / rows;
+  for (let r = -1; r <= rows; r++) {
+    let x = (r % 2) * -18;
+    while (x < size + 20) {
+      const w = 34 + Math.random() * 34;
+      const cy = r * ch + ch / 2 + (Math.random() - 0.5) * 4;
+      const b = 88 + Math.floor(Math.random() * 14);
+      ctx.fillStyle = `rgb(${b},${b - 3},${b - 8})`;
+      ctx.beginPath();
+      // rounded-rectangle slab
+      const sw = w - 4, sh = ch - 5;
+      ctx.roundRect(x + 2, cy - sh / 2, sw, sh, 7);
+      ctx.fill();
+      // subtle worn top edge
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      ctx.fillRect(x + 5, cy - sh / 2 + 2, sw - 6, 3);
+      x += w;
+    }
+  }
+  speckle(ctx, size, 500, 0.12);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export function makeWoodTexture() {
   const size = 128;
   const [canvas, ctx] = makeCanvas(size);

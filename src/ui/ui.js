@@ -1,5 +1,6 @@
 import { CLASSES } from '../entities/classes.js';
-import { RARITIES, statLabel } from '../entities/loot.js';
+import { RARITIES, statLabel, sellValue, buyPrice } from '../entities/loot.js';
+import { SaveManager } from '../core/save.js';
 import { Floaters } from './floaters.js';
 import { Minimap } from './minimap.js';
 import { audio } from '../core/audio.js';
@@ -15,10 +16,13 @@ export class UI {
     this.screens = {
       loading: $('loading-screen'),
       title: $('title-screen'),
+      saves: $('saves-screen'),
+      mp: $('mp-screen'),
       charselect: $('charselect-screen'),
       pause: $('pause-screen'),
       settings: $('settings-screen'),
       inventory: $('inventory-screen'),
+      shop: $('shop-screen'),
       gameover: $('gameover-screen'),
       victory: $('victory-screen'),
     };
@@ -45,17 +49,49 @@ export class UI {
     if (text) $('loading-text').textContent = text;
   }
 
-  showTitle(hasSave) {
+  showTitle() {
     this.show('title');
     this.showHud(false);
-    $('btn-continue').classList.toggle('hidden', !hasSave);
   }
 
   // ---------- menu wiring ----------
   wireMenus() {
-    $('btn-new-game').onclick = () => { this.resetClassSelect(); this.show('charselect'); };
-    $('btn-continue').onclick = () => this.game.continueGame();
-    $('btn-charselect-back').onclick = () => this.show('title');
+    $('btn-single').onclick = () => {
+      this.game.setMultiplayer(false);
+      this.renderSaves();
+      this.show('saves');
+    };
+    $('btn-multi').onclick = () => {
+      $('mp-status').textContent = '';
+      this.show('mp');
+    };
+    $('btn-mp-enter').onclick = async () => {
+      const room = $('mp-room').value.trim() || 'JOEL';
+      $('mp-status').textContent = 'Connecting to room…';
+      const result = await this.game.startMultiplayer(room);
+      if (result.mode === 'error') {
+        $('mp-status').textContent = `Connection failed (${result.error}). Try again.`;
+      } else if (result.mode === 'full') {
+        $('mp-status').textContent = 'That room already has 4 heroes.';
+      } else {
+        $('mp-status').textContent = '';
+        this.renderSaves(result.mode === 'host' ? 'You are the HOST of this room.' : 'Joined! You will enter the host’s world.');
+        this.show('saves');
+      }
+    };
+    $('btn-mp-back').onclick = () => this.show('title');
+    $('btn-saves-back').onclick = () => { this.game.leaveMultiplayerLobby(); this.show('title'); };
+    $('btn-new-character').onclick = () => {
+      if (!SaveManager.canCreate()) {
+        $('saves-list').firstChild?.scrollIntoView();
+        alert('Save limit reached (8). Delete a hero first.');
+        return;
+      }
+      this.resetClassSelect();
+      this.show('charselect');
+    };
+    $('btn-charselect-back').onclick = () => { this.renderSaves(); this.show('saves'); };
+    $('btn-shop-close').onclick = () => this.game.closeShop();
     $('btn-title-settings').onclick = () => { this.settingsReturnTo = 'title'; this.show('settings'); };
     $('btn-pause-settings').onclick = () => { this.settingsReturnTo = 'pause'; this.show('settings'); };
     $('btn-settings-back').onclick = () => {
@@ -133,6 +169,101 @@ export class UI {
     btn.textContent = 'Choose a hero';
   }
 
+  // ---------- save slots ----------
+  renderSaves(statusMsg = '') {
+    const wrap = $('saves-list');
+    wrap.innerHTML = '';
+    if (statusMsg) {
+      const s = document.createElement('div');
+      s.className = 'saves-empty';
+      s.textContent = statusMsg;
+      wrap.appendChild(s);
+    }
+    const saves = SaveManager.listSaves();
+    if (!saves.length) {
+      const e = document.createElement('div');
+      e.className = 'saves-empty';
+      e.textContent = 'No heroes yet — forge one below.';
+      wrap.appendChild(e);
+      return;
+    }
+    const icons = { knight: '🛡️', mage: '🔮', ranger: '🏹' };
+    for (const slot of saves) {
+      const p = slot.data.player;
+      const row = document.createElement('div');
+      row.className = 'save-row';
+      const ago = timeAgo(slot.updatedAt);
+      const cls = CLASSES[p.classId];
+      row.innerHTML = `
+        <span class="save-icon">${icons[p.classId] || '⚔️'}</span>
+        <span class="save-main">
+          <div class="save-name">${cls ? cls.name : p.classId} — Level ${p.level}</div>
+          <div class="save-sub">Floor ${slot.data.floor || 1} · ${p.gold}g · ${ago}</div>
+        </span>
+        <button class="save-del" title="Delete hero">✕</button>
+      `;
+      row.querySelector('.save-del').onclick = (e) => {
+        e.stopPropagation();
+        if (confirm(`Delete this ${cls ? cls.name : 'hero'} forever?`)) {
+          SaveManager.deleteSlot(slot.id);
+          this.renderSaves();
+        }
+      };
+      row.onclick = () => {
+        audio.play('ui_click', { volume: 0.7 });
+        this.game.continueGame(slot.id);
+      };
+      wrap.appendChild(row);
+    }
+  }
+
+  // ---------- vendor shop ----------
+  openShop(vendor) {
+    this.renderShop(vendor);
+    this.show('shop');
+    audio.play('ui_open');
+  }
+
+  renderShop(vendor) {
+    const p = this.game.player;
+    $('shop-title').textContent = vendor.name;
+    $('shop-gold').textContent = `Your gold: ${p.gold} 🪙`;
+
+    const buyWrap = $('shop-buy-list');
+    buyWrap.innerHTML = '';
+    for (const entry of vendor.stock) {
+      const el = document.createElement('div');
+      const afford = p.gold >= entry.price && !entry.sold;
+      el.className = `shop-item ${entry.item ? 'r-' + entry.item.rarity : ''} ${afford ? '' : 'disabled'}`;
+      el.innerHTML = `
+        <span>${entry.icon}</span>
+        <span class="shop-item-name">${entry.sold ? '(sold) ' : ''}${entry.label}</span>
+        <span class="shop-item-price">${entry.price}g</span>
+      `;
+      if (afford) {
+        el.onclick = () => { this.game.buyFromVendor(vendor, entry); this.renderShop(vendor); };
+      }
+      buyWrap.appendChild(el);
+    }
+
+    const sellWrap = $('shop-sell-list');
+    sellWrap.innerHTML = '';
+    if (!p.inventory.length) {
+      sellWrap.innerHTML = '<div class="shop-empty">Nothing to sell.</div>';
+    }
+    for (const item of [...p.inventory]) {
+      const el = document.createElement('div');
+      el.className = `shop-item r-${item.rarity}`;
+      el.innerHTML = `
+        <span>${item.icon}</span>
+        <span class="shop-item-name">${item.name}</span>
+        <span class="shop-item-price">+${sellValue(item)}g</span>
+      `;
+      el.onclick = () => { this.game.sellItem(item); this.renderShop(vendor); };
+      sellWrap.appendChild(el);
+    }
+  }
+
   // ---------- settings ----------
   wireSettings() {
     const s = this.game.settings;
@@ -158,6 +289,58 @@ export class UI {
     const shake = $('set-shake');
     shake.checked = s.screenShake;
     shake.onchange = () => { s.screenShake = shake.checked; this.game.saveSettings(); };
+
+    // voice chat
+    const vSel = $('set-voice');
+    const vRow = $('voice-thresh-row');
+    const vMeterRow = $('voice-meter-row');
+    const vThresh = $('set-voice-thresh');
+    const vVal = $('set-voice-thresh-val');
+    const syncVoiceRows = () => {
+      vRow.classList.toggle('hidden', s.voiceMode !== 'auto');
+      vMeterRow.classList.toggle('hidden', s.voiceMode === 'off');
+      $('touch-mic').classList.toggle('hidden', s.voiceMode !== 'ptt');
+    };
+    vSel.value = s.voiceMode;
+    vThresh.value = s.voiceThreshold;
+    vVal.textContent = s.voiceThreshold;
+    syncVoiceRows();
+    vSel.onchange = async () => {
+      s.voiceMode = vSel.value;
+      this.game.saveSettings();
+      syncVoiceRows();
+      const { voice } = await import('../net/voice.js');
+      const { net } = await import('../net/net.js');
+      if (s.voiceMode === 'off') voice.disable();
+      else if (net.active) {
+        const ok = await voice.enable(s.voiceMode, s.voiceThreshold);
+        if (!ok) { vSel.value = 'off'; s.voiceMode = 'off'; syncVoiceRows(); alert('Microphone unavailable or permission denied.'); }
+      }
+      if (net.active && net.isHost) net.broadcastRoster();
+    };
+    vThresh.oninput = async () => {
+      s.voiceThreshold = +vThresh.value;
+      vVal.textContent = vThresh.value;
+      this.game.saveSettings();
+      const { voice } = await import('../net/voice.js');
+      voice.threshold = s.voiceThreshold;
+    };
+    // live mic level meter while settings open
+    setInterval(async () => {
+      if (!this.screens.settings.classList.contains('visible')) return;
+      const { voice } = await import('../net/voice.js');
+      const meter = $('voice-meter');
+      if (voice.active) {
+        meter.style.width = `${voice.level}%`;
+        meter.classList.toggle('hot', voice.level >= voice.threshold);
+      } else {
+        meter.style.width = '0%';
+      }
+    }, 120);
+  }
+
+  setMicIndicator(on) {
+    $('voice-indicator').classList.toggle('hidden', !on);
   }
 
   syncSettingsInputs() {
@@ -212,7 +395,20 @@ export class UI {
     $('hud-level').textContent = `Lv ${player.level}`;
     $('hud-gold').textContent = `${player.gold} 🪙`;
     $('hud-potions').textContent = `${player.potions} 🧪`;
-    $('hud-floor').textContent = floor >= 10 ? '☠️ Floor 10' : `Floor ${floor}`;
+    $('hud-floor').textContent = this.game.inTown ? '🏘️ Embervale' : floor >= 10 ? '☠️ Floor 10' : `Floor ${floor}`;
+
+    // stairs seal progress
+    const clearEl = $('hud-clear');
+    if (this.game.inTown || !this.game.dungeon?.stairs) {
+      clearEl.textContent = '';
+    } else if (this.game.stairsLocked()) {
+      const eliteLeft = this.game.enemies.some((e) => !e.dead && e.elite);
+      clearEl.textContent = `🔒 ${this.game.floorKills}/${this.game.stairsClearNeed()} culled${eliteLeft ? ' · Elite alive' : ''}`;
+      clearEl.className = 'sealed';
+    } else {
+      clearEl.textContent = '🔓 Stairs open';
+      clearEl.className = 'open';
+    }
 
     player.classDef.abilities.forEach((ab, i) => {
       const slot = this.hotbarSlots[i];
@@ -307,7 +503,7 @@ export class UI {
 
     const grid = $('inv-grid');
     grid.innerHTML = '';
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < p.invSize; i++) {
       const item = p.inventory[i];
       const el = document.createElement('div');
       el.className = `inv-slot ${item ? 'rarity-' + item.rarity : ''}`;
@@ -315,7 +511,7 @@ export class UI {
       if (item) {
         el.onmouseenter = (e) => this.showTooltip(item, e);
         el.onmouseleave = () => this.hideTooltip();
-        el.onclick = () => { this.game.equip(item); this.renderInventory(); };
+        el.onclick = () => this.selectItem(item);
         el.oncontextmenu = (e) => {
           e.preventDefault();
           this.game.dropItem(item);
@@ -325,6 +521,33 @@ export class UI {
       }
       grid.appendChild(el);
     }
+    if (!this.selectedItem || !p.inventory.includes(this.selectedItem)) {
+      this.selectedItem = null;
+      $('item-actions').classList.add('hidden');
+    }
+  }
+
+  // Tap/click an item -> action panel (works on mobile where right-click doesn't exist).
+  selectItem(item) {
+    this.selectedItem = item;
+    const panel = $('item-actions');
+    panel.classList.remove('hidden');
+    const stats = Object.entries(item.stats)
+      .map(([k, v]) => `<span class="tt-stat">${statLabel(k, v)}</span>`).join(' · ');
+    $('item-actions-info').innerHTML =
+      `<h4 class="tt-${item.rarity}" style="display:inline">${item.icon} ${item.name}</h4><br>${stats}`;
+    $('btn-item-equip').onclick = () => { this.game.equip(item); this.renderInventory(); };
+    const sellBtn = $('btn-item-sell');
+    if (this.game.inTown) {
+      sellBtn.disabled = false;
+      sellBtn.textContent = `Sell +${sellValue(item)}g`;
+      sellBtn.onclick = () => { this.game.sellItem(item); this.renderInventory(); };
+    } else {
+      sellBtn.disabled = true;
+      sellBtn.textContent = 'Sell (in town)';
+      sellBtn.onclick = null;
+    }
+    $('btn-item-drop').onclick = () => { this.game.dropItem(item); this.renderInventory(); };
   }
 
   showTooltip(item, e) {
@@ -342,4 +565,12 @@ export class UI {
     tt.style.top = `${Math.min(e.clientY + 8, window.innerHeight - 180)}px`;
   }
   hideTooltip() { $('item-tooltip').classList.add('hidden'); }
+}
+
+function timeAgo(ts) {
+  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }

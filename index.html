@@ -22,11 +22,44 @@
       <h1 class="game-title">EMBERDEEP</h1>
       <p class="subtitle">Descend. Fight. Survive.</p>
       <div class="menu-buttons">
-        <button id="btn-continue" class="menu-btn hidden">Continue</button>
-        <button id="btn-new-game" class="menu-btn">New Game</button>
+        <button id="btn-single" class="menu-btn">Single Player</button>
+        <button id="btn-multi" class="menu-btn">Multiplayer</button>
         <button id="btn-title-settings" class="menu-btn">Settings</button>
       </div>
       <p class="hint">WASD to move · Mouse to aim & attack · 1–4 abilities</p>
+    </div>
+
+    <!-- Save slots -->
+    <div id="saves-screen" class="overlay">
+      <h2 class="screen-heading">Your Heroes</h2>
+      <div id="saves-list"></div>
+      <div class="menu-buttons">
+        <button id="btn-new-character" class="menu-btn">New Character</button>
+        <button id="btn-saves-back" class="menu-btn small">Back</button>
+      </div>
+    </div>
+
+    <!-- Multiplayer room -->
+    <div id="mp-screen" class="overlay">
+      <h2 class="screen-heading">Multiplayer</h2>
+      <p class="mp-blurb">Up to 4 heroes share one dungeon. Everyone enters the same room name —<br>the first becomes the host; the rest join their world. Enemies grow stronger per hero.</p>
+      <label class="mp-room-label">Room name <input id="mp-room" type="text" maxlength="16" value="JOEL"></label>
+      <p id="mp-status" class="hint"></p>
+      <div class="menu-buttons">
+        <button id="btn-mp-enter" class="menu-btn">Enter Together</button>
+        <button id="btn-mp-back" class="menu-btn small">Back</button>
+      </div>
+    </div>
+
+    <!-- Vendor shop -->
+    <div id="shop-screen" class="overlay panel">
+      <h2 class="screen-heading" id="shop-title">Shop</h2>
+      <div id="shop-gold" class="shop-gold"></div>
+      <div class="shop-columns">
+        <div class="shop-col"><h3>Buy</h3><div id="shop-buy-list"></div></div>
+        <div class="shop-col"><h3>Sell</h3><div id="shop-sell-list"></div></div>
+      </div>
+      <div class="menu-buttons"><button id="btn-shop-close" class="menu-btn small">Leave</button></div>
     </div>
 
     <!-- Character select -->
@@ -50,6 +83,7 @@
       </div>
       <div id="hud-topright">
         <div id="hud-floor"></div>
+        <div id="hud-clear"></div>
         <canvas id="minimap" width="180" height="180"></canvas>
       </div>
       <div id="boss-bar-wrap" class="hidden">
@@ -58,6 +92,7 @@
       </div>
       <div id="hotbar"></div>
       <div id="hud-hints">Q potion · Tab inventory · Esc pause</div>
+      <div id="voice-indicator" class="hidden">🎤 LIVE</div>
     </div>
 
     <!-- Floating combat text layer -->
@@ -68,6 +103,7 @@
       <div id="joystick-base"><div id="joystick-knob"></div></div>
       <button id="touch-potion">🧪</button>
       <button id="touch-inv">🎒</button>
+      <button id="touch-mic" class="hidden">🎤</button>
       <button id="touch-pause">⏸</button>
     </div>
 
@@ -76,8 +112,16 @@
       <h2 class="screen-heading">Inventory</h2>
       <div id="equip-slots" class="equip-row"></div>
       <div id="inv-grid" class="inv-grid"></div>
+      <div id="item-actions" class="hidden">
+        <div id="item-actions-info"></div>
+        <div class="item-actions-btns">
+          <button id="btn-item-equip" class="menu-btn small">Equip</button>
+          <button id="btn-item-sell" class="menu-btn small">Sell</button>
+          <button id="btn-item-drop" class="menu-btn small">Drop</button>
+        </div>
+      </div>
       <div id="item-tooltip" class="hidden"></div>
-      <p class="hint">Click an item to equip · Right-click to drop · Tab/Esc to close</p>
+      <p class="hint">Tap an item for actions · Tab/Esc to close</p>
     </div>
 
     <!-- Pause -->
@@ -105,6 +149,17 @@
           </select>
         </label>
         <label>Screen Shake <input type="checkbox" id="set-shake" checked></label>
+        <label>Voice Chat (multiplayer)
+          <select id="set-voice">
+            <option value="off" selected>Off</option>
+            <option value="ptt">Push-to-talk (hold V / 🎤)</option>
+            <option value="auto">Voice activated</option>
+          </select>
+        </label>
+        <label id="voice-thresh-row" class="hidden">Voice Trigger Level
+          <input type="range" id="set-voice-thresh" min="3" max="60" value="12"><span id="set-voice-thresh-val"></span>
+        </label>
+        <div id="voice-meter-row" class="hidden"><div id="voice-meter"></div></div>
       </div>
       <div class="menu-buttons"><button id="btn-settings-back" class="menu-btn">Back</button></div>
     </div>

@@ -54,6 +54,7 @@ export class Enemy {
     this.typeId = typeId;
     this.def = ENEMY_TYPES[typeId];
     this.miniboss = !!opts.miniboss;
+    this.elite = !!opts.elite;
 
     const f = floor - 1;
     let hp = this.def.base.hp + this.def.perFloor.hp * f;
@@ -67,6 +68,10 @@ export class Enemy {
       hp *= 3.5; damage *= 1.6; this.xp = Math.round(this.xp * 4);
       this.radius *= 1.4;
       this.name = MINIBOSS_NAMES[typeId] || 'Champion';
+    } else if (this.elite) {
+      hp *= 2.2; damage *= 1.3; this.xp = Math.round(this.xp * 2.5);
+      this.radius *= 1.2;
+      this.name = `Elite ${this.def.name}`;
     } else {
       this.name = this.def.name;
     }
@@ -84,7 +89,12 @@ export class Enemy {
     this.hitFlash = 0;
     this.knockback = null;
 
-    this.mesh = buildEnemyMesh(typeId, this.miniboss ? 1.5 : 1);
+    this.mesh = buildEnemyMesh(typeId, this.miniboss ? 1.5 : this.elite ? 1.25 : 1);
+    if (this.elite) {
+      // silver elite crown
+      const crown = this.mesh.children.find((c) => c.geometry?.type === 'TorusGeometry');
+      if (crown) crown.material = new THREE.MeshBasicMaterial({ color: 0xc8d8e8 });
+    }
   }
 
   get moveSpeed() {
@@ -139,21 +149,24 @@ export class Enemy {
       if (Math.abs(k.x) + Math.abs(k.z) < 0.3) this.knockback = null;
     }
 
-    const distToPlayer = Math.hypot(player.pos.x - this.pos.x, player.pos.z - this.pos.z);
+    // Target the nearest living hero (in co-op that may be a remote player).
+    const target = game.getNearestTarget(this.pos);
+    const tPos = target.pos;
+    const distToPlayer = Math.hypot(tPos.x - this.pos.x, tPos.z - this.pos.z);
     const atk = this.def.attack;
 
     switch (this.state) {
       case 'idle': {
-        if (!player.dead && distToPlayer < this.def.aggroRange && game.hasLineOfSight(this.pos, player.pos)) {
+        if (!target.dead && distToPlayer < this.def.aggroRange && game.hasLineOfSight(this.pos, tPos)) {
           this.state = 'chase';
           if (this.miniboss) audio.play(this.def.sounds.hurt, { pos: this.pos, volume: 0.8, rate: 0.7 });
         }
         break;
       }
       case 'chase': {
-        if (player.dead) { this.state = 'idle'; break; }
+        if (target.dead) { this.state = 'idle'; break; }
         const inRange = atk.kind === 'ranged'
-          ? distToPlayer < atk.range && game.hasLineOfSight(this.pos, player.pos)
+          ? distToPlayer < atk.range && game.hasLineOfSight(this.pos, tPos)
           : distToPlayer < atk.range;
         if (inRange && this.attackCd <= 0) {
           this.state = 'windup';
@@ -161,11 +174,11 @@ export class Enemy {
           if (atk.kind === 'slam') audio.play(this.def.sounds.special, { pos: this.pos, volume: 0.6 });
           break;
         }
-        // move toward player (imps keep their distance).
-        // If the movement learner has a prediction, steer toward the
-        // INTERCEPT point instead of tail-chasing the current position.
-        let targetX = player.pos.x, targetZ = player.pos.z;
-        if (atk.kind !== 'ranged' && distToPlayer > 3) {
+        // move toward target (imps keep their distance).
+        // If the movement learner has a prediction (local player only), steer
+        // toward the INTERCEPT point instead of tail-chasing.
+        let targetX = tPos.x, targetZ = tPos.z;
+        if (atk.kind !== 'ranged' && distToPlayer > 3 && target.local) {
           const pred = learner.predict(player);
           if (pred) { targetX += pred.dx * 0.7; targetZ += pred.dz * 0.7; }
         }
@@ -184,7 +197,7 @@ export class Enemy {
       case 'windup': {
         this.stateTimer -= dt;
         if (this.stateTimer <= 0) {
-          this.executeAttack(game, distToPlayer);
+          this.executeAttack(game, distToPlayer, target);
           this.state = 'recover';
           this.stateTimer = 0.3;
           this.attackCd = atk.cooldown;
@@ -220,8 +233,8 @@ export class Enemy {
 
     // mesh sync
     this.mesh.position.copy(this.pos);
-    if (!player.dead && this.state !== 'idle') {
-      this.mesh.rotation.y = Math.atan2(player.pos.x - this.pos.x, player.pos.z - this.pos.z);
+    if (!target.dead && this.state !== 'idle') {
+      this.mesh.rotation.y = Math.atan2(tPos.x - this.pos.x, tPos.z - this.pos.z);
     }
     // windup telegraph: lean/scale
     const scaleBase = this.miniboss ? 1.5 : 1;
@@ -239,22 +252,25 @@ export class Enemy {
     });
   }
 
-  executeAttack(game, distToPlayer) {
+  executeAttack(game, distToTarget, target) {
     const atk = this.def.attack;
-    const player = game.player;
+    target = target || game.getNearestTarget(this.pos);
+    const tPos = target.pos;
     if (atk.kind === 'melee') {
-      if (distToPlayer < atk.range + 0.4) player.takeDamage(this.damage, game);
+      if (distToTarget < atk.range + 0.4) game.hitTarget(target, this.damage);
     } else if (atk.kind === 'slam') {
       game.shake(0.3);
       game.particles.ring(this.pos.x, 0.3, this.pos.z, atk.aoe, 0xaaa8a0);
       audio.play('golem_slam', { pos: this.pos });
-      if (distToPlayer < atk.aoe) player.takeDamage(this.damage, game);
+      game.aoeHitPlayers(this.pos.x, this.pos.z, atk.aoe, this.damage);
     } else if (atk.kind === 'ranged') {
       audio.play(this.def.sounds.shoot, { pos: this.pos });
-      // Lead the shot toward where the learner thinks the player will be.
-      let tx = player.pos.x, tz = player.pos.z;
-      const pred = learner.predict(player);
-      if (pred) { tx += pred.dx * 0.8; tz += pred.dz * 0.8; }
+      // Lead the shot toward where the learner thinks the (local) player will be.
+      let tx = tPos.x, tz = tPos.z;
+      if (target.local) {
+        const pred = learner.predict(game.player);
+        if (pred) { tx += pred.dx * 0.8; tz += pred.dz * 0.8; }
+      }
       const dx = tx - this.pos.x, dz = tz - this.pos.z;
       const len = Math.hypot(dx, dz) || 1;
       game.spawnProjectile({

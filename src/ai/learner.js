@@ -36,13 +36,21 @@ export class MovementLearner {
       await this.tf.setBackend('cpu');
       await this.tf.ready();
       const tf = this.tf;
-      this.model = tf.sequential({
-        layers: [
-          tf.layers.dense({ inputShape: [6], units: 16, activation: 'relu' }),
-          tf.layers.dense({ units: 12, activation: 'relu' }),
-          tf.layers.dense({ units: 2 }),
-        ],
-      });
+      // Resume the model learned in previous sessions, if any — the enemies
+      // remember your habits across visits.
+      try {
+        this.model = await tf.loadLayersModel('localstorage://emberdeep-ml-v1');
+        this.ready = true;
+        console.info('[ML] Loaded learned movement model from previous sessions.');
+      } catch {
+        this.model = tf.sequential({
+          layers: [
+            tf.layers.dense({ inputShape: [6], units: 16, activation: 'relu' }),
+            tf.layers.dense({ units: 12, activation: 'relu' }),
+            tf.layers.dense({ units: 2 }),
+          ],
+        });
+      }
       this.model.compile({ optimizer: tf.train.adam(0.01), loss: 'meanSquaredError' });
       console.info(`[ML] TensorFlow.js ready (backend: ${tf.getBackend()}) — enemies will learn your movement.`);
     } catch (err) {
@@ -99,6 +107,10 @@ export class MovementLearner {
       await this.model.fit(xs, ys, { epochs: 2, batchSize: 64, shuffle: true, verbose: 0 });
       this.trainCount++;
       this.ready = true;
+      // persist every few training rounds so learning carries across sessions
+      if (this.trainCount % 3 === 1) {
+        this.model.save('localstorage://emberdeep-ml-v1').catch(() => {});
+      }
     } catch (err) {
       console.warn('[ML] training failed', err);
     } finally {

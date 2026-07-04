@@ -4,10 +4,36 @@ import { audio } from '../core/audio.js';
 // Gear generation with rarity tiers + world drop entities.
 
 export const RARITIES = {
-  common: { name: 'Common', mult: 1.0, color: 0x9a9a9a, css: 'common', weight: 65 },
-  rare:   { name: 'Rare', mult: 1.6, color: 0x4f8bd9, css: 'rare', weight: 27 },
-  epic:   { name: 'Epic', mult: 2.4, color: 0xa03bd9, css: 'epic', weight: 8 },
+  common:    { name: 'Common', mult: 1.0, color: 0x9a9a9a, css: 'common', weight: 65 },
+  rare:      { name: 'Rare', mult: 1.6, color: 0x4f8bd9, css: 'rare', weight: 27 },
+  epic:      { name: 'Epic', mult: 2.4, color: 0xa03bd9, css: 'epic', weight: 8 },
+  legendary: { name: 'Legendary', mult: 4.0, color: 0xff8c1a, css: 'legendary', weight: 0 }, // gamble-only
 };
+
+// Super-unique legendary items — only from Zoltan's gamble.
+const LEGENDARIES = [
+  { slot: 'weapon', icon: '🗡️', name: 'Doomblade Vharkûl', stats: (f) => ({ damagePct: 45 + f * 4, crit: 12 }) },
+  { slot: 'weapon', icon: '🔨', name: 'Starfall, Hammer of Dawn', stats: (f) => ({ damagePct: 35 + f * 3, maxHp: 40 + f * 6 }) },
+  { slot: 'armor', icon: '🛡️', name: 'Aegis of the Fallen King', stats: (f) => ({ maxHp: 90 + f * 12, armor: 14, regen: 4 }) },
+  { slot: 'armor', icon: '🥋', name: 'Shroud of the Last Ember', stats: (f) => ({ maxHp: 55 + f * 8, speed: 10, crit: 8 }) },
+  { slot: 'trinket', icon: '💎', name: 'The Emberdeep Heart', stats: (f) => ({ crit: 12, speed: 8, regen: 5 + Math.floor(f / 2) }) },
+  { slot: 'trinket', icon: '🗝️', name: 'Zoltan’s Loaded Die', stats: (f) => ({ crit: 18 + f, speed: 5 }) },
+];
+
+// Zoltan's gamble: pricey, usually junk, sometimes glory.
+export function gambleItem(floor) {
+  const roll = Math.random();
+  if (roll < 0.05) {
+    const def = LEGENDARIES[Math.floor(Math.random() * LEGENDARIES.length)];
+    return {
+      id: nextItemId++, slot: def.slot, rarity: 'legendary', name: def.name,
+      icon: def.icon, stats: def.stats(floor), value: 500 + floor * 40, unique: true,
+    };
+  }
+  if (roll < 0.20) return generateGear(floor + 1, 'epic');
+  if (roll < 0.50) return generateGear(floor, 'rare');
+  return generateGear(floor, 'common');
+}
 
 const SLOT_DEFS = {
   weapon: {
@@ -67,7 +93,19 @@ export function generateGear(floor, forcedRarity = null) {
   let name = `${prefix} ${def.names[Math.floor(Math.random() * def.names.length)]}`;
   if (rarity === 'epic') name += ` ${SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)]}`;
 
-  return { id: nextItemId++, slot, rarity, name, icon: def.icon, stats };
+  const value = Math.round((14 + floor * 6) * RARITIES[rarity].mult);
+  return { id: nextItemId++, slot, rarity, name, icon: def.icon, stats, value };
+}
+
+// Gold received when selling (items from old saves may lack a stored value).
+export function sellValue(item) {
+  if (item.value) return Math.round(item.value * 0.5);
+  return Math.round(10 * RARITIES[item.rarity].mult);
+}
+
+// Vendor asking price.
+export function buyPrice(item) {
+  return item.value || Math.round(20 * RARITIES[item.rarity].mult);
 }
 
 export function statLabel(stat, val) {
@@ -115,6 +153,31 @@ export class LootSystem {
     g.position.set(x, 0, z);
     this.scene.add(g);
     this.drops.push({ kind: 'potion', mesh: g, x, z, bob: Math.random() * 6 });
+  }
+
+  // Very rare: expands inventory capacity by 3 (max 24).
+  dropBag(x, z) {
+    const g = new THREE.Group();
+    const sack = new THREE.Mesh(
+      new THREE.SphereGeometry(0.26, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0x8a6534, roughness: 0.9 })
+    );
+    sack.scale.y = 1.15;
+    sack.position.y = 0.28;
+    const tie = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.07, 0.1, 0.12, 6),
+      new THREE.MeshStandardMaterial({ color: 0x5a3f1e, roughness: 1 })
+    );
+    tie.position.y = 0.58;
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.14, 2.4, 8, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xe8c05a, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
+    );
+    beam.position.y = 1.2;
+    g.add(sack, tie, beam);
+    g.position.set(x, 0, z);
+    this.scene.add(g);
+    this.drops.push({ kind: 'bag', mesh: g, x, z, bob: Math.random() * 6 });
   }
 
   dropGear(x, z, item) {
@@ -174,8 +237,19 @@ export class LootSystem {
       p.potions++;
       audio.play('potion_pickup');
       game.ui.floaters.spawn(p.pos, '+1 potion', 'heal');
+    } else if (d.kind === 'bag') {
+      if (p.invSize < 24) {
+        p.invSize = Math.min(24, p.invSize + 3);
+        audio.play('gear_pickup');
+        audio.play('level_up', { volume: 0.5, rate: 1.4 });
+        game.ui.floaters.spawn(p.pos, '🎒 +3 inventory slots!', 'crit');
+      } else {
+        p.gold += 50;
+        audio.play('coin_pickup');
+        game.ui.floaters.spawn(p.pos, 'Bags full — +50g', 'gold');
+      }
     } else if (d.kind === 'gear') {
-      if (p.inventory.length >= 12) {
+      if (p.inventory.length >= p.invSize) {
         game.ui.floaters.spawn(p.pos, 'Inventory full!', 'player-dmg');
         // put it back (stop trying to pick it up for a moment)
         this.dropGear(d.x + 0.8, d.z, d.item);

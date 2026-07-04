@@ -69,8 +69,11 @@ export class ProjectileSystem {
 
       let hit = false;
 
-      // wall collision
-      if (!game.isWalkable(p.x, p.z, 0.1)) hit = true;
+      // wall collision — knock chips off the masonry
+      if (!game.isWalkable(p.x, p.z, 0.1)) {
+        hit = true;
+        game.wallDebris(p.x, p.z);
+      }
 
       if (!hit && p.friendly) {
         for (const e of game.enemies) {
@@ -84,6 +87,8 @@ export class ProjectileSystem {
               game.shake(0.2);
             } else {
               game.damageEnemy(e, p.damage, { status: p.status });
+              // impact sparks in the projectile's own color
+              game.particles.burst(p.x, 0.9, p.z, 6, m.material.color.getHex(), { speed: 3, life: 0.28, size: 0.09 });
             }
             break;
           }

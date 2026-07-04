@@ -36,6 +36,15 @@ export class TouchControls {
     bind('touch-inv', () => game.toggleInventory());
     bind('touch-pause', () => game.togglePause(true));
 
+    // hold-to-talk mic button
+    const mic = document.getElementById('touch-mic');
+    if (mic) {
+      mic.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); game.touchPtt = true; });
+      mic.addEventListener('pointerup', () => { game.touchPtt = false; });
+      mic.addEventListener('pointercancel', () => { game.touchPtt = false; });
+      mic.addEventListener('pointerleave', () => { game.touchPtt = false; });
+    }
+
     // hotbar taps
     document.getElementById('hotbar').addEventListener('pointerdown', (e) => {
       const slot = e.target.closest('.hotbar-slot');

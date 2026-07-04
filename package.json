@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
+    "peerjs": "^1.5.5",
     "three": "^0.185.1",
     "vite": "^8.1.3"
   }
