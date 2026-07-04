@@ -53,7 +53,7 @@ export class UI {
 
   // ---------- menu wiring ----------
   wireMenus() {
-    $('btn-new-game').onclick = () => { this.show('charselect'); };
+    $('btn-new-game').onclick = () => { this.resetClassSelect(); this.show('charselect'); };
     $('btn-continue').onclick = () => this.game.continueGame();
     $('btn-charselect-back').onclick = () => this.show('title');
     $('btn-title-settings').onclick = () => { this.settingsReturnTo = 'title'; this.show('settings'); };
@@ -80,6 +80,8 @@ export class UI {
   buildClassCards() {
     const wrap = $('class-cards');
     wrap.innerHTML = '';
+    this.selectedClass = null;
+    this.classCards = new Map();
     for (const cls of Object.values(CLASSES)) {
       const card = document.createElement('div');
       card.className = 'class-card';
@@ -93,11 +95,42 @@ export class UI {
       `;
       card.onclick = () => {
         audio.play('ui_click', { volume: 0.7 });
-        this.game.startNewGame(cls.id);
+        this.selectClass(cls);
       };
       card.addEventListener('mouseenter', () => audio.play('ui_hover', { volume: 0.4, throttleMs: 40 }));
       wrap.appendChild(card);
+      this.classCards.set(cls.id, card);
     }
+    $('btn-charselect-confirm').onclick = () => {
+      if (this.selectedClass) this.game.startNewGame(this.selectedClass);
+    };
+  }
+
+  // Tap/click selects and shows details; the confirm button starts the game.
+  selectClass(cls) {
+    this.selectedClass = cls.id;
+    for (const [id, card] of this.classCards) {
+      card.classList.toggle('selected', id === cls.id);
+    }
+    const detail = $('class-detail');
+    detail.classList.remove('hidden');
+    detail.style.setProperty('--card-color', cls.uiColor);
+    detail.innerHTML = `
+      <div class="class-desc">${cls.desc}</div>
+      <ul>${cls.abilities.map((a) => `<li><b>${a.icon} ${a.name}</b> — ${a.desc}</li>`).join('')}</ul>
+    `;
+    const btn = $('btn-charselect-confirm');
+    btn.disabled = false;
+    btn.textContent = `Begin as ${cls.name}`;
+  }
+
+  resetClassSelect() {
+    this.selectedClass = null;
+    for (const card of this.classCards.values()) card.classList.remove('selected');
+    $('class-detail').classList.add('hidden');
+    const btn = $('btn-charselect-confirm');
+    btn.disabled = true;
+    btn.textContent = 'Choose a hero';
   }
 
   // ---------- settings ----------
