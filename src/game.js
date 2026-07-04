@@ -193,11 +193,15 @@ export class Game {
   // the host's world by stepping through the dungeon portal.
   enterWorld() {
     if (net.active && !net.isHost) {
-      net.send({ t: 'hello', cls: this.player.classId });
+      net.send({ t: 'hello', cls: this.player.classId, name: this.playerName() });
       this.localTown = true;
     }
     this.loadTown();
     this.enterPlaying();
+  }
+
+  playerName() {
+    return (localStorage.getItem('emberdeep-name-v1') || 'Hero').slice(0, 14);
   }
 
   enterPlaying() {
@@ -622,10 +626,17 @@ export class Game {
     // --- host side ---
     net.on('guest_joined', ({ id }) => {
       if (this.player && this.dungeon) this.broadcastWorld(id);
-      if (this.player) this.ui.floaters.spawn(this.player.pos, 'A hero has joined!', 'crit');
     });
-    net.on('guest_left', ({ id }) => this.removeRemotePlayer(id));
-    net.on('hello', (msg, from) => this.ensureRemotePlayer(from, msg.cls));
+    net.on('guest_left', ({ id }) => {
+      const rp = this.remotePlayers.get(id);
+      if (this.player && rp?.name) this.ui.floaters.spawn(this.player.pos, `${rp.name} has left.`, 'xp');
+      this.removeRemotePlayer(id);
+    });
+    net.on('hello', (msg, from) => {
+      this.ensureRemotePlayer(from, msg.cls, msg.name);
+      if (this.player) this.ui.floaters.spawn(this.player.pos, `${msg.name || 'A hero'} has joined!`, 'crit');
+      net.send({ t: 'notice', txt: `${msg.name || 'A hero'} has joined the room!` });
+    });
     net.on('pos', (msg, from) => {
       const rp = this.ensureRemotePlayer(from, msg.cls);
       rp.target.set(msg.x, 0, msg.z);
@@ -680,17 +691,18 @@ export class Game {
     });
     net.on('state', (msg) => {
       if (net.isHost || !this.player) return;
-      // browsing our own town: the shared world's avatars/enemies don't apply
-      if (this.localTown) return;
       const myId = net.peer?.id;
       for (const pl of msg.pl) {
         if (pl.id === myId) continue;
-        const rp = this.ensureRemotePlayer(pl.id, pl.cls);
+        const rp = this.ensureRemotePlayer(pl.id, pl.cls, pl.nm);
         rp.target.set(pl.x, 0, pl.z);
         rp.aim = pl.aim;
         rp.moving = !!pl.mv;
         rp.dead = !!pl.dead;
+        rp.away = !!pl.aw;
       }
+      // town browsers still see fellow townsfolk, but not dungeon state
+      if (this.localTown) return;
       const seen = new Set(msg.pl.map((p) => p.id));
       for (const id of [...this.remotePlayers.keys()]) {
         if (!seen.has(id) && id !== myId) this.removeRemotePlayer(id);
@@ -778,7 +790,7 @@ export class Game {
       if (this.settings.voiceMode !== 'off') voice.enable(this.settings.voiceMode, this.settings.voiceThreshold);
       net.broadcastRoster();
     } else {
-      net.send({ t: 'hello', cls: this.player.classId });
+      net.send({ t: 'hello', cls: this.player.classId, name: this.playerName() });
       this.ui.floaters.spawn(this.player.pos, 'Room restored.', 'heal');
     }
   }
@@ -895,21 +907,47 @@ export class Game {
     }
   }
 
-  ensureRemotePlayer(id, cls = 'knight') {
+  ensureRemotePlayer(id, cls = 'knight', name = null) {
     let rp = this.remotePlayers.get(id);
-    if (rp) return rp;
+    if (rp) {
+      if (name && rp.name !== name) { rp.name = name; this.setNametag(rp, name); }
+      return rp;
+    }
     const anim = buildAnimatedHero(cls);
     const mesh = anim ? anim.mesh : buildHeroMesh(CLASSES[cls] || CLASSES.knight);
     this.scene.add(mesh);
-    rp = { mesh, anim, cls, target: new THREE.Vector3(), aim: 0, moving: false, dead: false };
+    rp = { mesh, anim, cls, name: name || 'Hero', target: new THREE.Vector3(), aim: 0, moving: false, dead: false, away: false };
+    this.setNametag(rp, rp.name);
     this.remotePlayers.set(id, rp);
     return rp;
+  }
+
+  // Floating nametag sprite above a remote hero.
+  setNametag(rp, name) {
+    if (rp.tag) { this.scene.remove(rp.tag); rp.tag.material.map?.dispose(); }
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.font = 'bold 34px Georgia';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+    ctx.lineWidth = 6;
+    ctx.strokeText(name, 128, 32);
+    ctx.fillStyle = '#e8dcae';
+    ctx.fillText(name, 128, 32);
+    const tex = new THREE.CanvasTexture(canvas);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+    sprite.scale.set(2.2, 0.55, 1);
+    this.scene.add(sprite);
+    rp.tag = sprite;
   }
 
   removeRemotePlayer(id) {
     const rp = this.remotePlayers.get(id);
     if (!rp) return;
     this.scene.remove(rp.mesh);
+    if (rp.tag) this.scene.remove(rp.tag);
     this.remotePlayers.delete(id);
   }
 
@@ -918,10 +956,18 @@ export class Game {
   }
 
   updateRemotePlayers(dt) {
+    // A remote hero is visible when we're in the same zone: both in town
+    // (every Embervale is the same place) or both in the dungeon.
+    const myAway = !!this.inTown;
     for (const rp of this.remotePlayers.values()) {
       rp.mesh.position.lerp(rp.target, Math.min(1, 10 * dt));
       rp.mesh.rotation.y = Math.PI / 2 - rp.aim;
-      rp.mesh.visible = !rp.dead && !rp.away && !this.localTown;
+      const visible = !rp.dead && !!rp.away === myAway;
+      rp.mesh.visible = visible;
+      if (rp.tag) {
+        rp.tag.visible = visible;
+        rp.tag.position.set(rp.mesh.position.x, rp.mesh.position.y + 2.15, rp.mesh.position.z);
+      }
       if (rp.anim) {
         rp.anim.mixer.update(dt);
         rp.anim.setLocomotion(rp.moving);
@@ -1663,8 +1709,8 @@ export class Game {
       rp.rotation.y += dt * 1.2;
       const d = Math.hypot(p.pos.x - rp.position.x, p.pos.z - rp.position.z);
       if (!this.returnPortalArmed) {
-        if (d > 3.5) this.returnPortalArmed = true;
-      } else if (d < 1.2 && this.stairsCooldown <= 0) {
+        if (d > 3.0) this.returnPortalArmed = true;
+      } else if (d < 1.7 && this.stairsCooldown <= 0) {
         audio.play('stairs', { volume: 0.8, rate: 1.2 });
         if (net.active && !net.isHost) {
           // slip back to your own town; the others keep fighting
@@ -1729,8 +1775,8 @@ export class Game {
         net.send({
           t: 'pos', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
           aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
-          dead: p.dead ? 1 : 0, cls: p.classId,
-          aw: this.localTown ? 1 : 0, // "away" = in their own town instance
+          dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(),
+          aw: this.inTown ? 1 : 0, // "away" = visiting town
         });
       }
     }
@@ -1747,13 +1793,13 @@ export class Game {
     const pl = [{
       id: 'host', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
       aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
-      dead: p.dead ? 1 : 0, cls: p.classId,
+      dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(), aw: this.inTown ? 1 : 0,
     }];
     for (const [id, rp] of this.remotePlayers) {
-      if (rp.away) continue; // town-browsing guests aren't in this world
       pl.push({
         id, x: +rp.target.x.toFixed(2), z: +rp.target.z.toFixed(2),
-        aim: +(rp.aim || 0).toFixed(2), mv: rp.moving ? 1 : 0, dead: rp.dead ? 1 : 0, cls: rp.cls,
+        aim: +(rp.aim || 0).toFixed(2), mv: rp.moving ? 1 : 0, dead: rp.dead ? 1 : 0,
+        cls: rp.cls, nm: rp.name, aw: rp.away ? 1 : 0,
       });
     }
     const en = this.enemies

@@ -242,11 +242,13 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 /* ---------- Multiplayer ---------- */
 .mp-blurb { font-size: 14px; opacity: 0.8; line-height: 1.6; }
 .mp-room-label { font-size: 16px; display: flex; align-items: center; gap: 10px; }
-#mp-room {
-  font-family: inherit; font-size: 20px; letter-spacing: 2px; text-transform: uppercase;
+#mp-room, #mp-name {
+  font-family: inherit; font-size: 20px; letter-spacing: 2px;
   background: #1a1424; color: var(--gold); border: 1px solid var(--panel-border);
   border-radius: 6px; padding: 8px 12px; width: 180px; text-align: center;
 }
+#mp-room { text-transform: uppercase; }
+#mp-name { color: var(--parchment); letter-spacing: 1px; }
 
 /* ---------- Shop ---------- */
 .shop-gold { font-size: 18px; color: var(--gold); }

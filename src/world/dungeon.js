@@ -264,6 +264,13 @@ function shuffle(arr) {
 // Embervale: the safe hometown hub. No enemies — vendors, a healer's fountain
 // feel, and the dungeon portal.
 export function generateTown() {
+  // Deterministic cosmetic randomness: every player's Embervale is identical,
+  // so heroes standing in town see each other in the same place.
+  let seed = 0x1234abcd;
+  const srand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
   const n = 28;
   const grid = Array.from({ length: n }, () => new Array(n).fill(VOID));
   // village green with rounded corners
@@ -305,7 +312,7 @@ export function generateTown() {
   for (const [x, y] of treeSpots) {
     if (grid[y]?.[x] === FLOOR) {
       grid[y][x] = WALL;
-      trees.push({ x, y, s: 0.8 + Math.random() * 0.5, kind: Math.random() < 0.3 ? 'pine' : 'oak' });
+      trees.push({ x, y, s: 0.8 + srand() * 0.5, kind: srand() < 0.3 ? 'pine' : 'oak' });
     }
   }
 
@@ -317,7 +324,7 @@ export function generateTown() {
   ];
   for (const [x, y] of plantSpots) {
     if (grid[y]?.[x] === FLOOR) {
-      plants.push({ x, y, kind: Math.random() < 0.5 ? 'bush' : 'flowers' });
+      plants.push({ x, y, kind: srand() < 0.5 ? 'bush' : 'flowers' });
     }
   }
 
