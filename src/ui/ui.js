@@ -882,6 +882,17 @@ export class UI {
     }
     $('hud-quest').textContent = this.game.currentObjectiveText();
 
+    // anti-cheat lockout countdown banner
+    const cl = $('cheat-lock');
+    const lockLeft = (this.game.cheatLockUntil || 0) - performance.now();
+    if (lockLeft > 0) {
+      const s = Math.ceil(lockLeft / 1000);
+      cl.classList.remove('hidden');
+      cl.innerHTML = `⛔ CHEATING DETECTED<div class="cl-sub">Frozen — ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}</div>`;
+    } else if (!cl.classList.contains('hidden')) {
+      cl.classList.add('hidden');
+    }
+
     player.classDef.abilities.forEach((ab, i) => {
       const slot = this.hotbarSlots[i];
       if (!slot) return;
