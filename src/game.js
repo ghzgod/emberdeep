@@ -10,7 +10,15 @@ import { Enemy, Boss, ENEMY_TYPES, ACT_BOSSES, buildEnemyMesh, buildBossMesh } f
 import { buildAnimatedHero } from './entities/heroModel.js';
 import { CLASSES, buildHeroMesh } from './entities/classes.js';
 import { ProjectileSystem } from './entities/projectiles.js';
-import { LootSystem, generateGear, rollRarity, sellValue, gambleItem, dropLegendary, RARITIES } from './entities/loot.js';
+import { LootSystem, generateGear, rollRarity, sellValue, gambleItem, dropLegendary, RARITIES, newItemId } from './entities/loot.js';
+
+// Alchemist buff elixirs — consumables drunk from the inventory that grant a
+// temporary boon via the existing buff system (damageMult / damageTakenMult).
+const ELIXIRS = [
+  { key: 'might',  icon: '⚗️', name: 'Elixir of Might',   rarity: 'rare', buff: { id: 'elixir-might', duration: 45, damageMult: 1.3 },      label: '+30% damage for 45s' },
+  { key: 'iron',   icon: '🧴', name: 'Draught of Iron',    rarity: 'rare', buff: { id: 'elixir-iron', duration: 45, damageTakenMult: 0.7 },  label: '-30% damage taken for 45s' },
+  { key: 'frenzy', icon: '🧪', name: 'Frenzy Tonic',       rarity: 'epic', buff: { id: 'elixir-frenzy', duration: 30, damageMult: 1.6 },     label: '+60% damage for 30s' },
+];
 import { net } from './net/net.js';
 import { voice } from './net/voice.js';
 import { ParticleSystem } from './combat/particles.js';
@@ -482,25 +490,26 @@ export class Game {
   makeVendorStock(vendor) {
     const stock = [];
     if (vendor.type === 'potions') {
-      for (let i = 0; i < 3; i++) {
-        stock.push({ kind: 'potion', icon: '🧪', label: 'Health Potion', price: 20 + this.floor * 4 });
+      // One stackable slot per consumable — click it repeatedly to buy more.
+      stock.push({ kind: 'potion', icon: '🧪', label: 'Health Potion', price: 20 + this.floor * 4, qty: 20 });
+      // A rotating pair of buff elixirs, plus the rare epic tonic sometimes.
+      const shuffled = [...ELIXIRS].sort(() => Math.random() - 0.5);
+      for (const e of shuffled.slice(0, 2)) {
+        stock.push({ kind: 'elixir', icon: e.icon, label: e.name, price: 55 + this.floor * 7, qty: 3, elixir: e });
       }
       if (Math.random() < 0.35 && this.player.invSize < 24) {
-        stock.push({ kind: 'bag', icon: '🎒', label: 'Traveler’s Satchel (+3 slots)', price: 400 });
+        stock.push({ kind: 'bag', icon: '🎒', label: 'Traveler’s Satchel (+3 slots)', price: 400, qty: 1 });
       }
     } else if (vendor.type === 'mystery') {
       // Zoltan: pay dearly, roll the dice. Small chance of a legendary unique.
-      const price = 150 + this.floor * 30;
-      for (let i = 0; i < 3; i++) {
-        stock.push({ kind: 'gamble', icon: '❓', label: 'Mystery Relic — fate decides', price });
-      }
+      stock.push({ kind: 'gamble', icon: '❓', label: 'Mystery Relic — fate decides', price: 150 + this.floor * 30, qty: 5 });
     } else {
       // The smith sells solid basics only — epics and better must be earned
       // in the dungeon (or gambled from Zoltan).
       for (let i = 0; i < 4; i++) {
         const rarity = Math.random() < 0.35 ? 'rare' : 'common';
         const item = generateGear(Math.min(MAX_FLOOR, this.floor + 1), rarity, this.player.classId);
-        stock.push({ kind: 'gear', icon: item.icon, label: item.name, price: Math.round((item.value || 30) * 2.2), item });
+        stock.push({ kind: 'gear', icon: item.icon, label: item.name, price: Math.round((item.value || 30) * 2.2), item, qty: 1 });
       }
     }
     return stock;
@@ -508,16 +517,22 @@ export class Game {
 
   buyFromVendor(vendor, entry) {
     const p = this.player;
-    if (entry.sold || p.gold < entry.price) return;
-    if ((entry.kind === 'gear' || entry.kind === 'gamble') && p.inventory.length >= p.invSize) {
+    const remaining = entry.qty != null ? entry.qty : (entry.sold ? 0 : 1);
+    if (remaining <= 0 || p.gold < entry.price) return;
+    // items that land in the pack need a free slot first
+    if ((entry.kind === 'gear' || entry.kind === 'gamble' || entry.kind === 'elixir') && p.inventory.length >= p.invSize) {
       this.ui.floaters.spawn(p.pos, 'Inventory full!', 'player-dmg');
       return;
     }
     p.gold -= entry.price;
-    entry.sold = true;
+    if (entry.qty != null) entry.qty--; else entry.sold = true;
     audio.play('coin_pickup');
     if (entry.kind === 'potion') { p.potions++; audio.play('potion_pickup'); }
-    else if (entry.kind === 'bag') {
+    else if (entry.kind === 'elixir') {
+      const e = entry.elixir;
+      p.inventory.push({ id: newItemId(), slot: 'consumable', consumable: true, icon: e.icon, name: e.name, rarity: e.rarity, buff: e.buff, effectLabel: e.label, stats: {} });
+      audio.play('potion_pickup');
+    } else if (entry.kind === 'bag') {
       p.invSize = Math.min(24, p.invSize + 3);
       this.ui.floaters.spawn(p.pos, '🎒 +3 inventory slots!', 'crit');
     } else if (entry.kind === 'gear') {
@@ -739,7 +754,7 @@ export class Game {
     else lines.gear.push(`Ah, ${n}! Steel for the worthy.`, 'The forge burned all night for this.');
 
     // Zoltan — gold aware
-    if (rich) lines.mystery.push(`${p.gold} gold. Fate can hear it jingling, ${n}.`);
+    if (rich) lines.mystery.push(`${n}, that's ${p.gold} gold — fate can hear it jingling from here.`);
     else if (p.gold < 100) lines.mystery.push('Light pockets today… fate does not work on credit, friend.');
     else lines.mystery.push(`Ah, ${n}. Fate has been expecting you.`, 'Care to tempt destiny?');
     // unique voices: no vendor shares a voice with any enemy or each other
@@ -1662,10 +1677,23 @@ export class Game {
   }
 
   // ---------------- inventory ----------------
+  // Drink a buff elixir from the pack: apply its boon, then consume it.
+  useConsumable(item) {
+    const p = this.player;
+    const idx = p.inventory.indexOf(item);
+    if (idx === -1 || !item.consumable) return;
+    p.inventory.splice(idx, 1);
+    if (item.buff) p.addBuff({ ...item.buff });
+    audio.play('potion_drink');
+    this.ui.floaters.spawn(p.pos, `${item.icon} ${item.effectLabel || item.name}`, 'heal');
+    this.requestSave();
+  }
+
   equip(item) {
     const p = this.player;
     const idx = p.inventory.indexOf(item);
     if (idx === -1) return;
+    if (item.consumable) { this.useConsumable(item); return; } // drinking, not wearing
     // a hero can only wield their own class's weapons
     if (item.forClass && item.forClass !== p.classId) {
       const names = { knight: 'Knights', mage: 'Mages', ranger: 'Rangers' };

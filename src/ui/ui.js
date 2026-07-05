@@ -368,21 +368,27 @@ export class UI {
 
     const subFor = (entry) => {
       if (entry.kind === 'potion') return 'Restores 45% health';
+      if (entry.kind === 'elixir') return entry.elixir?.label || 'Temporary boon';
       if (entry.kind === 'bag') return '+3 inventory slots, forever';
       if (entry.kind === 'gamble') return 'Common… or legendary. Fate decides.';
       if (entry.item) return `${RARITIES[entry.item.rarity].name} ${entry.item.slot}`;
       return '';
     };
+    const stockOf = (entry) => (entry.qty != null ? entry.qty : (entry.sold ? 0 : 1));
 
     const buyWrap = $('shop-buy-list');
     buyWrap.innerHTML = '';
     for (const entry of vendor.stock) {
       const el = document.createElement('div');
-      const afford = p.gold >= entry.price && !entry.sold;
-      el.className = `shop-item ${entry.item ? 'r-' + entry.item.rarity : ''} ${entry.sold ? 'sold' : afford ? '' : 'disabled'}`;
+      const left = stockOf(entry);
+      const soldOut = left <= 0;
+      const afford = p.gold >= entry.price && !soldOut;
+      el.className = `shop-item ${entry.item ? 'r-' + entry.item.rarity : ''} ${soldOut ? 'sold' : afford ? '' : 'disabled'}`;
+      // show the remaining stock for stackable wares so it reads as one slot
+      const qtyTag = (entry.qty != null && !soldOut) ? ` · ×${left}` : '';
       el.innerHTML = `
         <span class="shop-item-icon">${entry.icon}</span>
-        <span class="shop-item-name">${entry.label}<small>${entry.sold ? 'Sold out' : subFor(entry)}</small></span>
+        <span class="shop-item-name">${entry.label}<small>${soldOut ? 'Sold out' : subFor(entry) + qtyTag}</small></span>
         <span class="shop-item-price">${entry.price}g</span>
       `;
       if (afford) {
@@ -1012,11 +1018,14 @@ export class UI {
     this.selectedItem = item;
     const panel = $('item-actions');
     panel.classList.remove('hidden');
-    const stats = Object.entries(item.stats)
-      .map(([k, v]) => `<span class="tt-stat">${statLabel(k, v)}</span>`).join(' · ');
+    const stats = item.consumable
+      ? `<span class="tt-stat">${item.effectLabel || 'Temporary boon'}</span>`
+      : Object.entries(item.stats).map(([k, v]) => `<span class="tt-stat">${statLabel(k, v)}</span>`).join(' · ');
     $('item-actions-info').innerHTML =
       `<h4 class="tt-${item.rarity}" style="display:inline">${item.icon} ${item.name}</h4><br>${stats}${this.affinityNote(item)}`;
-    $('btn-item-equip').onclick = () => { this.game.equip(item); this.renderInventory(); };
+    const equipBtn = $('btn-item-equip');
+    equipBtn.textContent = item.consumable ? 'Drink' : 'Equip';
+    equipBtn.onclick = () => { this.game.equip(item); this.renderInventory(); };
     // Selling is done only at an NPC vendor's menu, never from the inventory.
     const sellBtn = $('btn-item-sell');
     if (sellBtn) sellBtn.style.display = 'none';
@@ -1026,14 +1035,15 @@ export class UI {
   showTooltip(item, e) {
     const tt = $('item-tooltip');
     tt.classList.remove('hidden');
-    const stats = Object.entries(item.stats)
-      .map(([k, v]) => `<div class="tt-stat">${statLabel(k, v)}</div>`).join('');
+    const stats = item.consumable
+      ? `<div class="tt-stat">${item.effectLabel || 'Temporary boon'}</div>`
+      : Object.entries(item.stats).map(([k, v]) => `<div class="tt-stat">${statLabel(k, v)}</div>`).join('');
     tt.innerHTML = `
       <h4 class="tt-${item.rarity}">${item.icon} ${item.name}</h4>
-      <div style="opacity:0.6;font-size:11px;">${RARITIES[item.rarity].name} ${item.slot}</div>
+      <div style="opacity:0.6;font-size:11px;">${RARITIES[item.rarity].name} ${item.consumable ? 'elixir' : item.slot}</div>
       ${stats}
       ${this.affinityNote(item)}
-      <div style="opacity:0.5;font-size:11px;margin-top:6px;">Click to equip · Right-click to drop</div>
+      <div style="opacity:0.5;font-size:11px;margin-top:6px;">${item.consumable ? 'Click to drink' : 'Click to equip'} · Right-click to drop</div>
     `;
     tt.style.left = `${Math.min(e.clientX + 16, window.innerWidth - 260)}px`;
     tt.style.top = `${Math.min(e.clientY + 8, window.innerHeight - 180)}px`;
