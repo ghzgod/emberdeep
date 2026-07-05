@@ -49,10 +49,21 @@ export class Game {
     this.torchLights = [];
 
     this.input = new Input(this.canvas);
+    const savedSettings = SaveManager.loadSettings();
+    const firstVisit = !savedSettings;
     this.settings = Object.assign(
-      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true, voiceEngine: 'standard', voiceChatVolume: 0.9, speechVolume: 0.9 },
-      SaveManager.loadSettings() || {}
+      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true, voiceEngine: 'neural', voiceChatVolume: 0.9, speechVolume: 0.9 },
+      savedSettings || {}
     );
+    // first-ever visit: run the dialogue-forward auto-balance so the mix is
+    // sane out of the box (speech reference, sfx -6dB, music -12dB)
+    if (firstVisit) {
+      const db = (d) => Math.pow(10, d / 20);
+      Object.assign(this.settings, {
+        speechVolume: 1.0, voiceChatVolume: 1.0,
+        sfxVolume: +db(-6).toFixed(2), musicVolume: +db(-12).toFixed(2), masterVolume: 0.85,
+      });
+    }
     // one-time migration: settings saved before push-to-talk became the
     // default carried voiceMode:'off' that the user never chose
     if (!this.settings._v2) {
@@ -436,7 +447,7 @@ export class Game {
       // in the dungeon (or gambled from Zoltan).
       for (let i = 0; i < 4; i++) {
         const rarity = Math.random() < 0.35 ? 'rare' : 'common';
-        const item = generateGear(Math.min(MAX_FLOOR, this.floor + 1), rarity);
+        const item = generateGear(Math.min(MAX_FLOOR, this.floor + 1), rarity, this.player.classId);
         stock.push({ kind: 'gear', icon: item.icon, label: item.name, price: Math.round((item.value || 30) * 2.2), item });
       }
     }
@@ -597,7 +608,7 @@ export class Game {
     const drunkLines = [
       'I saw the Dungeon Lord once. *hic* Or a very tall barrel. One of those.',
       '*hic* You\'re my besht friend. Whoever you are.',
-      'The pits aren\'t holes. *hic* They\'re SHORTCUTS. I fell four floors once. Saved HOURS.',
+      'I found a legendary sword once. *hic* Then I sat on it. Long story.',
     ];
     const soberLines = [
       'Fenwick\'s mad, but he\'s never wrong. Worst combination.',
@@ -1386,7 +1397,7 @@ export class Game {
     const gearChance = opts.isBoss || opts.miniboss ? 1 : 0.09;
     if (Math.random() < gearChance) {
       const rarity = opts.isBoss || opts.miniboss ? 'epic' : null;
-      this.loot.dropGear(x, z + 0.5, generateGear(this.floor, rarity));
+      this.loot.dropGear(x, z + 0.5, generateGear(this.floor, rarity, this.player.classId));
     }
     // fight-only legendaries: the Dungeon Lord and minibosses alone drop these
     if ((opts.isBoss && Math.random() < 0.35) || (opts.miniboss && Math.random() < 0.05)) {
@@ -1504,6 +1515,13 @@ export class Game {
     const p = this.player;
     const idx = p.inventory.indexOf(item);
     if (idx === -1) return;
+    // a hero can only wield their own class's weapons
+    if (item.forClass && item.forClass !== p.classId) {
+      const names = { knight: 'Knights', mage: 'Mages', ranger: 'Rangers' };
+      this.ui.floaters.spawn(p.pos, `Only ${names[item.forClass] || 'others'} can wield this`, 'player-dmg');
+      audio.play('ui_close', { volume: 0.6 });
+      return;
+    }
     p.inventory.splice(idx, 1);
     const prev = p.equipped[item.slot];
     p.equipped[item.slot] = item;
@@ -1882,7 +1900,7 @@ export class Game {
         // chest loot: gold + high gear chance + potion chance
         const gold = 8 + Math.round(Math.random() * 10 * this.floor);
         for (let i = 0; i < 3; i++) this.loot.dropGold(c.x, c.z, Math.round(gold / 3));
-        if (Math.random() < 0.65) this.loot.dropGear(c.x + 0.6, c.z, generateGear(this.floor, null));
+        if (Math.random() < 0.65) this.loot.dropGear(c.x + 0.6, c.z, generateGear(this.floor, null, this.player.classId));
         if (Math.random() < 0.4) this.loot.dropPotion(c.x - 0.6, c.z);
         if (Math.random() < 0.03) this.loot.dropBag(c.x, c.z + 0.7);
       }
@@ -1897,6 +1915,25 @@ export class Game {
       this.dungeonMeshes.stairsMesh.children.forEach((ch) => {
         if (ch.geometry?.type === 'TorusGeometry') ch.rotation.z += dt * 1.5;
       });
+    }
+  }
+
+  // Portal: dungeon-floor exit back to Embervale (checkpoint kept).
+  usePortalToTown() {
+    audio.play('stairs', { volume: 0.8, rate: 1.2 });
+    if (net.active && !net.isHost) { this.stairsCooldown = 2; this.localTown = true; }
+    this.loadTown({ fromDungeon: true });
+  }
+
+  // Portal: town → the dungeon (or join the party's shared world).
+  usePortalToDungeon() {
+    audio.play('stairs', { volume: 0.8 });
+    if (net.active && !net.isHost) {
+      this.stairsCooldown = 2;
+      if (this.lastWorldMsg) { this.localTown = false; this.applyWorld(this.lastWorldMsg); }
+      else this.ui.floaters.spawn(this.player.pos, 'The dungeon has not been opened yet…', 'xp');
+    } else {
+      this.loadFloor(this.floor);
     }
   }
 
@@ -1925,31 +1962,7 @@ export class Game {
   }
 
   // Pit holes: fall through to the next floor (solo) — it hurts.
-  updatePits() {
-    if (!this.dungeon?.pits?.length || this.stairsCooldown > 0 || this.player.dead) return;
-    const p = this.player;
-    for (const pit of this.dungeon.pits) {
-      const w = tileToWorld(pit.x, pit.y);
-      if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 0.7) {
-        this.stairsCooldown = 2;
-        this.shake(0.5);
-        audio.play('player_hurt');
-        const dmg = Math.round(p.maxHp * 0.15);
-        if (net.active) {
-          // co-op: don't split the party — just take the fall damage and climb out
-          p.takeDamage(dmg, this);
-          p.pos.set(p.pos.x + 1.6, 0, p.pos.z + 1.6);
-          this.ui.floaters.spawn(p.pos, 'You clamber out of the pit!', 'player-dmg');
-        } else {
-          p.hp = Math.max(1, p.hp - dmg);
-          audio.play('stairs', { volume: 0.9, rate: 0.8 });
-          this.loadFloor(this.floor + 1);
-          this.ui.floaters.spawn(p.pos, `You fell! -${dmg}`, 'player-dmg');
-        }
-        return;
-      }
-    }
-  }
+  updatePits() { /* pit-fall traps removed */ }
 
   // Bricks and dust burst off walls when projectiles strike them.
   wallDebris(x, z) {
@@ -1962,117 +1975,74 @@ export class Game {
     this.shopCooldown = Math.max(0, this.shopCooldown - dt);
     if (!this.dungeonMeshes) return;
     const p = this.player;
-
-    // dungeon-side return portal → back to Embervale (checkpoint kept)
-    const rp = this.dungeonMeshes.returnPortalMesh;
-    if (!this.inTown && rp) {
-      rp.rotation.y += dt * 1.2;
-      const d = Math.hypot(p.pos.x - rp.position.x, p.pos.z - rp.position.z);
-      if (!this.returnPortalArmed) {
-        if (d > 4.0) this.returnPortalArmed = true;
-      } else if (d < 1.1 && this.stairsCooldown <= 0) {
-        audio.play('stairs', { volume: 0.8, rate: 1.2 });
-        if (net.active && !net.isHost) {
-          // slip back to your own town; the others keep fighting
-          this.stairsCooldown = 2;
-          this.localTown = true;
-        }
-        this.loadTown({ fromDungeon: true });
-        return;
-      }
-    }
-
-    if (!this.inTown) return;
-
-    if (this.dungeonMeshes.portalMesh) {
-      this.dungeonMeshes.portalMesh.rotation.y += dt * 0.6;
-      const w = tileToWorld(this.dungeon.portal.x, this.dungeon.portal.y);
-      if (this.stairsCooldown <= 0 && Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 1.5) {
-        audio.play('stairs', { volume: 0.8 });
-        if (net.active && !net.isHost) {
-          // join the shared world wherever it currently is
-          this.stairsCooldown = 2;
-          if (this.lastWorldMsg && !this.lastWorldMsg.inTown) {
-            this.localTown = false;
-            this.applyWorld(this.lastWorldMsg);
-          } else if (this.lastWorldMsg) {
-            this.localTown = false;
-            this.applyWorld(this.lastWorldMsg); // party is gathered in town
-          } else {
-            this.ui.floaters.spawn(p.pos, 'The dungeon has not been opened yet…', 'xp');
-          }
-        } else {
-          this.loadFloor(this.floor);
-        }
-      }
-    }
-
-    // interactables: show a "press F / tap" prompt instead of auto-opening
+    const near = (wx, wz, r = 1.8) => Math.hypot(p.pos.x - wx, p.pos.z - wz) < r;
     let candidate = null;
-    if (this.shopCooldown <= 0) {
-      for (const v of this.dungeonMeshes.vendorMeshes) {
-        if (Math.hypot(p.pos.x - v.wx, p.pos.z - v.wz) < 2.4) {
-          candidate = { label: `Talk to ${v.name.split(' ')[0]}`, icon: '💬', action: () => this.openShop(v) };
-          break;
+
+    // spin the portal rings for life
+    if (this.dungeonMeshes.returnPortalMesh) this.dungeonMeshes.returnPortalMesh.rotation.y += dt * 1.2;
+    if (this.dungeonMeshes.portalMesh) this.dungeonMeshes.portalMesh.rotation.y += dt * 0.6;
+
+    // ---- DUNGEON: descend stairs (gold ring) + return-to-town portal ----
+    if (!this.inTown) {
+      if (this.dungeon.stairs && this.stairsCooldown <= 0) {
+        const w = tileToWorld(this.dungeon.stairs.x, this.dungeon.stairs.y);
+        if (near(w.x, w.z, 1.9)) {
+          const locked = this.stairsLocked();
+          candidate = locked
+            ? { label: `Stairs sealed — ${this.floorKills}/${this.stairsClearNeed()} slain`, icon: '🔒', action: () => this.descendStairs() }
+            : { label: 'Descend to the next floor', icon: '⬇️', action: () => this.descendStairs() };
         }
       }
+      const rp = this.dungeonMeshes.returnPortalMesh;
+      if (!candidate && rp && this.stairsCooldown <= 0 && near(rp.position.x, rp.position.z, 1.9)) {
+        candidate = { label: 'Return to Embervale', icon: '🌀', action: () => this.usePortalToTown() };
+      }
     }
-    if (!candidate && this.wanderer && !this.inTavern) {
-      const wd = Math.hypot(p.pos.x - this.wanderer.pos.x, p.pos.z - this.wanderer.pos.z);
-      if (wd < 2.6) {
+
+    // ---- TOWN: dungeon portal + tavern door + townsfolk ----
+    if (this.inTown && !this.inTavern) {
+      const w = tileToWorld(this.dungeon.portal.x, this.dungeon.portal.y);
+      if (this.stairsCooldown <= 0 && near(w.x, w.z, 1.9)) {
+        candidate = { label: 'Enter the dungeon', icon: '🌀', action: () => this.usePortalToDungeon() };
+      }
+      if (!candidate && this.shopCooldown <= 0) {
+        for (const v of this.dungeonMeshes.vendorMeshes) {
+          if (near(v.wx, v.wz, 2.4)) { candidate = { label: `Talk to ${v.name.split(' ')[0]}`, icon: '💬', action: () => this.openShop(v) }; break; }
+        }
+      }
+      if (!candidate && this.wanderer && near(this.wanderer.pos.x, this.wanderer.pos.z, 2.6)) {
         candidate = { label: 'Talk to Old Fenwick', icon: '🧙', action: () => this.wanderer.speakTo(this) };
       }
-    }
-    // tavern doors are AUTOMATIC — walk in, walk out
-    if (!this.inTavern && this.dungeon.tavern && this.stairsCooldown <= 0) {
-      // the visible door sits 28% right of the facade centre — match it
-      const t = this.dungeon.tavern;
-      const cx = (t.x + t.w / 2 - 0.5) * TILE + TILE / 2;
-      const door = { x: cx + t.w * TILE * 0.28, z: (t.y + t.h) * TILE + TILE * 0.4 };
-      if (Math.hypot(p.pos.x - door.x, p.pos.z - door.z) < 1.6) {
-        this.stairsCooldown = 1.5;
-        audio.play('door_open');
-        this.loadTavern();
-        return;
+      if (!candidate && this.dungeon.tavern && this.stairsCooldown <= 0) {
+        const t = this.dungeon.tavern;
+        const cx = (t.x + t.w / 2 - 0.5) * TILE + TILE / 2;
+        const dx = cx + t.w * TILE * 0.28, dz = (t.y + t.h) * TILE + TILE * 0.4;
+        if (near(dx, dz, 2.0)) candidate = { label: 'Enter The Sleeping Golem', icon: '🍺', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTavern(); } };
       }
-    }
-    if (this.inTavern && this.dungeon.exit && this.stairsCooldown <= 0) {
-      const w = tileToWorld(this.dungeon.exit.x, this.dungeon.exit.y);
-      if (Math.hypot(p.pos.x - w.x, p.pos.z - (w.z + 0.6)) < 1.1) {
-        this.stairsCooldown = 1.5;
-        audio.play('door_open');
-        this.loadTown({ fromTavern: true });
-        return;
+      if (!candidate && this.dungeon.noticeBoard) {
+        const nb = tileToWorld(this.dungeon.noticeBoard.x, this.dungeon.noticeBoard.y);
+        if (near(nb.x, nb.z, 2.2)) candidate = { label: 'Read the notice board', icon: '📌', action: () => this.openNotices() };
       }
     }
 
-    // tavern folk: chat with Barlow or the regulars
-    if (!candidate && this.inTavern && this.dungeonMeshes.barkeepPos) {
-      const b = this.dungeonMeshes.barkeepPos;
-      if (Math.hypot(p.pos.x - b.x, p.pos.z - b.z) < 2.4) {
+    // ---- TAVERN: exit + folk ----
+    if (this.inTavern) {
+      if (this.dungeon.exit && this.stairsCooldown <= 0) {
+        const w = tileToWorld(this.dungeon.exit.x, this.dungeon.exit.y);
+        if (near(w.x, w.z + 0.6, 1.6)) candidate = { label: 'Step outside', icon: '🚪', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTown({ fromTavern: true }); } };
+      }
+      if (!candidate && this.dungeonMeshes.barkeepPos && near(this.dungeonMeshes.barkeepPos.x, this.dungeonMeshes.barkeepPos.z, 2.4)) {
         candidate = { label: 'Talk to Barlow', icon: '🍺', action: () => this.barkeepChat() };
       }
       if (!candidate) {
         for (const pm of this.dungeonMeshes.patronMeshes || []) {
-          if (Math.hypot(p.pos.x - pm.x, p.pos.z - pm.z) < 1.8) {
-            candidate = { label: pm.drunk ? 'Nudge the drunk' : 'Chat with the patron', icon: '💬', action: () => this.patronChat(pm) };
-            break;
-          }
+          if (near(pm.x, pm.z, 1.8)) { candidate = { label: pm.drunk ? 'Nudge the drunk' : 'Chat with the patron', icon: '💬', action: () => this.patronChat(pm) }; break; }
         }
       }
     }
 
-    // the notice board is readable up close
-    if (!candidate && !this.inTavern && this.dungeon.noticeBoard) {
-      const nb = tileToWorld(this.dungeon.noticeBoard.x, this.dungeon.noticeBoard.y);
-      if (Math.hypot(p.pos.x - nb.x, p.pos.z - nb.z) < 2.2) {
-        candidate = { label: 'Read the notice board', icon: '📌', action: () => this.openNotices() };
-      }
-    }
     this.setInteractable(candidate);
-
-    // Old Fenwick ambles about
-    if (this.wanderer && !this.inTavern) this.wanderer.update(dt, this);
+    if (this.wanderer && this.inTown && !this.inTavern) this.wanderer.update(dt, this);
 
     // tavern smoke + hearth idle animation data from the mesh builder
     const puffs = this.dungeonMeshes.smokePuffs;

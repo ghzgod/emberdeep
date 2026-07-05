@@ -463,37 +463,24 @@ export class UI {
 
     // neural character voices (Kokoro)
     const vEngine = $('set-voice-engine');
-    const vStatus = $('voice-engine-status');
-    vEngine.value = s.voiceEngine || 'standard';
+    vEngine.value = s.voiceEngine || 'neural';
     vEngine.onchange = async () => {
       s.voiceEngine = vEngine.value;
       this.game.saveSettings();
-      if (s.voiceEngine === 'neural') {
-        vStatus.classList.remove('hidden');
-        vStatus.textContent = 'Preparing neural voices…';
-        const bar = $('voice-engine-bar'), fill = $('voice-engine-fill');
-        bar.classList.remove('hidden');
-        fill.style.width = '0%';
-        const { neuralVoice } = await import('../ai/neuralVoice.js');
-        neuralVoice.onStatus = (st, prog) => {
-          if (st === 'loading') {
-            vStatus.textContent = `Downloading voice model… ${Math.round(prog * 100)}%`;
-            fill.style.width = `${Math.round(prog * 100)}%`;
-          } else if (st === 'ready') {
-            vStatus.textContent = 'Neural voices ready ✓';
-            fill.style.width = '100%';
-            setTimeout(() => bar.classList.add('hidden'), 1200);
-          } else if (st === 'error') {
-            vStatus.textContent = 'Neural voices failed to load — using standard voices.';
-            bar.classList.add('hidden');
-          }
-        };
-        neuralVoice.load();
-      } else {
-        vStatus.classList.add('hidden');
+      if (s.voiceEngine === 'neural') this.startNeuralVoices();
+      else {
+        $('voice-engine-status').classList.add('hidden');
         $('voice-engine-bar').classList.add('hidden');
+        $('btn-voice-retry').classList.add('hidden');
       }
     };
+    $('btn-voice-retry').onclick = async () => {
+      const { neuralVoice } = await import('../ai/neuralVoice.js');
+      neuralVoice.retry();
+      this.startNeuralVoices();
+    };
+    // reflect current load state whenever settings open
+    if (s.voiceEngine === 'neural') this.reflectNeuralStatus();
 
     // voice chat
     const vSel = $('set-voice');
@@ -505,6 +492,7 @@ export class UI {
       vRow.classList.toggle('hidden', s.voiceMode !== 'auto');
       vMeterRow.classList.toggle('hidden', s.voiceMode === 'off');
       $('touch-mic').classList.toggle('hidden', s.voiceMode !== 'ptt');
+      this.setMicAvailable(s.voiceMode === 'ptt');
     };
     vSel.value = s.voiceMode;
     vThresh.value = s.voiceThreshold;
@@ -551,18 +539,63 @@ export class UI {
     const s = this.game.settings;
     if (s.voiceMode === 'off') return;
     const { voice } = await import('../net/voice.js');
-    voice.enable(s.voiceMode, s.voiceThreshold);
+    await voice.enable(s.voiceMode, s.voiceThreshold);
+    voice.setMonitor(true); // keep mic live for the meter while settings open
   }
 
   async disarmMicMonitor() {
     const { voice } = await import('../net/voice.js');
     const { net } = await import('../net/net.js');
+    voice.setMonitor(false);
     if (!net.active) voice.disable();
   }
 
   setMicIndicator(on) {
     $('voice-indicator').classList.toggle('hidden', !on);
     $('ab-mic').classList.toggle('live', on);
+  }
+
+  // Kick off (or re-show) the neural voice download with live progress + retry.
+  async startNeuralVoices() {
+    const vStatus = $('voice-engine-status');
+    const bar = $('voice-engine-bar'), fill = $('voice-engine-fill');
+    const retry = $('btn-voice-retry');
+    vStatus.classList.remove('hidden');
+    retry.classList.add('hidden');
+    const { neuralVoice } = await import('../ai/neuralVoice.js');
+    neuralVoice.onStatus = (st, prog, err) => {
+      if (st === 'loading') {
+        vStatus.textContent = prog > 0
+          ? `Downloading voice model… ${Math.round(prog * 100)}%`
+          : 'Preparing neural voices…';
+        bar.classList.remove('hidden');
+        fill.style.width = `${Math.round(prog * 100)}%`;
+        retry.classList.add('hidden');
+      } else if (st === 'ready') {
+        vStatus.textContent = 'Neural voices ready ✓';
+        fill.style.width = '100%';
+        setTimeout(() => bar.classList.add('hidden'), 1200);
+        retry.classList.add('hidden');
+      } else if (st === 'error') {
+        vStatus.textContent = `Couldn't load neural voices (${err || 'unknown'}). Using standard voices for now.`;
+        bar.classList.add('hidden');
+        retry.classList.remove('hidden');
+      }
+    };
+    neuralVoice.load();
+  }
+
+  reflectNeuralStatus() {
+    import('../ai/neuralVoice.js').then(({ neuralVoice }) => {
+      if (neuralVoice.status === 'ready') {
+        $('voice-engine-status').classList.remove('hidden');
+        $('voice-engine-status').textContent = 'Neural voices ready ✓';
+      } else if (neuralVoice.status === 'loading') {
+        this.startNeuralVoices();
+      } else if (neuralVoice.status === 'error') {
+        this.startNeuralVoices();
+      }
+    });
   }
 
   setMicAvailable(on) {
@@ -580,6 +613,10 @@ export class UI {
   wireActionBar() {
     const g = this.game;
     $('interact-prompt').onclick = () => g.doInteract();
+    // universal corner ✕ on every panel overlay (works without a keyboard)
+    document.querySelectorAll('.overlay-close').forEach((btn) => {
+      btn.onclick = () => { g.state = 'playing'; this.hideAll(); };
+    });
     // collapse/expand the icon row; the ☰ toggle keeps its fixed anchor
     const bar = $('action-bar');
     if (window.innerWidth < 1100) bar.classList.add('collapsed');
@@ -622,6 +659,11 @@ export class UI {
         <span class="ab-name">${ab.name}</span>
       `;
       slot.title = `${ab.name} (${ab.cost} ${player.classDef.resource.name}) — ${ab.desc}`;
+      // clickable with the mouse, not just the number keys
+      slot.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        if (this.game.state === 'playing') this.game.player?.tryAbility(i, this.game);
+      });
       bar.appendChild(slot);
       this.hotbarSlots.push(slot);
     });

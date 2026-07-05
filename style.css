@@ -207,15 +207,18 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #boss-name { font-size: 16px; color: #d9a0ff; text-shadow: 0 1px 2px #000; letter-spacing: 2px; }
 .bar-wrap.boss { height: 16px; margin-top: 4px; }
 
-#hotbar { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; }
+#hotbar { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: auto; }
 .hotbar-slot {
-  position: relative; width: 58px; height: 58px; border: 2px solid var(--panel-border);
-  border-radius: 8px; background: var(--panel); display: flex; align-items: center; justify-content: center;
-  font-size: 26px; overflow: hidden;
+  position: relative; width: 66px; height: 66px; border: 2px solid var(--panel-border);
+  border-radius: 8px; background: var(--panel); display: flex; align-items: center; justify-content: flex-start;
+  flex-direction: column; padding-top: 8px; font-size: 26px; overflow: hidden;
+  cursor: pointer; transition: border-color 0.12s, transform 0.1s;
 }
+.hotbar-slot:hover { border-color: var(--gold); transform: translateY(-2px); }
+.hotbar-slot:active { transform: translateY(0); }
 .hotbar-slot .key { position: absolute; top: 2px; left: 5px; font-size: 11px; opacity: 0.7; }
 .hotbar-slot .cd-sweep { position: absolute; inset: 0; background: rgba(0,0,0,0.75); transform-origin: bottom; transform: scaleY(0); }
-.hotbar-slot .ab-name { position: absolute; bottom: 2px; left: 0; right: 0; font-size: 8px; text-align: center; opacity: 0.75; letter-spacing: 0.5px; }
+.hotbar-slot .ab-name { position: absolute; bottom: 3px; left: 0; right: 0; font-size: 9px; text-align: center; opacity: 0.85; letter-spacing: 0.3px; line-height: 1.1; padding: 0 2px; }
 .hotbar-slot.ready { border-color: #6e5a8e; box-shadow: 0 0 8px rgba(160,120,220,0.25); }
 .hotbar-slot.no-resource { border-color: #7a3030; }
 
@@ -241,29 +244,45 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 /* desktop action bar: a horizontal tray anchored bottom-right. The ☰ toggle
    is the rightmost, fixed anchor; the other icons flow to its left, so the
    toggle never jumps when you collapse/expand. */
-#action-bar {
-  position: absolute; right: 16px; bottom: 16px; display: flex;
-  flex-direction: row; align-items: center; gap: 8px; pointer-events: auto;
-  padding: 6px; border-radius: 14px;
-  background: rgba(18, 14, 22, 0.7); border: 1px solid var(--panel-border);
-  backdrop-filter: blur(3px);
+/* Hidden by default; only true desktops (fine pointer + hover) show it, so
+   phones/tablets never get the desktop bar overlapping their touch drawer. */
+#action-bar { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  #action-bar {
+    position: absolute; right: 16px; bottom: 16px; display: flex;
+    flex-direction: row; align-items: center; gap: 8px; pointer-events: auto;
+    padding: 6px; border-radius: 14px;
+    background: rgba(18, 14, 22, 0.7); border: 1px solid var(--panel-border);
+    backdrop-filter: blur(3px);
+  }
 }
+.touch-mode #action-bar { display: none !important; }
 #action-bar.collapsed { background: none; border-color: transparent; padding: 0; }
 #action-bar button {
   width: 46px; height: 46px; border-radius: 10px; padding: 0; flex: none;
   border: 2px solid var(--panel-border); background: var(--panel);
   color: var(--parchment); font-size: 21px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center; line-height: 1;
+  align-items: center; justify-content: center; line-height: 1;
   transition: border-color 0.15s, transform 0.1s, opacity 0.15s;
 }
+#action-bar button { display: flex; }
 #action-bar button:hover { border-color: var(--gold); transform: translateY(-2px); }
 #ab-mic.live { border-color: #7ce87c; color: #7ce87c; box-shadow: 0 0 10px rgba(124,232,124,0.4); }
+/* ☰ is the last, fixed anchor; the row grows to its left so it never shifts */
 #ab-toggle { font-size: 22px; order: 99; border-color: var(--card-color, #5a4a7a); }
 /* collapsed: only the ☰ toggle shows, staying in its corner */
 #action-bar.collapsed button:not(#ab-toggle) { display: none; }
-/* devices with the touch drawer never show the desktop bar */
-.touch-mode #action-bar { display: none !important; }
-@media (pointer: coarse) { #action-bar { display: none !important; } }
+
+/* universal corner close ✕ on panel overlays (works without a keyboard) */
+.overlay-close {
+  position: absolute; top: 14px; right: 14px; z-index: 30;
+  width: 42px; height: 42px; border-radius: 50%; padding: 0;
+  border: 1px solid var(--panel-border); background: var(--panel);
+  color: var(--parchment); font-size: 18px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+  font-family: inherit; pointer-events: auto;
+}
+.overlay-close:hover { border-color: var(--gold); color: var(--gold); }
 
 /* ---------- Floaters ---------- */
 #floaters { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 15; }
@@ -552,11 +571,15 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   .class-card .class-role { font-size: 10px; letter-spacing: 1px; }
   .class-card .class-desc, .class-card ul { display: none; }
   #class-detail { max-width: 88vw; font-size: 12px; max-height: 30vh; overflow-y: auto; }
-  #hud-topleft { width: 44vw; max-width: 200px; }
-  /* keep the right column from colliding with the bars on narrow screens */
-  #hud-topright { max-width: 46vw; }
+  /* narrower bars (values unchanged) so they never reach the right column */
+  #hud-topleft { width: 40vw; max-width: 180px; }
+  #hud-topleft .bar-wrap { height: 18px; }
+  #hud-topleft .bar-wrap.small { height: 13px; }
+  #hud-topleft .bar-text { font-size: 10px; }
+  #hud-stats { font-size: 12px; gap: 8px; }
+  #hud-topright { max-width: 52vw; align-items: flex-end; }
   #hud-topright > div {
-    max-width: 46vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 52vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;
   }
   #minimap { width: 110px; height: 110px; }
   #hud-floor { font-size: 15px; }
