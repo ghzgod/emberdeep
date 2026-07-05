@@ -62,6 +62,7 @@ const MANIFEST = {
 const MUSIC = {
   dungeon: 'audio/music_dungeon.mp3',
   boss:    'audio/music_boss.mp3',
+  tavern:  'audio/music_tavern.mp3',
 };
 
 const AUDIBLE_RANGE = 26; // world units; beyond this SFX are silent

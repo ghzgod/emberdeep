@@ -1,4 +1,4 @@
-import { FLOOR, WALL, DOOR } from '../world/dungeon.js';
+import { FLOOR, WALL, DOOR, PIT } from '../world/dungeon.js';
 import { TILE } from '../world/meshbuilder.js';
 
 // Fog-of-war minimap on a small canvas, revealed as the player explores.
@@ -10,11 +10,35 @@ export class Minimap {
     this.explored = null;
   }
 
-  setDungeon(dungeon) {
+  setDungeon(dungeon, theme = null) {
     this.dungeon = dungeon;
+    this.theme = theme;
+    // fast lookup for cobbled tiles so town paths read as stone, not grass
+    this.cobbleSet = new Set((dungeon.cobbles || []).map((c) => `${c.x},${c.y}`));
     // town is small and safe — reveal the whole map immediately
     this.explored = Array.from({ length: dungeon.size }, () =>
       new Array(dungeon.size).fill(!!dungeon.town));
+  }
+
+  // colors mirror the actual ground: grass/cobble in town, themed stone below
+  tileColor(t, x, y) {
+    const d = this.dungeon;
+    if (d.town) {
+      if (t === FLOOR || t === DOOR) {
+        return this.cobbleSet.has(`${x},${y}`) ? '#8d8272' : '#3f5a35';
+      }
+      if (t === WALL) {
+        const tv = d.tavern;
+        if (tv && x >= tv.x && x < tv.x + tv.w && y >= tv.y && y < tv.y + tv.h) return '#6b4c30';
+        return '#2c4023'; // trees, hedges, props
+      }
+      return null;
+    }
+    if (t === FLOOR) return this.theme?.floor || '#5a5568';
+    if (t === WALL) return this.theme?.mortar || '#28242f';
+    if (t === DOOR) return '#8a6a3a';
+    if (t === PIT) return '#000000';
+    return null;
   }
 
   revealAround(px, pz, radius = 6) {
@@ -41,10 +65,9 @@ export class Minimap {
       for (let x = 0; x < n; x++) {
         if (!this.explored[y]?.[x]) continue;
         const t = this.dungeon.grid[y]?.[x];
-        if (t === FLOOR) ctx.fillStyle = '#5a5568';
-        else if (t === WALL) ctx.fillStyle = '#28242f';
-        else if (t === DOOR) ctx.fillStyle = '#8a6a3a';
-        else continue;
+        const color = this.tileColor(t, x, y);
+        if (!color) continue;
+        ctx.fillStyle = color;
         ctx.fillRect(x * s, y * s, s + 0.5, s + 0.5);
       }
     }

@@ -24,6 +24,7 @@ export class UI {
       quest: $('quest-screen'),
       skills: $('skills-screen'),
       story: $('story-screen'),
+      notices: $('notices-screen'),
       settings: $('settings-screen'),
       inventory: $('inventory-screen'),
       shop: $('shop-screen'),
@@ -34,6 +35,7 @@ export class UI {
     this.settingsReturnTo = 'title';
     this.hotbarSlots = [];
     this.wireMenus();
+    this.wireActionBar();
     this.wireSettings();
     this.buildClassCards();
     this.addUiSounds();
@@ -107,9 +109,10 @@ export class UI {
     $('btn-shop-restock').onclick = () => {
       if (this.game.activeVendor) this.game.restockVendor(this.game.activeVendor);
     };
-    $('btn-title-settings').onclick = () => { this.settingsReturnTo = 'title'; this.show('settings'); };
-    $('btn-pause-settings').onclick = () => { this.settingsReturnTo = 'pause'; this.show('settings'); };
+    $('btn-title-settings').onclick = () => { this.settingsReturnTo = 'title'; this.show('settings'); this.armMicMonitor(); };
+    $('btn-pause-settings').onclick = () => { this.settingsReturnTo = 'pause'; this.show('settings'); this.armMicMonitor(); };
     $('btn-settings-back').onclick = () => {
+      this.disarmMicMonitor();
       if (this.settingsReturnTo === 'pause') this.show('pause');
       else this.show('title');
     };
@@ -119,6 +122,7 @@ export class UI {
     $('btn-pause-skills').onclick = () => { this.game.state = 'skills'; this.openSkills(); };
     $('btn-skills-close').onclick = () => { this.game.state = 'playing'; this.hideAll(); };
     $('btn-story-continue').onclick = () => { this.game.state = 'playing'; this.hideAll(); };
+    $('btn-notices-close').onclick = () => { this.game.state = 'playing'; this.hideAll(); };
     $('btn-quit-title').onclick = () => this.game.quitToTitle();
     $('btn-respawn').onclick = () => this.game.respawn();
     $('btn-gameover-title').onclick = () => this.game.quitToTitle();
@@ -237,6 +241,20 @@ export class UI {
     }
   }
 
+  // ---------- notice board ----------
+  openNotices(notices) {
+    const list = $('notices-list');
+    list.innerHTML = '';
+    for (const nt of notices) {
+      const paper = document.createElement('div');
+      paper.className = 'notice-paper';
+      paper.innerHTML = `<h4>${nt.title}</h4><p>${nt.text}</p>`;
+      list.appendChild(paper);
+    }
+    this.show('notices');
+    audio.play('ui_open');
+  }
+
   // ---------- story cards ----------
   showStory(story) {
     $('story-title').textContent = story.title;
@@ -304,7 +322,7 @@ export class UI {
       list.appendChild(row);
     }
     $('quest-stats').innerHTML = Object.entries(qs.stats)
-      .map(([k, v]) => `<span class="qs-item"><b>${k}:</b> ${v}</span>`).join('');
+      .map(([k, v]) => `<div class="qs-row"><span>${k}</span><b>${v}</b></div>`).join('');
     this.show('quest');
     audio.play('ui_open');
   }
@@ -318,21 +336,37 @@ export class UI {
 
   renderShop(vendor) {
     const p = this.game.player;
+    const FLAVOR = {
+      potions: { portrait: '⚗️', tag: 'Remedies & tonics — brewed this morning' },
+      gear: { portrait: '⚒️', tag: 'Honest steel, honestly priced' },
+      mystery: { portrait: '🔮', tag: 'Fate, bottled. No refunds.' },
+    };
+    const fl = FLAVOR[vendor.type] || FLAVOR.gear;
+    $('shop-portrait').textContent = fl.portrait;
     $('shop-title').textContent = vendor.name;
-    $('shop-gold').textContent = `Your gold: ${p.gold} 🪙`;
+    $('shop-tagline').textContent = fl.tag;
+    $('shop-gold').innerHTML = `🪙 <b>${p.gold}</b>`;
     const fee = this.game.restockFee(vendor);
-    $('btn-shop-restock').textContent = `Restock (${fee}g)`;
+    $('btn-shop-restock').textContent = `↻ Restock wares — ${fee}g`;
     $('btn-shop-restock').disabled = p.gold < fee;
+
+    const subFor = (entry) => {
+      if (entry.kind === 'potion') return 'Restores 45% health';
+      if (entry.kind === 'bag') return '+3 inventory slots, forever';
+      if (entry.kind === 'gamble') return 'Common… or legendary. Fate decides.';
+      if (entry.item) return `${RARITIES[entry.item.rarity].name} ${entry.item.slot}`;
+      return '';
+    };
 
     const buyWrap = $('shop-buy-list');
     buyWrap.innerHTML = '';
     for (const entry of vendor.stock) {
       const el = document.createElement('div');
       const afford = p.gold >= entry.price && !entry.sold;
-      el.className = `shop-item ${entry.item ? 'r-' + entry.item.rarity : ''} ${afford ? '' : 'disabled'}`;
+      el.className = `shop-item ${entry.item ? 'r-' + entry.item.rarity : ''} ${entry.sold ? 'sold' : afford ? '' : 'disabled'}`;
       el.innerHTML = `
-        <span>${entry.icon}</span>
-        <span class="shop-item-name">${entry.sold ? '(sold) ' : ''}${entry.label}</span>
+        <span class="shop-item-icon">${entry.icon}</span>
+        <span class="shop-item-name">${entry.label}<small>${entry.sold ? 'Sold out' : subFor(entry)}</small></span>
         <span class="shop-item-price">${entry.price}g</span>
       `;
       if (afford) {
@@ -344,15 +378,15 @@ export class UI {
     const sellWrap = $('shop-sell-list');
     sellWrap.innerHTML = '';
     if (!p.inventory.length) {
-      sellWrap.innerHTML = '<div class="shop-empty">Nothing to sell.</div>';
+      sellWrap.innerHTML = '<div class="shop-empty">Your pack is empty —<br>the dungeon provides.</div>';
     }
     for (const item of [...p.inventory]) {
       const el = document.createElement('div');
       el.className = `shop-item r-${item.rarity}`;
       el.innerHTML = `
-        <span>${item.icon}</span>
-        <span class="shop-item-name">${item.name}</span>
-        <span class="shop-item-price">+${sellValue(item)}g</span>
+        <span class="shop-item-icon">${item.icon}</span>
+        <span class="shop-item-name">${item.name}<small>${RARITIES[item.rarity].name} ${item.slot}</small></span>
+        <span class="shop-item-price sell">+${sellValue(item)}g</span>
       `;
       el.onclick = () => { this.game.sellItem(item); this.renderShop(vendor); };
       sellWrap.appendChild(el);
@@ -377,6 +411,38 @@ export class UI {
     bind('set-music', 'set-music-val', 'musicVolume', 'music');
     bind('set-sfx', 'set-sfx-val', 'sfxVolume', 'sfx');
 
+    // voice chat + character speech channels
+    const bindPlain = (id, valId, key) => {
+      const el = $(id);
+      el.value = Math.round(s[key] * 100);
+      $(valId).textContent = `${el.value}%`;
+      el.oninput = () => {
+        s[key] = el.value / 100;
+        $(valId).textContent = `${el.value}%`;
+        this.game.applyAudioSettings();
+        this.game.saveSettings();
+      };
+    };
+    bindPlain('set-vchat', 'set-vchat-val', 'voiceChatVolume');
+    bindPlain('set-speech', 'set-speech-val', 'speechVolume');
+
+    // Auto-balance: dialogue-first mixing — speech at reference, voice chat
+    // equal (0 dB), SFX −6 dB, music −12 dB, master at 85%.
+    $('btn-auto-level').onclick = () => {
+      const db = (d) => Math.pow(10, d / 20);
+      s.speechVolume = 1.0;
+      s.voiceChatVolume = 1.0;
+      s.sfxVolume = +(db(-6)).toFixed(2);    // ≈ 0.50
+      s.musicVolume = +(db(-12)).toFixed(2); // ≈ 0.25
+      s.masterVolume = 0.85;
+      this.game.applyAudioSettings();
+      this.game.saveSettings();
+      this.syncSettingsInputs();
+      $('set-vchat').value = 100; $('set-vchat-val').textContent = '100%';
+      $('set-speech').value = 100; $('set-speech-val').textContent = '100%';
+      audio.play('ui_click');
+    };
+
     const q = $('set-quality');
     q.value = s.quality;
     q.onchange = () => { s.quality = q.value; this.game.applyQuality(); this.game.saveSettings(); };
@@ -393,6 +459,40 @@ export class UI {
       const { roaster } = await import('../ai/roaster.js');
       roaster.enabled = s.taunts;
       if (!s.taunts && 'speechSynthesis' in window) speechSynthesis.cancel();
+    };
+
+    // neural character voices (Kokoro)
+    const vEngine = $('set-voice-engine');
+    const vStatus = $('voice-engine-status');
+    vEngine.value = s.voiceEngine || 'standard';
+    vEngine.onchange = async () => {
+      s.voiceEngine = vEngine.value;
+      this.game.saveSettings();
+      if (s.voiceEngine === 'neural') {
+        vStatus.classList.remove('hidden');
+        vStatus.textContent = 'Preparing neural voices…';
+        const bar = $('voice-engine-bar'), fill = $('voice-engine-fill');
+        bar.classList.remove('hidden');
+        fill.style.width = '0%';
+        const { neuralVoice } = await import('../ai/neuralVoice.js');
+        neuralVoice.onStatus = (st, prog) => {
+          if (st === 'loading') {
+            vStatus.textContent = `Downloading voice model… ${Math.round(prog * 100)}%`;
+            fill.style.width = `${Math.round(prog * 100)}%`;
+          } else if (st === 'ready') {
+            vStatus.textContent = 'Neural voices ready ✓';
+            fill.style.width = '100%';
+            setTimeout(() => bar.classList.add('hidden'), 1200);
+          } else if (st === 'error') {
+            vStatus.textContent = 'Neural voices failed to load — using standard voices.';
+            bar.classList.add('hidden');
+          }
+        };
+        neuralVoice.load();
+      } else {
+        vStatus.classList.add('hidden');
+        $('voice-engine-bar').classList.add('hidden');
+      }
     };
 
     // voice chat
@@ -414,6 +514,7 @@ export class UI {
       s.voiceMode = vSel.value;
       this.game.saveSettings();
       syncVoiceRows();
+      if (s.voiceMode !== 'off') this.armMicMonitor();
       const { voice } = await import('../net/voice.js');
       const { net } = await import('../net/net.js');
       if (s.voiceMode === 'off') voice.disable();
@@ -444,8 +545,54 @@ export class UI {
     }, 120);
   }
 
+  // While settings are open, run the mic so the trigger meter is live even
+  // outside a multiplayer session; release it again on close if not in a room.
+  async armMicMonitor() {
+    const s = this.game.settings;
+    if (s.voiceMode === 'off') return;
+    const { voice } = await import('../net/voice.js');
+    voice.enable(s.voiceMode, s.voiceThreshold);
+  }
+
+  async disarmMicMonitor() {
+    const { voice } = await import('../net/voice.js');
+    const { net } = await import('../net/net.js');
+    if (!net.active) voice.disable();
+  }
+
   setMicIndicator(on) {
     $('voice-indicator').classList.toggle('hidden', !on);
+    $('ab-mic').classList.toggle('live', on);
+  }
+
+  setMicAvailable(on) {
+    $('ab-mic').classList.toggle('hidden', !on);
+  }
+
+  showInteract(candidate) {
+    const el = $('interact-prompt');
+    if (!candidate) { el.classList.add('hidden'); return; }
+    // key chip is hidden by CSS on coarse-pointer devices — tap the pill there
+    el.innerHTML = `${candidate.icon} ${candidate.label} <span class="key-chip">F</span>`;
+    el.classList.remove('hidden');
+  }
+
+  wireActionBar() {
+    const g = this.game;
+    $('interact-prompt').onclick = () => g.doInteract();
+    // collapse/expand the icon row; the ☰ toggle keeps its fixed anchor
+    const bar = $('action-bar');
+    if (window.innerWidth < 1100) bar.classList.add('collapsed');
+    const syncToggle = () => {
+      $('ab-toggle').textContent = bar.classList.contains('collapsed') ? '☰' : '✕';
+    };
+    syncToggle();
+    $('ab-toggle').onclick = () => { bar.classList.toggle('collapsed'); syncToggle(); };
+    $('ab-inv').onclick = () => g.toggleInventory();
+    $('ab-quests').onclick = () => { if (g.state === 'playing') g.toggleQuestLog(); };
+    $('ab-skills').onclick = () => { if (g.state === 'playing') g.toggleSkills(); };
+    $('ab-potion').onclick = () => { if (g.state === 'playing') g.player?.drinkPotion(g); };
+    $('ab-pause').onclick = () => g.togglePause(true);
   }
 
   syncSettingsInputs() {
@@ -501,6 +648,10 @@ export class UI {
     $('hud-level').textContent = pts > 0 ? `Lv ${player.level} ✦${pts}` : `Lv ${player.level}`;
     $('hud-gold').textContent = `${player.gold} 🪙`;
     $('hud-potions').textContent = `${player.potions} 🧪`;
+    // potion buttons only matter when you're actually hurt
+    const needPotion = player.hp < player.maxHp - 1 && player.potions > 0;
+    $('touch-potion')?.classList.toggle('hidden', !needPotion);
+    $('ab-potion')?.classList.toggle('hidden', !needPotion);
     // multiplayer: show how many heroes share the room (works in both orientations)
     const playersEl = $('hud-players');
     const count = this.game.roomPlayerCount();

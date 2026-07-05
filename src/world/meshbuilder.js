@@ -255,9 +255,9 @@ export function buildDungeonMeshes(dungeon, theme) {
 
       if (v.type === 'potions') {
         // Maribel: wide-brim herbalist hat + apron, warm colors
-        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.4, 0.05, 12), new THREE.MeshStandardMaterial({ color: 0x6b3a2a, roughness: 0.9 }));
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.4, 0.05, 12), new THREE.MeshStandardMaterial({ color: 0x46512f, roughness: 0.9 }));
         brim.position.y = 1.48;
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.32, 10), new THREE.MeshStandardMaterial({ color: 0x8a4a2e, roughness: 0.9 }));
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.32, 10), new THREE.MeshStandardMaterial({ color: 0x556038, roughness: 0.9 }));
         cone.position.y = 1.68;
         const apron = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.42, 0.06), new THREE.MeshStandardMaterial({ color: 0xc99a4a, roughness: 0.9 }));
         apron.position.set(0, 0.62, 0.2);
@@ -265,7 +265,7 @@ export function buildDungeonMeshes(dungeon, theme) {
       } else if (v.type === 'gear') {
         // Torvald: blacksmith — bandana, thick arms (scaled up), dark leather apron
         armL.scale.set(1.5, 1.2, 1.5); armR.scale.set(1.5, 1.2, 1.5);
-        const bandana = new THREE.Mesh(new THREE.SphereGeometry(0.205, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55), new THREE.MeshStandardMaterial({ color: 0xa8342a, roughness: 0.9 }));
+        const bandana = new THREE.Mesh(new THREE.SphereGeometry(0.205, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55), new THREE.MeshStandardMaterial({ color: 0x4a3628, roughness: 0.9 }));
         bandana.position.y = 1.36;
         const apron = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.5, 0.07), new THREE.MeshStandardMaterial({ color: 0x2a221c, roughness: 0.95 }));
         apron.position.set(0, 0.58, 0.2);
@@ -371,7 +371,8 @@ export function buildDungeonMeshes(dungeon, theme) {
     );
     inner.position.y = 1.1;
     returnPortalMesh.add(ring, inner);
-    returnPortalMesh.position.set(w.x, 0, w.z - 1.2);
+    // keep it clear of the arrival spot so nobody bounces straight back
+    returnPortalMesh.position.set(w.x, 0, w.z - 2.4);
     group.add(returnPortalMesh);
   }
 
@@ -598,15 +599,28 @@ function buildTownDecor(group, dungeon, smokePuffs) {
     group.add(cart);
   }
 
-  // low hedge segments ringing garden corners
+  // hedges: rounded shrub clusters, not slabs
   if (dungeon.hedges?.length) {
-    const hedgeMat = new THREE.MeshStandardMaterial({ color: 0x3a5a30, roughness: 1 });
-    const hedgeGeo = new THREE.BoxGeometry(1.8, 0.5, 0.5);
+    const hedgeGreens = [0x3f6b34, 0x4a7a3c, 0x35592c, 0x578840];
+    const blobGeo = new THREE.SphereGeometry(1, 8, 6);
+    let hseed = 7;
+    const hrand = () => { hseed = (hseed * 1664525 + 1013904223) >>> 0; return hseed / 0x100000000; };
     for (const h of dungeon.hedges) {
       const w = tileToWorld(h.x, h.y);
-      const hedge = new THREE.Mesh(hedgeGeo, hedgeMat);
-      hedge.position.set(w.x, 0.25, w.z);
-      group.add(hedge);
+      for (let i = 0; i < 4; i++) {
+        const blob = new THREE.Mesh(blobGeo, new THREE.MeshStandardMaterial({
+          color: hedgeGreens[Math.floor(hrand() * hedgeGreens.length)], roughness: 1,
+        }));
+        const r = 0.3 + hrand() * 0.22;
+        blob.scale.set(r * 1.25, r * 0.8, r * 1.1);
+        blob.position.set(
+          w.x + (hrand() - 0.5) * 1.4,
+          r * 0.55,
+          w.z + (hrand() - 0.5) * 1.0
+        );
+        blob.rotation.y = hrand() * Math.PI;
+        group.add(blob);
+      }
     }
   }
 
@@ -631,18 +645,36 @@ function buildTownDecor(group, dungeon, smokePuffs) {
     const beltBeam = new THREE.Mesh(new THREE.BoxGeometry(W - 0.3, 0.14, 0.12), timber);
     beltBeam.position.set(0, 1.75, D / 2 - 0.14);
     tavern.add(beltBeam);
-    // pitched roof: two slabs
+    // pitched roof: two slopes computed to MEET exactly at the ridge and
+    // overhang the eaves — no gaps, no clipping — plus closed gable ends
     const roofMat = new THREE.MeshStandardMaterial({ color: 0x71402a, roughness: 0.85 });
-    const slabL = new THREE.Mesh(new THREE.BoxGeometry(W + 0.6, 0.12, D * 0.62), roofMat);
-    slabL.position.set(0, 3.15, -D * 0.24);
-    slabL.rotation.x = 0.62;
-    const slabR = slabL.clone();
-    slabR.position.z = D * 0.24;
-    slabR.rotation.x = -0.62;
+    const wallTop = 2.6, ridgeY = 3.6;
+    const halfSpan = D / 2 + 0.35;                       // eave overhang
+    const pitch = Math.atan((ridgeY - wallTop) / halfSpan);
+    const slopeLen = Math.hypot(halfSpan, ridgeY - wallTop) + 0.1;
+    const slabL = new THREE.Mesh(new THREE.BoxGeometry(W + 0.6, 0.12, slopeLen), roofMat);
+    slabL.position.set(0, (wallTop + ridgeY) / 2 + 0.04, -halfSpan / 2);
+    slabL.rotation.x = -pitch;
+    const slabR = new THREE.Mesh(new THREE.BoxGeometry(W + 0.6, 0.12, slopeLen), roofMat);
+    slabR.position.set(0, (wallTop + ridgeY) / 2 + 0.04, halfSpan / 2);
+    slabR.rotation.x = pitch;
     tavern.add(slabL, slabR);
-    // ridge beam along the roof peak for a cleaner silhouette from above
-    const ridge = new THREE.Mesh(new THREE.BoxGeometry(W - 0.1, 0.1, 0.1), timber);
-    ridge.position.set(0, 3.42, 0);
+    // gable end triangles close the roof so you can't see inside it
+    const gableShape = new THREE.Shape();
+    gableShape.moveTo(-(D / 2 - 0.2), 0);
+    gableShape.lineTo(D / 2 - 0.2, 0);
+    gableShape.lineTo(0, ridgeY - wallTop);
+    gableShape.closePath();
+    const gableGeo = new THREE.ShapeGeometry(gableShape);
+    for (const sx of [-(W - 0.4) / 2, (W - 0.4) / 2]) {
+      const gable = new THREE.Mesh(gableGeo, plaster);
+      gable.rotation.y = sx < 0 ? -Math.PI / 2 : Math.PI / 2;
+      gable.position.set(sx, wallTop, 0);
+      tavern.add(gable);
+    }
+    // ridge beam caps the peak
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(W + 0.7, 0.14, 0.18), timber);
+    ridge.position.set(0, ridgeY + 0.06, 0);
     tavern.add(ridge);
     // chimney + animated smoke puffs (data returned via smokePuffs for the game loop to drift/fade)
     const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.1, 0.35), new THREE.MeshStandardMaterial({ color: 0x6a665f, roughness: 1 }));
@@ -663,15 +695,22 @@ function buildTownDecor(group, dungeon, smokePuffs) {
         smokePuffs.push({ mesh: puff, baseY, phase: (i / 5) * Math.PI * 2, speed: 0.35 + i * 0.05, kind: 'smoke' });
       }
     }
-    // warm windows + door on the square-facing side
+    // warm windows: INSET into the plaster (behind the timber frame layer)
+    // and sized to sit between the beams — facade layers never overlap:
+    // plaster face < window (+0.01) < timber beams (+0.06)
     const glow = new THREE.MeshBasicMaterial({ color: 0xffb45e });
-    const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.6), glow);
-    win.position.set(-W * 0.28, 1.5, D / 2 - 0.07);
+    const frontFace = D / 2 - 0.2; // plaster front plane
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.46), glow);
+    win.position.set(-W * 0.28, 1.32, frontFace + 0.01);
     tavern.add(win);
-    // side window (extra detail requested — breaks up the blank side wall)
-    const sideWin = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.55), glow);
-    sideWin.position.set(-W / 2 + 0.02, 1.5, 0);
-    sideWin.rotation.y = Math.PI / 2;
+    const winFrame = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.05), timber);
+    winFrame.position.set(-W * 0.28, 1.08, frontFace + 0.02); // sill
+    tavern.add(winFrame);
+    // side window flush with the side wall
+    const sideFace = (W - 0.4) / 2;
+    const sideWin = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.46), glow);
+    sideWin.position.set(-sideFace - 0.01, 1.32, 0);
+    sideWin.rotation.y = -Math.PI / 2;
     tavern.add(sideWin);
     // door frame + door + step
     const frameMat = timber;

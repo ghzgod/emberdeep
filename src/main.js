@@ -9,6 +9,8 @@ try {
   if (game.touch.enabled) {
     document.getElementById('title-controls').textContent =
       'Left thumb to move · right thumb to aim & attack · tap the hotbar for abilities';
+    // touch devices have their own button drawer — no desktop action bar
+    document.getElementById('action-bar')?.classList.add('hidden');
   }
   if (typeof __BUILD_DATE__ !== 'undefined') {
     document.getElementById('build-info').textContent =

@@ -180,7 +180,11 @@ export class Enemy {
         let targetX = tPos.x, targetZ = tPos.z;
         if (atk.kind !== 'ranged' && distToPlayer > 3 && target.local) {
           const pred = learner.predict(player);
-          if (pred) { targetX += pred.dx * 0.7; targetZ += pred.dz * 0.7; }
+          if (pred) {
+            // elites lean into interception harder the more the hero flees
+            const lead = 0.7 + (this.elite || this.miniboss ? Math.min(0.5, game.fleeTendency || 0) : 0);
+            targetX += pred.dx * lead; targetZ += pred.dz * lead;
+          }
         }
         let dirX = targetX - this.pos.x;
         let dirZ = targetZ - this.pos.z;
