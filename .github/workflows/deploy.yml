@@ -1,0 +1,67 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel an in-flight Pages deploy — cancellation surfaces as a spurious
+# failure (and a failure email). Let runs queue instead.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.d1.outputs.page_url || steps.d2.outputs.page_url || steps.d3.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build            # vite build -> dist/
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist                  # vite output dir
+
+      # The Pages deploy step intermittently returns
+      # "##[error]Deployment failed, try again later." — a transient GitHub
+      # backend error. Retry up to 3x so a transient failure self-heals within
+      # the same run instead of failing it (which emails a failure notice).
+      - name: Deploy (attempt 1)
+        id: d1
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - if: steps.d1.outcome == 'failure'
+        run: sleep 20
+
+      - name: Deploy (attempt 2)
+        id: d2
+        if: steps.d1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - if: steps.d1.outcome == 'failure' && steps.d2.outcome == 'failure'
+        run: sleep 30
+
+      # Final attempt: NOT continue-on-error, so a genuine (non-transient)
+      # outage still fails the run after three honest tries.
+      - name: Deploy (final attempt)
+        id: d3
+        if: steps.d1.outcome == 'failure' && steps.d2.outcome == 'failure'
+        uses: actions/deploy-pages@v4
