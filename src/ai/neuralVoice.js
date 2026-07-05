@@ -1,5 +1,39 @@
 import { audio } from '../core/audio.js';
 
+// Kokoro (Misaki G2P) mispronounces raw game text: it reads emoji/symbols aloud,
+// pauses awkwardly on em-dashes and ellipses, spells out ALL-CAPS words letter by
+// letter, and voices bare digits inconsistently. Normalize before generate().
+const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+  'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+function numToWords(n) {
+  n = parseInt(n, 10);
+  if (isNaN(n)) return '';
+  if (n < 20) return ONES[n];
+  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? '-' + ONES[n % 10] : '');
+  if (n < 1000) return ONES[Math.floor(n / 100)] + ' hundred' + (n % 100 ? ' ' + numToWords(n % 100) : '');
+  if (n < 1000000) return numToWords(Math.floor(n / 1000)) + ' thousand' + (n % 1000 ? ' ' + numToWords(n % 1000) : '');
+  return String(n);
+}
+const ABBR = { HP: 'hit points', XP: 'experience', AoE: 'area', Lvl: 'level', Lv: 'level', vs: 'versus', NPC: 'character' };
+export function normalizeForTTS(text) {
+  let t = String(text || '');
+  // strip emoji / pictographs / symbols (and their variation selectors / ZWJ)
+  // that Kokoro would otherwise read aloud
+  t = t.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200D}]/gu, ' ');
+  // dashes + ellipses → a plain comma pause (Kokoro stumbles on the glyphs)
+  t = t.replace(/\s*[—–]\s*/g, ', ').replace(/\.{2,}|…/g, ', ');
+  // whole-word abbreviations → spoken form
+  t = t.replace(/\b([A-Za-z]+)\b/g, (w) => (ABBR[w] ? ABBR[w] : w));
+  // ALL-CAPS emphasis words → title case so they aren't spelled out letter by letter
+  t = t.replace(/\b[A-Z]{2,}\b/g, (m) => m.charAt(0) + m.slice(1).toLowerCase());
+  // standalone numbers (incl. simple currency) → words
+  t = t.replace(/\$?\d[\d,]*/g, (m) => numToWords(m.replace(/[$,]/g, '')) || m);
+  // collapse leftover whitespace / stray punctuation runs
+  t = t.replace(/\s+/g, ' ').replace(/\s+([,.!?])/g, '$1').replace(/([,]){2,}/g, ',').trim();
+  return t;
+}
+
 // Neural TTS via Kokoro-82M (kokoro-js / transformers.js, Apache 2.0).
 // Opt-in: the quantized model is a ~90 MB one-time download, cached by the
 // browser afterwards. Falls back to the standard Web Speech voices whenever
@@ -90,9 +124,11 @@ class NeuralVoice {
 
   async speak(text, { voice = 'af_heart', speed = 1 } = {}) {
     if (!this.ready || this._busy) return false;
+    const clean = normalizeForTTS(text);
+    if (!clean) return false;
     this._busy = true;
     try {
-      const result = await this.tts.generate(text, { voice, speed });
+      const result = await this.tts.generate(clean, { voice, speed });
       this.stop();
       if (!audio.ctx) { this._busy = false; return false; }
       const buf = audio.ctx.createBuffer(1, result.audio.length, result.sampling_rate);

@@ -183,12 +183,37 @@ export function generateDungeon(floor) {
     }
     return out;
   };
-  scuffs.push(...take(14, 2).map((t) => ({ ...t, r: Math.random() * Math.PI * 2, s: 0.5 + Math.random() * 0.8 })));
+  // (scuff/scorch decals removed — the black ovals read as random floor
+  //  "shadows" not cast by anything. Floor variety comes from the texture,
+  //  room rugs and props instead.)
   rubble.push(...take(8, 3));
   // (pit-fall traps removed — they yanked you to the next floor)
 
+  // Decorative props that HUG the walls: themed clutter so rooms feel lived-in.
+  // Only on FLOOR tiles bordering a WALL; kept off spawn/stairs/chests/doors and
+  // spaced out so 1-wide corridors never get clogged. The renderer picks the
+  // actual themed mesh from `roll`; here we just choose good wall-hugging slots.
+  const props = [];
+  const isBlockedProp = (x, y) =>
+    (spawn && Math.abs(x - spawn.x) + Math.abs(y - spawn.y) < 2) ||
+    (stairs && Math.abs(x - stairs.x) + Math.abs(y - stairs.y) < 2) ||
+    chests.some((c) => c.x === x && c.y === y) ||
+    doors.some((d) => d.x === x && d.y === y);
+  const wallDirOf = (x, y) => {
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (grid[y + dy]?.[x + dx] === WALL) return { dx, dy };
+    return null;
+  };
+  for (const t of floorTiles) {
+    if (props.length >= 20) break;
+    if (isBlockedProp(t.x, t.y)) continue;
+    if (props.some((p) => Math.abs(p.x - t.x) + Math.abs(p.y - t.y) < 2)) continue;
+    const dir = wallDirOf(t.x, t.y);
+    if (!dir) continue;
+    props.push({ x: t.x, y: t.y, dx: dir.dx, dy: dir.dy, r: Math.random() * Math.PI * 2, roll: Math.random() });
+  }
+
   return { grid, size: GRID, rooms, spawn, stairs, torches, chests, doors, enemies, boss: null,
-    scuffs, rubble, pits, chasmTiles, bridgeTiles, rubbleWalls };
+    scuffs, rubble, pits, props, chasmTiles, bridgeTiles, rubbleWalls };
 }
 
 function carveCorridor(grid, a, b, horizFirst, doorSpots) {
@@ -259,9 +284,9 @@ function placeTorches(grid) {
       // faces floor?
       const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
       for (const [dx, dy] of dirs) {
-        if (grid[y + dy][x + dx] === FLOOR && Math.random() < 0.10) {
-          // keep spacing
-          if (!torches.some((t) => Math.abs(t.x - x) + Math.abs(t.y - y) < 5)) {
+        if (grid[y + dy][x + dx] === FLOOR && Math.random() < 0.16) {
+          // keep spacing (denser than before so corridors aren't pitch black)
+          if (!torches.some((t) => Math.abs(t.x - x) + Math.abs(t.y - y) < 4)) {
             torches.push({ x, y, fx: x + dx * 0.6, fy: y + dy * 0.6 });
           }
           break;

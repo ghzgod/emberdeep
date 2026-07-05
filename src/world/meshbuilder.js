@@ -148,7 +148,7 @@ export function buildDungeonMeshes(dungeon, theme) {
     });
   }
   const wallGeo = new THREE.BoxGeometry(TILE, wallH, TILE);
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.9 });
+  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95, flatShading: true });
   const wallMesh = new THREE.InstancedMesh(wallGeo, wallMat, renderWalls.length);
   renderWalls.forEach((tp, i) => {
     const w = tileToWorld(tp.x, tp.y);
@@ -157,6 +157,21 @@ export function buildDungeonMeshes(dungeon, theme) {
   });
   wallMesh.instanceMatrix.needsUpdate = true;
   group.add(wallMesh);
+
+  // Dungeon walls get an inset capstone course on top so the silhouette steps
+  // instead of reading as one plain extruded cube.
+  if (!town && renderWalls.length) {
+    const capGeo = new THREE.BoxGeometry(TILE * 0.84, 0.34, TILE * 0.84);
+    const capMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 1, flatShading: true });
+    const capMesh = new THREE.InstancedMesh(capGeo, capMat, renderWalls.length);
+    renderWalls.forEach((tp, i) => {
+      const w = tileToWorld(tp.x, tp.y);
+      m.setPosition(w.x, wallH - 0.05, w.z);
+      capMesh.setMatrixAt(i, m);
+    });
+    capMesh.instanceMatrix.needsUpdate = true;
+    group.add(capMesh);
+  }
 
   // --- Town: cobbled square + lane ---
   if (town && dungeon.cobbles?.length) {
@@ -502,6 +517,14 @@ export function buildDungeonMeshes(dungeon, theme) {
     group.add(stairsMesh);
   }
 
+  // --- Dungeon decoration: room rugs + wall-hugging themed props ---
+  if (!town) {
+    buildRoomRugs(group, dungeon, theme);
+    if (dungeon.props?.length) buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs);
+  }
+  // --- World beyond the town walls: forest ring, horizon, a wandering critter ---
+  if (town) buildTownSurroundings(group, dungeon, smokePuffs);
+
   return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh, smokePuffs };
 }
 
@@ -833,4 +856,143 @@ function buildTownDecor(group, dungeon, smokePuffs) {
     tavern.position.set(cw.x, 0, cw.z);
     group.add(tavern);
   }
+}
+
+// ---------------- Dungeon decoration ----------------
+
+// Themed floor medallions in the larger rooms so they don't read as bare brick.
+function buildRoomRugs(group, dungeon, theme) {
+  const acc = new THREE.Color(theme.accent);
+  for (const r of dungeon.rooms || []) {
+    if (r.w < 5 || r.h < 5) continue;
+    const w = tileToWorld(Math.floor(r.x + r.w / 2), Math.floor(r.y + r.h / 2));
+    const rad = Math.min(r.w, r.h) * 0.3 * TILE;
+    const rug = new THREE.Mesh(
+      new THREE.CircleGeometry(rad, 24),
+      new THREE.MeshStandardMaterial({ color: acc.clone().multiplyScalar(0.26), roughness: 1,
+        polygonOffset: true, polygonOffsetFactor: -1, transparent: true, opacity: 0.55 }));
+    rug.rotation.x = -Math.PI / 2; rug.position.set(w.x, 0.03, w.z);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(rad * 0.58, rad * 0.68, 24),
+      new THREE.MeshBasicMaterial({ color: acc, transparent: true, opacity: 0.2, side: THREE.DoubleSide, fog: true }));
+    ring.rotation.x = -Math.PI / 2; ring.position.set(w.x, 0.04, w.z);
+    group.add(rug, ring);
+  }
+}
+
+// Wall-hugging themed clutter. Braziers/candelabra register as torch lights so
+// they glow and flicker via the game's pooled-light loop.
+function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs) {
+  const SETS = {
+    'The Old Halls':      ['barrel', 'crate', 'bones', 'cobweb', 'banner', 'pot'],
+    'The Rotting Depths': ['mushroom', 'bones', 'pot', 'cobweb', 'barrel', 'skull'],
+    'The Ember Vaults':   ['brazier', 'crate', 'skull', 'banner', 'pot', 'bones'],
+    'The Sunless Court':  ['sarcophagus', 'candelabra', 'bones', 'banner', 'cobweb', 'skull'],
+    'The Abyssal Throne': ['sarcophagus', 'skull', 'brazier', 'banner', 'bones', 'cobweb'],
+  };
+  const kinds = SETS[theme.name] || SETS['The Old Halls'];
+  const accent = new THREE.Color(theme.accent);
+  const C = { WOOD: 0x54402c, IRON: 0x3f3f47, BONE: 0xcfc6a6, STONE: 0x5e5766, TERRA: 0x8a4b33, accent };
+  for (const p of dungeon.props) {
+    const kind = kinds[Math.min(kinds.length - 1, Math.floor((p.roll || 0) * kinds.length))];
+    const w = tileToWorld(p.x, p.y);
+    const px = w.x + (p.dx || 0) * (TILE * 0.32);
+    const pz = w.z + (p.dy || 0) * (TILE * 0.32);
+    const node = buildProp(kind, C, torchPositions, smokePuffs, px, pz);
+    if (!node) continue;
+    node.position.set(px, 0, pz);
+    node.rotation.y = p.r || 0;
+    group.add(node);
+  }
+}
+
+function buildProp(kind, C, torchPositions, smokePuffs, px, pz) {
+  const g = new THREE.Group();
+  const std = (color, rough = 1) => new THREE.MeshStandardMaterial({ color, roughness: rough, flatShading: true });
+  const glow = (color) => new THREE.MeshBasicMaterial({ color, fog: false });
+  if (kind === 'barrel') {
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 0.9, 9), std(C.WOOD));
+    b.position.y = 0.45; g.add(b);
+    for (const y of [0.2, 0.7]) { const h = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.03, 6, 12), std(C.IRON)); h.rotation.x = Math.PI / 2; h.position.y = y; g.add(h); }
+  } else if (kind === 'crate') {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), std(C.WOOD)); b.position.y = 0.35; g.add(b);
+    const t = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.1, 0.12), std(0x3c2c1c)); t.position.y = 0.35; g.add(t);
+  } else if (kind === 'bones') {
+    for (let i = 0; i < 4; i++) { const bn = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 5), std(C.BONE)); bn.rotation.set(Math.PI / 2, 0, Math.random() * Math.PI); bn.position.set((Math.random() - 0.5) * 0.4, 0.06, (Math.random() - 0.5) * 0.4); g.add(bn); }
+    const sk = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), std(C.BONE)); sk.position.set(0.15, 0.12, 0.1); g.add(sk);
+  } else if (kind === 'skull') {
+    const sk = new THREE.Mesh(new THREE.SphereGeometry(0.18, 9, 7), std(C.BONE)); sk.position.y = 0.18; g.add(sk);
+    for (const dx of [-0.06, 0.06]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 5), std(0x101014)); e.position.set(dx, 0.19, 0.15); g.add(e); }
+  } else if (kind === 'pot') {
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.34, 8), std(C.TERRA)); base.position.y = 0.17; g.add(base);
+    for (let i = 0; i < 3; i++) { const sh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.02), std(C.TERRA)); sh.position.set((Math.random() - 0.5) * 0.6, 0.05, (Math.random() - 0.5) * 0.6); sh.rotation.set(Math.PI / 2.3, Math.random(), 0); g.add(sh); }
+  } else if (kind === 'cobweb') {
+    const web = new THREE.Mesh(new THREE.CircleGeometry(0.6, 3), new THREE.MeshBasicMaterial({ color: 0xdedae8, transparent: true, opacity: 0.16, side: THREE.DoubleSide }));
+    web.position.set(0, 2.2, 0); web.rotation.set(-Math.PI / 4, Math.PI / 4, 0); g.add(web);
+  } else if (kind === 'banner') {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6), std(0x2a2a30)); pole.position.y = 1.2; g.add(pole);
+    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 1.4), new THREE.MeshStandardMaterial({ color: C.accent.clone().multiplyScalar(0.7), roughness: 1, side: THREE.DoubleSide }));
+    cloth.position.set(0, 1.35, 0.03); g.add(cloth);
+  } else if (kind === 'brazier') {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.9, 6), std(C.IRON)); leg.position.y = 0.45; g.add(leg);
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.16, 0.24, 10), std(C.IRON)); bowl.position.y = 0.95; g.add(bowl);
+    const localFlame = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 8), glow(C.accent)); localFlame.position.y = 1.25; g.add(localFlame);
+    if (torchPositions) torchPositions.push({ x: px, y: 1.25, z: pz, flame: localFlame });
+  } else if (kind === 'candelabra') {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 1.5, 6), std(C.IRON)); pole.position.y = 0.75; g.add(pole);
+    for (const dx of [-0.28, 0, 0.28]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.18, 6), std(0xd8cf9a)); c.position.set(dx, 1.5, 0); g.add(c); const fl = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.16, 6), glow(0xffd27a)); fl.position.set(dx, 1.66, 0); g.add(fl); }
+    if (torchPositions) torchPositions.push({ x: px, y: 1.5, z: pz, flame: g.children[g.children.length - 1] });
+  } else if (kind === 'sarcophagus') {
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 1.9), std(C.STONE)); base.position.y = 0.25; g.add(base);
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.16, 2.0), std(0x6b6474)); lid.position.y = 0.56; lid.rotation.y = 0.04; g.add(lid);
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.22, 12), new THREE.MeshStandardMaterial({ color: C.accent.clone().multiplyScalar(0.5), roughness: 1 })); face.rotation.x = -Math.PI / 2; face.position.set(0, 0.65, -0.5); g.add(face);
+  } else if (kind === 'mushroom') {
+    for (let i = 0; i < 3; i++) { const h = 0.2 + Math.random() * 0.3; const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, h, 6), std(0xd8d0c0)); const ox = (Math.random() - 0.5) * 0.5, oz = (Math.random() - 0.5) * 0.5; stem.position.set(ox, h / 2, oz); g.add(stem); const cap = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), glow(C.accent)); cap.position.set(ox, h, oz); g.add(cap); }
+  }
+  return g;
+}
+
+// ---------------- World beyond the town walls ----------------
+function buildTownSurroundings(group, dungeon, smokePuffs) {
+  const GRID = dungeon.size || 30;
+  const c = tileToWorld(Math.floor(GRID / 2), Math.floor(GRID / 2));
+  const cx = c.x, cz = c.z, extent = GRID * TILE;
+  // ground stretching to a fogged horizon so the world doesn't just end
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(extent * 4, extent * 4),
+    new THREE.MeshStandardMaterial({ color: 0x2b3620, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -0.08, cz); group.add(ground);
+
+  // forest ring outside the walls — two instanced meshes (trunks + foliage)
+  const R0 = extent * 0.52, R1 = R0 + 34, N = 140;
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.22, 0.32, 2.4, 5),
+    new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 1, flatShading: true }), N);
+  const foliage = new THREE.InstancedMesh(new THREE.ConeGeometry(1.5, 3.4, 6),
+    new THREE.MeshStandardMaterial({ color: 0x24401e, roughness: 1, flatShading: true }), N);
+  const mm = new THREE.Matrix4(), q = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3();
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2 + Math.random() * 0.4;
+    const r = R0 + Math.random() * (R1 - R0);
+    const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r, sc = 0.8 + Math.random() * 1.0;
+    sv.set(sc, sc, sc); q.setFromEuler(new THREE.Euler(0, Math.random() * Math.PI, 0));
+    mm.compose(pv.set(x, 1.2 * sc, z), q, sv); trunks.setMatrixAt(i, mm);
+    mm.compose(pv.set(x, 4.0 * sc, z), q, sv); foliage.setMatrixAt(i, mm);
+  }
+  trunks.instanceMatrix.needsUpdate = true; foliage.instanceMatrix.needsUpdate = true;
+  group.add(trunks, foliage);
+
+  // one shy forest critter ambling along a path just outside the walls
+  const deer = buildCritter(); deer.position.set(cx + extent * 0.46, 0, cz); group.add(deer);
+  if (smokePuffs) smokePuffs.push({ mesh: deer, kind: 'critter', cx, cz, radius: extent * 0.46, baseY: 0, phase: 0, speed: 0.5, angle: 0 });
+}
+
+function buildCritter() {
+  const g = new THREE.Group();
+  const hide = new THREE.MeshStandardMaterial({ color: 0x7a5636, roughness: 1, flatShading: true });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.42, 1.0), hide); body.position.y = 0.72; g.add(body);
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.5, 0.22), hide); neck.position.set(0, 0.98, 0.5); neck.rotation.x = -0.5; g.add(neck);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.36), hide); head.position.set(0, 1.2, 0.66); g.add(head);
+  for (const dx of [-0.14, 0.14]) { const ant = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.28, 4), new THREE.MeshStandardMaterial({ color: 0x4a3520, flatShading: true })); ant.position.set(dx, 1.42, 0.64); g.add(ant); }
+  for (const [dx, dz] of [[-0.14, 0.38], [0.14, 0.38], [-0.14, -0.38], [0.14, -0.38]]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.55, 0.1), hide); leg.position.set(dx, 0.28, dz); g.add(leg); }
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.18), hide); tail.position.set(0, 0.78, -0.56); g.add(tail);
+  return g;
 }

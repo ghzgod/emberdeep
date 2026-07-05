@@ -125,7 +125,11 @@ export class Roaster {
         const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1 });
         if (ok) return;
       }
-      this._speakWebSpeech(text, cast);
+      // Kokoro is the only voice. While it's still downloading we stay SILENT
+      // (the subtitle already conveys the line) rather than fall back to the
+      // robotic Web Speech synth. Only use Web Speech if Kokoro truly failed to
+      // load on this device, so a broken model doesn't mute every character.
+      if (neuralVoice.status === 'error') this._speakWebSpeech(text, cast);
     }).catch(() => this._speakWebSpeech(text, cast));
   }
 

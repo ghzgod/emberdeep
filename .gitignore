@@ -3,3 +3,7 @@ dist/
 shots/
 .playwright-mcp/
 .DS_Store
+
+# test screenshots
+*.jpeg
+.playwright-mcp/

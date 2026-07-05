@@ -169,6 +169,8 @@ export class Player {
 
   takeDamage(amount, game) {
     if (this.dead || this.invulnTimer > 0) return;
+    // the portal ring is a safe zone — no damage while standing inside it
+    if (game.inSafeZone && game.inSafeZone(this.pos)) return;
     let mult = 1 - this.armor;
     for (const b of this.buffs) if (b.damageTakenMult) mult *= b.damageTakenMult;
     const final = Math.max(1, Math.round(amount * mult));

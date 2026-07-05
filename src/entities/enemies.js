@@ -194,8 +194,9 @@ export class Enemy {
         const spd = this.moveSpeed;
         const nx = this.pos.x + dirX * spd * dt;
         const nz = this.pos.z + dirZ * spd * dt;
-        if (game.isWalkable(nx, this.pos.z, this.radius)) this.pos.x = nx;
-        if (game.isWalkable(this.pos.x, nz, this.radius)) this.pos.z = nz;
+        // walls block movement; the portal safe zone also repels enemies
+        if (game.isWalkable(nx, this.pos.z, this.radius) && !game.inSafeZone({ x: nx, z: this.pos.z }, this.radius)) this.pos.x = nx;
+        if (game.isWalkable(this.pos.x, nz, this.radius) && !game.inSafeZone({ x: this.pos.x, z: nz }, this.radius)) this.pos.z = nz;
         break;
       }
       case 'windup': {
