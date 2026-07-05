@@ -260,23 +260,49 @@ export class Enemy {
           if (atk.kind === 'slam') audio.play(this.def.sounds.special, { pos: this.pos, volume: 0.6 });
           break;
         }
-        // move toward target (imps keep their distance).
-        // If the movement learner has a prediction (local player only), steer
-        // toward the INTERCEPT point instead of tail-chasing.
-        let targetX = tPos.x, targetZ = tPos.z;
-        if (atk.kind !== 'ranged' && distToPlayer > 3 && target.local) {
-          const pred = learner.predict(player);
-          if (pred) {
-            // elites lean into interception harder the more the hero flees
-            const lead = 0.7 + (this.elite || this.miniboss ? Math.min(0.5, game.fleeTendency || 0) : 0);
-            targetX += pred.dx * lead; targetZ += pred.dz * lead;
+        // ---- tactical approach: flank to the target's side/rear, dodge their
+        // swings, and circle-strafe at range. It reads THIS enemy's own target's
+        // facing (so it works per-player in co-op) and adapts to how that hero
+        // fights — the learned engagement range is a "kite factor". ----
+        const pa = target.local ? (player.aimAngle || 0) : (target.aim || 0);
+        const fwdX = Math.cos(pa), fwdZ = Math.sin(pa);   // target's forward
+        const perpX = -fwdZ, perpZ = fwdX;                // lateral
+        // commit to whichever flank we're already nearer (rare re-picks avoid dithering)
+        if (this._flankSide === undefined || Math.random() < 0.006) {
+          const s = (this.pos.x - tPos.x) * perpX + (this.pos.z - tPos.z) * perpZ;
+          this._flankSide = s >= 0 ? 1 : -1;
+        }
+        const kite = Math.min(1, Math.max(0, ((learner.dangerRange?.() || 2) - 1.6) / 5));
+        let dirX, dirZ;
+        if (atk.kind === 'ranged') {
+          // keep just beyond the learned danger range AND circle-strafe (no sitting duck)
+          const learned = learner.dangerRange?.();
+          const keep = learned ? Math.max(atk.keepDistance, Math.min(atk.keepDistance + 2.5, learned + 1.5)) : atk.keepDistance;
+          let rx = tPos.x - this.pos.x, rz = tPos.z - this.pos.z;
+          const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
+          if (distToPlayer < keep) { rx = -rx; rz = -rz; }
+          dirX = rx * 0.7 + perpX * this._flankSide * 0.7;
+          dirZ = rz * 0.7 + perpZ * this._flankSide * 0.7;
+        } else {
+          // melee: aim for a point on the target's flank/rear, widening with
+          // distance and with how much the hero kites, then lead with the predictor
+          const flank = Math.min(2.6, distToPlayer * 0.45) * (0.6 + 0.7 * kite);
+          let targetX = tPos.x + perpX * this._flankSide * flank - fwdX * flank * 0.45;
+          let targetZ = tPos.z + perpZ * this._flankSide * flank - fwdZ * flank * 0.45;
+          if (distToPlayer > 3 && target.local) {
+            const pred = learner.predict(player);
+            if (pred) { const lead = 0.7 + ((this.elite || this.miniboss) ? Math.min(0.5, game.fleeTendency || 0) : 0); targetX += pred.dx * lead; targetZ += pred.dz * lead; }
+          }
+          dirX = targetX - this.pos.x; dirZ = targetZ - this.pos.z;
+          // dodge: if the hero is swinging and we're in their frontal arc, juke aside
+          if (target.local && distToPlayer < 3.2 && game.playerIsAttacking?.()) {
+            let ang = Math.atan2(this.pos.z - tPos.z, this.pos.x - tPos.x) - pa;
+            while (ang > Math.PI) ang -= Math.PI * 2; while (ang < -Math.PI) ang += Math.PI * 2;
+            if (Math.abs(ang) < 0.85) { dirX = dirX * 0.25 + perpX * this._flankSide * 1.2; dirZ = dirZ * 0.25 + perpZ * this._flankSide * 1.2; }
           }
         }
-        let dirX = targetX - this.pos.x;
-        let dirZ = targetZ - this.pos.z;
         const len = Math.hypot(dirX, dirZ) || 1;
         dirX /= len; dirZ /= len;
-        if (atk.keepDistance && distToPlayer < atk.keepDistance) { dirX = -dirX; dirZ = -dirZ; }
         const spd = this.moveSpeed;
         const nx = this.pos.x + dirX * spd * dt;
         const nz = this.pos.z + dirZ * spd * dt;
