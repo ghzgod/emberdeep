@@ -250,7 +250,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 @media (hover: hover) and (pointer: fine) {
   #action-bar {
     position: absolute; right: 16px; bottom: 16px; display: flex;
-    flex-direction: row; align-items: center; gap: 8px; pointer-events: auto;
+    flex-direction: row; align-items: center; pointer-events: auto;
     padding: 6px; border-radius: 14px;
     background: rgba(18, 14, 22, 0.7); border: 1px solid var(--panel-border);
     backdrop-filter: blur(3px);
@@ -270,10 +270,28 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #action-bar button { display: flex; }
 #action-bar button:hover { border-color: var(--gold); transform: translateY(-2px); }
 #ab-mic.live { border-color: #7ce87c; color: #7ce87c; box-shadow: 0 0 10px rgba(124,232,124,0.4); }
-/* ☰ is the last, fixed anchor; the row grows to its left so it never shifts */
-#ab-toggle { font-size: 22px; order: 99; border-color: var(--card-color, #5a4a7a); }
-/* collapsed: only the ☰ toggle shows, staying in its corner */
-#action-bar.collapsed button:not(#ab-toggle) { display: none; }
+/* ☰ is the last, fixed anchor; the row grows to its left so it never shifts.
+   Explicit centering so the glyph sits dead-center in its box. */
+#ab-toggle {
+  font-size: 22px; order: 99; border-color: var(--card-color, #5a4a7a);
+  display: flex; align-items: center; justify-content: center; text-align: center;
+}
+/* Icons carry their own right-margin so both width AND spacing can animate to
+   zero — the row rolls out/in horizontally instead of snapping. */
+#action-bar button:not(#ab-toggle) {
+  margin-right: 8px; overflow: hidden;
+  transition: border-color 0.15s, transform 0.1s, opacity 0.3s ease,
+              width 0.45s ease, margin 0.45s ease, padding 0.45s ease, border-width 0.45s ease;
+}
+/* collapsed: only the ☰ toggle stays; the rest slide/fade shut horizontally */
+#action-bar.collapsed button:not(#ab-toggle) {
+  width: 0; margin-right: 0; padding-left: 0; padding-right: 0;
+  border-width: 0; opacity: 0; pointer-events: none;
+}
+
+/* Two overlapping gold coins for currency displays */
+.coin-stack { display: inline-block; white-space: nowrap; }
+.coin-stack .c2 { margin-left: -0.5em; }
 
 /* ---------- Key bindings ---------- */
 .keybind-header { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.7; margin-top: 4px; border-top: 1px solid var(--panel-border); padding-top: 12px; }
