@@ -6,37 +6,37 @@ import { learner } from '../ai/learner.js';
 export const ENEMY_TYPES = {
   skeleton: {
     name: 'Skeleton',
-    base: { hp: 32, damage: 9, speed: 3.5, xp: 14, gold: [2, 6] },
-    perFloor: { hp: 9, damage: 2.2, xp: 5 },
-    attack: { kind: 'melee', range: 1.5, cooldown: 1.2, windup: 0.35 },
-    aggroRange: 9, radius: 0.4,
+    base: { hp: 38, damage: 12, speed: 3.6, xp: 10, gold: [2, 6] },
+    perFloor: { hp: 13, damage: 3.4, xp: 3.5 },
+    attack: { kind: 'melee', range: 1.5, cooldown: 1.1, windup: 0.32 },
+    aggroRange: 10, radius: 0.4,
     sounds: { hurt: 'skeleton_hurt', death: 'skeleton_death' },
     color: 0xd8d4c8,
   },
   spider: {
     name: 'Cave Spider',
-    base: { hp: 20, damage: 6, speed: 5.4, xp: 11, gold: [1, 4] },
-    perFloor: { hp: 6, damage: 1.6, xp: 4 },
-    attack: { kind: 'melee', range: 1.3, cooldown: 0.9, windup: 0.2 },
-    aggroRange: 10, radius: 0.35,
+    base: { hp: 24, damage: 8, speed: 5.6, xp: 8, gold: [1, 4] },
+    perFloor: { hp: 9, damage: 2.6, xp: 3 },
+    attack: { kind: 'melee', range: 1.3, cooldown: 0.85, windup: 0.18 },
+    aggroRange: 11, radius: 0.35,
     sounds: { hurt: 'spider_hurt', death: 'spider_death' },
     color: 0x3a3a44,
   },
   imp: {
     name: 'Imp',
-    base: { hp: 24, damage: 8, speed: 4.0, xp: 16, gold: [3, 8] },
-    perFloor: { hp: 7, damage: 2.0, xp: 5 },
-    attack: { kind: 'ranged', range: 8.5, keepDistance: 6, cooldown: 1.8, windup: 0.5, projSpeed: 10 },
-    aggroRange: 11, radius: 0.35,
+    base: { hp: 28, damage: 11, speed: 4.1, xp: 12, gold: [3, 8] },
+    perFloor: { hp: 11, damage: 3.1, xp: 3.5 },
+    attack: { kind: 'ranged', range: 9, keepDistance: 6, cooldown: 1.6, windup: 0.45, projSpeed: 11 },
+    aggroRange: 12, radius: 0.35,
     sounds: { hurt: 'imp_hurt', death: 'imp_death', shoot: 'imp_shoot' },
     color: 0xc85a3a,
   },
   golem: {
     name: 'Stone Golem',
-    base: { hp: 85, damage: 18, speed: 2.2, xp: 30, gold: [6, 14] },
-    perFloor: { hp: 18, damage: 3.5, xp: 8 },
-    attack: { kind: 'slam', range: 2.0, aoe: 2.6, cooldown: 2.2, windup: 0.7 },
-    aggroRange: 8, radius: 0.6,
+    base: { hp: 105, damage: 24, speed: 2.3, xp: 22, gold: [6, 14] },
+    perFloor: { hp: 27, damage: 5.4, xp: 6 },
+    attack: { kind: 'slam', range: 2.0, aoe: 2.7, cooldown: 2.0, windup: 0.65 },
+    aggroRange: 9, radius: 0.6,
     sounds: { hurt: 'golem_hurt', death: 'golem_death', special: 'golem_slam' },
     color: 0x7a7a85,
   },
@@ -65,11 +65,11 @@ export class Enemy {
     this.radius = this.def.radius;
 
     if (this.miniboss) {
-      hp *= 3.5; damage *= 1.6; this.xp = Math.round(this.xp * 4);
+      hp *= 4.0; damage *= 1.8; this.xp = Math.round(this.xp * 4);
       this.radius *= 1.4;
       this.name = MINIBOSS_NAMES[typeId] || 'Champion';
     } else if (this.elite) {
-      hp *= 2.2; damage *= 1.3; this.xp = Math.round(this.xp * 2.5);
+      hp *= 2.6; damage *= 1.5; this.xp = Math.round(this.xp * 2.5);
       this.radius *= 1.2;
       this.name = `Elite ${this.def.name}`;
     } else {
@@ -307,9 +307,9 @@ export class Boss extends Enemy {
     this.name = def.name;
     this.summonTypes = def.summons;
     this.isBoss = true;
-    this.maxHp = 500 + act * 550 + floor * 25;
+    this.maxHp = 560 + act * 620 + floor * 28;
     this.hp = this.maxHp;
-    this.damage = 14 + act * 6;
+    this.damage = 18 + act * 7;
     this.speed = 2.5 + act * 0.12;
     this.radius = 1.0;
     this.xp = 220 + act * 160;
