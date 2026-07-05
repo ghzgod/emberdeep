@@ -527,7 +527,15 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   .settings-rows select { max-width: 320px; }
 }
 .settings-rows label { display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 16px; flex-wrap: wrap; }
-.settings-rows input[type=range] { flex: 1; min-width: 120px; accent-color: var(--gold); }
+/* Slider rows: fixed label column so every meter is the SAME length + aligned. */
+.settings-rows label:has(input[type=range]) {
+  display: grid; grid-template-columns: 180px 1fr 52px; gap: 12px; flex-wrap: nowrap;
+}
+.settings-rows label:has(input[type=range]) > span { text-align: right; }
+.settings-rows input[type=range] { flex: 1; min-width: 120px; width: 100%; accent-color: var(--gold); }
+@media (max-width: 520px) {
+  .settings-rows label:has(input[type=range]) { grid-template-columns: 110px 1fr 44px; }
+}
 .settings-rows select { font-family: inherit; font-size: 15px; background: #241a30; color: var(--parchment); border: 1px solid var(--panel-border); border-radius: 4px; padding: 4px 8px; max-width: 60%; }
 @media (max-width: 520px) {
   .settings-rows { padding: 14px; gap: 13px; }
@@ -717,11 +725,13 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   animation: mic-pulse 1.2s ease-in-out infinite;
 }
 @keyframes mic-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
-#voice-meter-row {
-  width: 100%; height: 10px; background: #120d18; border: 1px solid var(--panel-border);
-  border-radius: 5px; overflow: hidden;
+#voice-meter-row { display: flex; align-items: center; gap: 12px; width: 100%; }
+#voice-meter-track {
+  flex: 1; height: 12px; background: #120d18; border: 1px solid var(--panel-border);
+  border-radius: 6px; overflow: hidden;
 }
 #voice-meter { height: 100%; width: 0%; background: #4f7bd9; transition: width 0.1s; }
+#btn-mic-test { flex: none; white-space: nowrap; }
 #voice-meter.hot { background: #7ce87c; }
 #voice-engine-bar {
   width: 100%; height: 10px; background: #120d18;
