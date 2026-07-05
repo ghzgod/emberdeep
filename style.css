@@ -687,3 +687,12 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   .inv-grid { grid-template-columns: repeat(4, 56px); }
   .inv-slot { width: 56px; height: 56px; }
 }
+
+/* Character-select name field (required before starting) */
+.cs-name-label { display: block; margin: 0 auto 16px; font-size: 15px; color: var(--parchment); text-align: center; }
+.cs-name-label input {
+  margin-left: 8px; font-family: inherit; font-size: 15px;
+  background: #241a30; color: var(--parchment);
+  border: 1px solid var(--panel-border); border-radius: 6px; padding: 6px 12px;
+}
+.input-error { border-color: #e0564a !important; box-shadow: 0 0 0 2px rgba(224,86,74,0.35); }

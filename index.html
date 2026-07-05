@@ -82,6 +82,7 @@
     <!-- Character select -->
     <div id="charselect-screen" class="overlay">
       <h2 class="screen-heading">Choose Your Hero</h2>
+      <label class="cs-name-label">Your name <input id="cs-name" type="text" maxlength="14" placeholder="Enter a name" autocomplete="off"></label>
       <div class="class-cards" id="class-cards"></div>
       <div id="class-detail" class="hidden"></div>
       <div class="menu-buttons">
@@ -128,7 +129,6 @@
     <!-- Multiplayer text chat -->
     <div id="chat" class="hidden">
       <div id="chat-recent"></div>
-      <button id="chat-open" title="Open chat log">💬</button>
       <div id="chat-input-row" class="hidden">
         <input id="chat-input" type="text" maxlength="140" placeholder="Say something…" />
       </div>
