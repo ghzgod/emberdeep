@@ -270,7 +270,7 @@ export class LootSystem {
     this.drops.push({ kind: 'bag', mesh: g, x, z, bob: Math.random() * 6 });
   }
 
-  dropGear(x, z, item) {
+  dropGear(x, z, item, did = null) {
     const color = RARITIES[item.rarity].color;
     const g = new THREE.Group();
     const box = new THREE.Mesh(
@@ -310,7 +310,14 @@ export class LootSystem {
     }
     g.position.set(x, 0, z);
     this.scene.add(g);
-    this.drops.push({ kind: 'gear', item, mesh: g, x, z, bob: Math.random() * 6, spinner: box, sparkles });
+    this.drops.push({ kind: 'gear', item, mesh: g, x, z, bob: Math.random() * 6, spinner: box, sparkles, did });
+  }
+
+  // Remove a networked ground drop (someone else picked it up) without granting it.
+  removeByDid(did) {
+    for (let i = this.drops.length - 1; i >= 0; i--) {
+      if (this.drops[i].did === did) { this.scene.remove(this.drops[i].mesh); this.drops.splice(i, 1); return; }
+    }
   }
 
   update(dt, game) {
@@ -373,6 +380,7 @@ export class LootSystem {
       p.inventory.push(d.item);
       audio.play('gear_pickup');
       game.ui.floaters.spawn(p.pos, d.item.name, RARITIES[d.item.rarity].css === 'common' ? '' : 'crit');
+      if (d.did) game.onDropPickedUp(d.did); // networked drop — remove it for everyone
     }
     game.requestSave();
   }
