@@ -620,6 +620,8 @@ export class UI {
       }
     });
     input.addEventListener('focus', () => this._wakeChat());
+    // click/tap away from the box → collapse the input row back down
+    input.addEventListener('blur', () => { $('chat-input-row').classList.add('hidden'); });
   }
 
   showChatBar(visible) {
