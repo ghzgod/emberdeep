@@ -57,7 +57,11 @@ export class Player {
   // ---- mastery tree ----
   skillRank(id) { return this.skills[id] || 0; }
   spentSkillPoints() { return Object.values(this.skills).reduce((s, r) => s + r, 0); }
-  skillPoints() { return Math.max(0, this.level - 1 - this.spentSkillPoints()); }
+  // Mastery points accrue ~1 per 3 levels plus a +2 "slot" bonus at every 10th
+  // level milestone. Mastering all 45 ranks is possible but takes deep into the
+  // level cap (~lvl 84), not a mid-game formality.
+  masteryEarned() { return Math.floor(this.level / 3) + Math.floor(this.level / 10) * 2; }
+  skillPoints() { return Math.max(0, this.masteryEarned() - this.spentSkillPoints()); }
   addSkillRank(id, max = 5) {
     if (this.skillPoints() <= 0 || this.skillRank(id) >= max) return false;
     this.skills[id] = this.skillRank(id) + 1;

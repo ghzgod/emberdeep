@@ -1,5 +1,6 @@
-// Mastery tree: one skill point per level-up, five ranks per node.
-// Nine nodes ≈ 45 levels of grind to master everything.
+// Mastery tree: points accrue ~1 per 3 levels plus a +2 bonus every 10th
+// level (see Player.masteryEarned). Nine nodes × five ranks = 45 to master —
+// reachable only deep into the level cap, never a mid-game formality.
 export const SKILLS = [
   { id: 'brutality', name: 'Brutality', icon: '🗡️', branch: 'Offense', per: '+4% damage', max: 5 },
   { id: 'precision', name: 'Precision', icon: '🎯', branch: 'Offense', per: '+2% crit chance', max: 5 },
