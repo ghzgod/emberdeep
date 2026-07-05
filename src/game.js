@@ -52,7 +52,7 @@ export class Game {
     const savedSettings = SaveManager.loadSettings();
     const firstVisit = !savedSettings;
     this.settings = Object.assign(
-      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true, voiceEngine: 'neural', voiceChatVolume: 0.9, speechVolume: 0.9,
+      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true, voiceChatVolume: 0.9, speechVolume: 0.9,
         keybinds: { interact: 'KeyF', potion: 'KeyR', talk: 'KeyV', inventory: 'Tab', quests: 'KeyJ', mastery: 'KeyK' } },
       savedSettings || {}
     );
@@ -179,10 +179,10 @@ export class Game {
     this.ui.setLoadingProgress(1, 'Ready');
     // Enemy movement-learning net loads in the background (non-blocking).
     learner.init();
-    // Neural character voices (Kokoro) — only if the user opted in before.
-    if (this.settings.voiceEngine === 'neural') {
-      setTimeout(() => import('./ai/neuralVoice.js').then(({ neuralVoice }) => neuralVoice.load()), 4000);
-    }
+    // Neural character voices (Kokoro) are the only voice engine now. Start the
+    // ~90 MB download eagerly so it's ready by the time the player reaches combat;
+    // until then, NPC/enemy lines show as subtitles only (never robotic Web Speech).
+    setTimeout(() => import('./ai/neuralVoice.js').then(({ neuralVoice }) => neuralVoice.load()), 1200);
     this.state = 'title';
     this.ui.showTitle();
   }
@@ -352,7 +352,16 @@ export class Game {
   }
 
   // ---------------- floor management ----------------
+  // True while `pos` is inside the return-portal safe ring (pad extends the
+  // radius, e.g. by an enemy's body radius so they stop at the edge).
+  inSafeZone(pos, pad = 0) {
+    const z = this.safeZone;
+    if (!z || !pos) return false;
+    return Math.hypot(pos.x - z.x, pos.z - z.z) < z.r + pad;
+  }
+
   teardownFloor() {
+    this.safeZone = null;
     if (this.dungeonMeshes) {
       this.scene.remove(this.dungeonMeshes.group);
       this.dungeonMeshes.group.traverse((o) => {
@@ -763,6 +772,11 @@ export class Game {
     this.player.pos.set(spawn.x, 0, spawn.z);
     this.player.dead = false;
 
+    // Safe zone: the ring around the return portal. Inside it the player takes
+    // no damage and enemies won't path in — a breather beside the way home.
+    // (Boss floors have no return portal, so no safe zone — you must fight.)
+    this.safeZone = this.dungeonMeshes.returnPortalMesh ? { x: spawn.x, z: spawn.z, r: 3.2 } : null;
+
     // enemies — stats scale up with connected player count in multiplayer
     const mpMult = 1 + 0.5 * (net.playerCount - 1);
     for (const spec of this.dungeon.enemies) {
@@ -836,10 +850,23 @@ export class Game {
   }
 
   setupTorchLights(theme) {
-    const maxLights = { low: 4, medium: 8, high: 14 }[this.settings.quality] || 8;
+    // Per-act atmosphere: tint the fog + background to the theme's mood so each
+    // act reads differently and corridor ends fade into colored murk.
+    const atmo = {
+      'The Old Halls':      { fog: 0x0b0910, near: 15, far: 38 },
+      'The Rotting Depths': { fog: 0x0a1510, near: 14, far: 34 },
+      'The Ember Vaults':   { fog: 0x180a07, near: 14, far: 33 },
+      'The Sunless Court':  { fog: 0x0e0a1c, near: 15, far: 36 },
+      'The Abyssal Throne': { fog: 0x07121a, near: 12, far: 30 },
+    }[theme.name] || { fog: 0x08060c, near: 16, far: 36 };
+    this.scene.background = new THREE.Color(atmo.fog);
+    this.scene.fog = new THREE.Fog(atmo.fog, atmo.near, atmo.far);
+
+    const maxLights = { low: 5, medium: 10, high: 18 }[this.settings.quality] || 10;
     const count = Math.min(maxLights, this.dungeonMeshes.torchPositions.length);
     for (let i = 0; i < count; i++) {
-      const l = new THREE.PointLight(theme.accent, 12, 9, 1.9);
+      // warmer, brighter, a touch longer reach so torch-lit rooms glow
+      const l = new THREE.PointLight(theme.accent, 16, 11, 1.8);
       this.scene.add(l);
       this.torchLights.push(l);
     }
@@ -1673,6 +1700,15 @@ export class Game {
     const p = this.player;
     const input = this.input;
 
+    // one-time notice the first time you step into the portal safe zone this floor
+    if (p && this.safeZone) {
+      const inSafe = this.inSafeZone(p.pos);
+      if (inSafe && !this._inSafeZone) {
+        this._inSafeZone = true;
+        this.ui.floaters?.spawn(p.pos, '🛡️ Safe zone — no harm can reach you', 'crit');
+      } else if (!inSafe) this._inSafeZone = false;
+    }
+
     // ---- input: camera rotation (Q/E or touch rotate buttons) ----
     if (input.isDown('KeyQ')) this.camYaw += 2.2 * dt;
     if (input.isDown('KeyE')) this.camYaw -= 2.2 * dt;
@@ -2085,6 +2121,15 @@ export class Game {
           puff.mesh.position.y = puff.baseY + (f - 1) * 0.1;
           continue;
         }
+        if (puff.kind === 'critter') {
+          // a lone forest animal ambling along a slow circular path outside the walls
+          puff.angle = (puff.angle || 0) + dt * (puff.speed || 0.3) * 0.14;
+          const x = puff.cx + Math.cos(puff.angle) * puff.radius;
+          const z = puff.cz + Math.sin(puff.angle) * puff.radius;
+          puff.mesh.position.set(x, puff.baseY + Math.abs(Math.sin(puff.phase * 3)) * 0.1, z);
+          puff.mesh.rotation.y = -puff.angle + Math.PI / 2;
+          continue;
+        }
         const cycle = puff.phase % 1;
         puff.mesh.position.y = puff.baseY + cycle * 1.6;
         puff.mesh.material.opacity = 0.38 * (1 - cycle);
@@ -2170,18 +2215,24 @@ export class Game {
         });
         this.torchLights.forEach((l, i) => {
           const t = sorted[i];
-          if (t) { l.position.set(t.x, t.y, t.z); l.visible = true; }
+          if (t) { l.position.set(t.x, t.y, t.z); l._bx = t.x; l._bz = t.z; l.visible = true; }
           else l.visible = false;
         });
       }
     }
-    // flicker
+    // flicker — layered sines (not a random strobe) for a believable flame
     const now = performance.now() / 1000;
     this.torchLights.forEach((l, i) => {
-      l.intensity = 10 + Math.sin(now * 9 + i * 1.7) * 2 + Math.sin(now * 23 + i * 3.1) * 1.2;
+      l.intensity = 14 + Math.sin(now * 9 + i * 1.7) * 2.4 + Math.sin(now * 23 + i * 3.1) * 1.4;
+      // tiny positional jitter (around the assigned torch base) so shadows shiver
+      if (l.visible && l._bx !== undefined) {
+        l.position.x = l._bx + Math.sin(now * 17 + i) * 0.04;
+        l.position.z = l._bz + Math.cos(now * 19 + i * 1.3) * 0.04;
+      }
     });
     for (let i = 0; i < torches.length; i++) {
       const f = torches[i].flame;
+      if (!f) continue;
       const s = 1 + Math.sin(now * 11 + i * 2.3) * 0.18;
       f.scale.set(s, 1 + Math.sin(now * 13 + i) * 0.25, s);
     }

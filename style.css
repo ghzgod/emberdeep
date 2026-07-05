@@ -257,7 +257,9 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
   }
 }
 .touch-mode #action-bar { display: none !important; }
-#action-bar.collapsed { background: none; border-color: transparent; padding: 0; }
+/* Collapsed only changes PAINT (no visible bg/border) — padding & border-box
+   are kept identical to the expanded bar so the ☰/✕ toggle never shifts. */
+#action-bar.collapsed { background: none; border-color: transparent; }
 #action-bar button {
   width: 46px; height: 46px; border-radius: 10px; padding: 0; flex: none;
   border: 2px solid var(--panel-border); background: var(--panel);
@@ -286,24 +288,44 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 .keybind-btn:hover { border-color: var(--gold); }
 .keybind-btn.listening { color: var(--parchment); border-color: var(--gold); animation: prompt-pulse 1s ease-in-out infinite; }
 
-/* ---------- Multiplayer text chat ---------- */
-#chat { position: absolute; left: 14px; bottom: 96px; width: min(38vw, 320px); z-index: 16; pointer-events: none; }
-#chat.hidden { display: none; }
-#chat-recent { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
-.chat-msg {
-  align-self: flex-start; max-width: 100%; font-size: 13px; line-height: 1.4;
-  background: rgba(14,10,20,0.82); border: 1px solid var(--panel-border);
-  border-radius: 8px; padding: 5px 10px; color: var(--parchment);
-  animation: chat-in 0.2s ease-out;
+/* ---------- Multiplayer text chat (persistent WoW-style sidebar) ---------- */
+#chat {
+  position: absolute; left: 12px; bottom: 92px; width: min(40vw, 340px);
+  z-index: 16; pointer-events: auto;
+  background: rgba(10,8,16,0.42); border: 1px solid rgba(120,100,160,0.32);
+  border-radius: 8px; padding: 6px 8px 7px;
+  backdrop-filter: blur(2px);
+  transition: opacity 0.5s ease; opacity: 1;
 }
-.chat-msg.fading { animation: chat-out 0.8s ease-in forwards; }
+#chat.hidden { display: none; }
+/* dim to stay out of the way when idle, but the frame + history stay visible */
+#chat.idle { opacity: 0.4; }
+#chat:hover, #chat:focus-within { opacity: 1; }
+/* scrollback: persistent history with timestamps, not fading bubbles */
+#chat-recent {
+  display: flex; flex-direction: column; gap: 1px;
+  max-height: 150px; overflow-y: auto; overscroll-behavior: contain;
+  font-size: 12.5px; line-height: 1.45; scrollbar-width: thin;
+  scrollbar-color: rgba(150,130,190,0.5) transparent;
+}
+#chat-recent::-webkit-scrollbar { width: 6px; }
+#chat-recent::-webkit-scrollbar-thumb { background: rgba(150,130,190,0.45); border-radius: 3px; }
+.chat-msg {
+  text-align: left; color: var(--parchment);
+  padding: 1px 2px; word-break: break-word;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+  animation: chat-in 0.18s ease-out;
+}
+.chat-msg .ts { color: #8a84a0; font-size: 10.5px; margin-right: 5px; }
 .chat-msg b { color: var(--gold); font-weight: normal; margin-right: 4px; }
-@keyframes chat-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; } }
-@keyframes chat-out { to { opacity: 0; } }
+.chat-msg.mine b { color: #8fd0ff; }
+@keyframes chat-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; } }
+/* 💬 pinned to the frame's top-right corner; focuses the input (mobile-friendly) */
 #chat-open {
-  pointer-events: auto; width: 40px; height: 40px; border-radius: 10px; padding: 0;
+  pointer-events: auto; position: absolute; top: -14px; right: -6px;
+  width: 30px; height: 30px; border-radius: 8px; padding: 0;
   border: 1px solid var(--panel-border); background: var(--panel); color: var(--parchment);
-  font-size: 18px; cursor: pointer;
+  font-size: 15px; cursor: pointer; line-height: 1;
 }
 #chat-open:hover { border-color: var(--gold); }
 #chat-input-row { pointer-events: auto; margin-top: 6px; }
@@ -404,9 +426,15 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 .settings-rows {
   display: flex; flex-direction: column; gap: 16px;
   width: min(92vw, 460px); max-height: 62vh; overflow-y: auto;
+  /* desktop gets a roomier panel so long labels/keybinds aren't cramped */
   background: linear-gradient(170deg, #1d1526, #14101c);
   border: 1px solid var(--panel-border); border-radius: 12px;
   padding: 20px 22px; box-sizing: border-box;
+}
+/* Desktop: a wider settings panel so labels, sliders and keybinds have room. */
+@media (hover: hover) and (pointer: fine) {
+  .settings-rows { width: min(82vw, 720px); max-height: 74vh; padding: 24px 30px; }
+  .settings-rows select { max-width: 320px; }
 }
 .settings-rows label { display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 16px; flex-wrap: wrap; }
 .settings-rows input[type=range] { flex: 1; min-width: 120px; accent-color: var(--gold); }

@@ -466,26 +466,14 @@ export class UI {
       if (!s.taunts && 'speechSynthesis' in window) speechSynthesis.cancel();
     };
 
-    // neural character voices (Kokoro)
-    const vEngine = $('set-voice-engine');
-    vEngine.value = s.voiceEngine || 'neural';
-    vEngine.onchange = async () => {
-      s.voiceEngine = vEngine.value;
-      this.game.saveSettings();
-      if (s.voiceEngine === 'neural') this.startNeuralVoices();
-      else {
-        $('voice-engine-status').classList.add('hidden');
-        $('voice-engine-bar').classList.add('hidden');
-        $('btn-voice-retry').classList.add('hidden');
-      }
-    };
+    // neural character voices (Kokoro) — the only voice engine; no user toggle.
     $('btn-voice-retry').onclick = async () => {
       const { neuralVoice } = await import('../ai/neuralVoice.js');
       neuralVoice.retry();
       this.startNeuralVoices();
     };
-    // reflect current load state whenever settings open
-    if (s.voiceEngine === 'neural') this.reflectNeuralStatus();
+    // reflect current load state (downloading / ready / failed) whenever settings open
+    this.reflectNeuralStatus();
 
     // voice chat
     const vSel = $('set-voice');
@@ -599,29 +587,36 @@ export class UI {
   // ---------- multiplayer text chat ----------
   initChat() {
     this.chatLog = [];
+    this._chatIdleT = null;
     const input = $('chat-input');
-    const openLog = () => { this.game.state = 'chatlog'; this.renderChatLog(); this.show('chatlog'); setTimeout(() => $('chat-log-input').focus(), 50); };
-    $('chat-open').onclick = openLog;
-    // Enter opens the quick input; Enter again sends
+    // 💬 focuses the input (mobile); the scrollback frame is always visible — no
+    // full-screen chat log anymore (it used to cover the whole screen).
+    $('chat-open').onclick = () => this.openChatInput();
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') { this.sendChat(input.value); input.value=''; $('chat-input-row').classList.add('hidden'); }
       else if (e.key === 'Escape') { input.value=''; $('chat-input-row').classList.add('hidden'); }
     });
-    const logInput = $('chat-log-input');
-    logInput.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Enter') { this.sendChat(logInput.value); logInput.value=''; this.renderChatLog(); }
-    });
+    input.addEventListener('focus', () => this._wakeChat());
   }
 
   showChatBar(visible) {
     $('chat').classList.toggle('hidden', !visible);
+    if (visible) this._wakeChat();
+  }
+
+  // keep the chat frame at full opacity briefly, then let it dim (but stay visible)
+  _wakeChat() {
+    const c = $('chat');
+    c.classList.remove('idle');
+    clearTimeout(this._chatIdleT);
+    this._chatIdleT = setTimeout(() => c.classList.add('idle'), 9000);
   }
 
   openChatInput() {
     if ($('chat').classList.contains('hidden')) return;
     $('chat-input-row').classList.remove('hidden');
+    this._wakeChat();
     setTimeout(() => $('chat-input').focus(), 20);
   }
 
@@ -632,18 +627,20 @@ export class UI {
   }
 
   addChatMessage(name, text, ts, mine) {
-    this.chatLog.push({ name, text, ts: ts || Date.now(), mine });
+    const stamp = ts || Date.now();
+    this.chatLog.push({ name, text, ts: stamp, mine });
     if (this.chatLog.length > 200) this.chatLog.shift();
-    // recent bubbles (last 3, auto-fade)
-    const recent = $('chat-recent');
+    // persistent scrollback: timestamp + colored name, auto-scroll to newest
+    const list = $('chat-recent');
+    const d = new Date(stamp);
+    const hh = String(d.getHours()).padStart(2, '0'), mm = String(d.getMinutes()).padStart(2, '0');
     const el = document.createElement('div');
-    el.className = 'chat-msg';
-    el.innerHTML = `<b>${this.esc(name)}</b>${this.esc(text)}`;
-    recent.appendChild(el);
-    while (recent.children.length > 3) recent.removeChild(recent.firstChild);
-    setTimeout(() => { el.classList.add('fading'); setTimeout(() => el.remove(), 800); }, 7000);
-    if (!$('chat-log-screen').classList.contains('visible')) return;
-    this.renderChatLog();
+    el.className = 'chat-msg' + (mine ? ' mine' : '');
+    el.innerHTML = `<span class="ts">${hh}:${mm}</span><b>${this.esc(name)}</b>${this.esc(text)}`;
+    list.appendChild(el);
+    while (list.children.length > 60) list.removeChild(list.firstChild);
+    list.scrollTop = list.scrollHeight;
+    this._wakeChat();
   }
 
   renderChatLog() {
