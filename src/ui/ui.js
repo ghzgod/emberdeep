@@ -549,6 +549,22 @@ export class UI {
       const { voice } = await import('../net/voice.js');
       voice.threshold = s.voiceThreshold;
     };
+    // Mic test: record 3s and play it back so the user can confirm their mic works.
+    const micTestBtn = $('btn-mic-test');
+    if (micTestBtn) micTestBtn.onclick = async () => {
+      if (micTestBtn.disabled) return;
+      micTestBtn.disabled = true;
+      const { voice } = await import('../net/voice.js');
+      try {
+        await voice.testMic((stage) => {
+          micTestBtn.textContent = stage === 'record' ? '● Recording… (speak)' : stage === 'play' ? '▶ Playing back…' : '🎤 Test mic';
+        });
+      } catch {
+        alert('Microphone unavailable or permission denied.');
+        micTestBtn.textContent = '🎤 Test mic';
+      }
+      micTestBtn.disabled = false;
+    };
     // live mic level meter while settings open
     setInterval(async () => {
       if (!this.screens.settings.classList.contains('visible')) return;
