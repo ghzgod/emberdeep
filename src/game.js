@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Input } from './core/input.js';
 import { SaveManager } from './core/save.js';
 import { audio } from './core/audio.js';
-import { generateDungeon, generateTown, FLOOR, WALL, DOOR } from './world/dungeon.js';
+import { generateDungeon, generateTown, FLOOR, WALL, DOOR, BRIDGE } from './world/dungeon.js';
 import { buildDungeonMeshes, TILE, tileToWorld } from './world/meshbuilder.js';
 import { themeForFloor, actOfFloor, actFloorOf } from './world/textures.js';
 import { Player, xpForLevel } from './entities/player.js';
@@ -1236,10 +1236,13 @@ export class Game {
   isWalkable(x, z, radius = 0.3) {
     for (const [dx, dz] of [[-radius, -radius], [radius, -radius], [-radius, radius], [radius, radius]]) {
       const t = this.tileAt(x + dx, z + dz);
-      if (t === WALL || t === 0) return false;
+      // allowlist: only floor, plank bridges and OPEN doors are walkable —
+      // walls, void, chasms and rubble all block movement
       if (t === DOOR) {
         const tx = Math.floor((x + dx) / TILE), ty = Math.floor((z + dz) / TILE);
         if (!this.openedDoors.has(`${tx},${ty}`)) return false;
+      } else if (t !== FLOOR && t !== BRIDGE) {
+        return false;
       }
     }
     return true;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FLOOR, WALL, DOOR, PIT } from './dungeon.js';
+import { FLOOR, WALL, DOOR, PIT, BRIDGE, RUBBLE, CHASM } from './dungeon.js';
 import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture } from './textures.js';
 
 export const TILE = 2;          // world units per grid tile
@@ -26,10 +26,14 @@ export function buildDungeonMeshes(dungeon, theme) {
   // --- Floors (instanced) ---
   const floorTiles = [];
   const wallTiles = [];
+  const chasmT = [], bridgeT = [], rubbleT = [];
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const t = grid[y][x];
       if (t === FLOOR || t === DOOR) floorTiles.push({ x, y });
+      else if (t === BRIDGE) bridgeT.push({ x, y });
+      else if (t === RUBBLE) { rubbleT.push({ x, y }); floorTiles.push({ x, y }); } // floor under rubble
+      else if (t === CHASM) chasmT.push({ x, y });
       else if (t === WALL) {
         wallTiles.push({ x, y });
         if (town) floorTiles.push({ x, y }); // grass under trees/tavern/walls
@@ -49,6 +53,84 @@ export function buildDungeonMeshes(dungeon, theme) {
   floorMesh.instanceMatrix.needsUpdate = true;
   floorMesh.receiveShadow = false;
   group.add(floorMesh);
+
+  // --- Chasms: a recessed dark abyss below the floor plane ---
+  if (chasmT.length) {
+    const abyss = new THREE.MeshStandardMaterial({ color: 0x05040a, roughness: 1, metalness: 0 });
+    const abyssGeo = new THREE.BoxGeometry(TILE, 0.2, TILE);
+    const abyssMesh = new THREE.InstancedMesh(abyssGeo, abyss, chasmT.length);
+    chasmT.forEach((tp, i) => {
+      const w = tileToWorld(tp.x, tp.y);
+      m.setPosition(w.x, -2.4, w.z); // sunken far below
+      abyssMesh.setMatrixAt(i, m);
+    });
+    abyssMesh.instanceMatrix.needsUpdate = true;
+    group.add(abyssMesh);
+    // dark side walls around the pit rim for depth
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x120e18, roughness: 1 });
+    const rimGeo = new THREE.BoxGeometry(TILE, 2.6, 0.12);
+    for (const tp of chasmT) {
+      for (const [dx, dy, rot] of [[0, -1, 0], [0, 1, 0], [-1, 0, Math.PI / 2], [1, 0, Math.PI / 2]]) {
+        const nt = grid[tp.y + dy]?.[tp.x + dx];
+        if (nt === FLOOR || nt === BRIDGE || nt === DOOR) {
+          const w = tileToWorld(tp.x, tp.y);
+          const wall = new THREE.Mesh(rimGeo, rimMat);
+          wall.position.set(w.x + dx * TILE / 2, -1.2, w.z + dy * TILE / 2);
+          wall.rotation.y = rot;
+          group.add(wall);
+        }
+      }
+    }
+  }
+
+  // --- Bridges: raised wooden planks with side rails, over the chasm ---
+  if (bridgeT.length) {
+    if (!woodTex) woodTex = makeWoodTexture();
+    const plankMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.9 });
+    const plankGeo = new THREE.BoxGeometry(TILE, 0.16, TILE);
+    const plankMesh = new THREE.InstancedMesh(plankGeo, plankMat, bridgeT.length);
+    bridgeT.forEach((tp, i) => {
+      const w = tileToWorld(tp.x, tp.y);
+      m.setPosition(w.x, 0.02, w.z);
+      plankMesh.setMatrixAt(i, m);
+    });
+    plankMesh.instanceMatrix.needsUpdate = true;
+    group.add(plankMesh);
+    // low rope rails along bridge edges that border a chasm
+    const railMat = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.9 });
+    const railGeo = new THREE.BoxGeometry(TILE, 0.4, 0.08);
+    for (const tp of bridgeT) {
+      for (const [dx, dy, rot] of [[0, -1, 0], [0, 1, 0], [-1, 0, Math.PI / 2], [1, 0, Math.PI / 2]]) {
+        if (grid[tp.y + dy]?.[tp.x + dx] === CHASM) {
+          const w = tileToWorld(tp.x, tp.y);
+          const rail = new THREE.Mesh(railGeo, railMat);
+          rail.position.set(w.x + dx * TILE / 2, 0.3, w.z + dy * TILE / 2);
+          rail.rotation.y = rot;
+          group.add(rail);
+        }
+      }
+    }
+  }
+
+  // --- Broken walls: crumbled rubble piles instead of full masonry ---
+  if (rubbleT.length) {
+    const rubbleMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 1 });
+    for (const tp of rubbleT) {
+      const w = tileToWorld(tp.x, tp.y);
+      // a low broken stub + scattered chunks
+      const stub = new THREE.Mesh(new THREE.BoxGeometry(TILE, 0.6 + Math.random() * 0.6, TILE), rubbleMat);
+      stub.position.set(w.x, stub.geometry.parameters.height / 2, w.z);
+      stub.rotation.y = (Math.random() - 0.5) * 0.3;
+      group.add(stub);
+      for (let c = 0; c < 4; c++) {
+        const s = 0.18 + Math.random() * 0.24;
+        const chunk = new THREE.Mesh(new THREE.BoxGeometry(s, s * 0.7, s), rubbleMat);
+        chunk.position.set(w.x + (Math.random() - 0.5) * 1.4, s * 0.3, w.z + (Math.random() - 0.5) * 1.4);
+        chunk.rotation.set(Math.random(), Math.random(), Math.random());
+        group.add(chunk);
+      }
+    }
+  }
 
   // --- Walls (instanced) ---
   // In town: only the perimeter gets a low garden wall; interior solid tiles

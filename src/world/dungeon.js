@@ -1,6 +1,8 @@
 // Procedural dungeon: room-scatter + L-corridors on a tile grid.
 // Tile values:
-export const VOID = 0, FLOOR = 1, WALL = 2, DOOR = 3, PIT = 4;
+export const VOID = 0, FLOOR = 1, WALL = 2, DOOR = 3, PIT = 4, CHASM = 5, BRIDGE = 6, RUBBLE = 7;
+// CHASM = impassable dark abyss; BRIDGE = walkable plank over a chasm;
+// RUBBLE = a broken/crumbled wall (still blocks, rendered as debris).
 
 const GRID = 48;
 
@@ -74,6 +76,48 @@ export function generateDungeon(floor) {
   const doors = pickDoors(grid, doorSpots, spawn, stairs);
   for (const d of doors) grid[d.y][d.x] = DOOR;
 
+  // Carve chasms with plank BRIDGES across a couple of large rooms — a dark
+  // abyss below, crossed by a plus-shaped walkway so the room stays passable.
+  const chasmRooms = rooms.filter((r) =>
+    r !== spawnRoom && r !== stairsRoom && r.w >= 7 && r.h >= 7);
+  shuffle(chasmRooms);
+  const chasmTiles = [], bridgeTiles = [];
+  for (const r of chasmRooms.slice(0, floor >= 2 ? 2 : 1)) {
+    const cxr = Math.floor(r.x + r.w / 2), cyr = Math.floor(r.y + r.h / 2);
+    for (let y = r.y + 1; y < r.y + r.h - 1; y++) {
+      for (let x = r.x + 1; x < r.x + r.w - 1; x++) {
+        if (grid[y][x] !== FLOOR) continue;
+        // keep a 2-wide plus-shaped bridge through the room centre
+        const onBridge = Math.abs(x - cxr) <= 1 || Math.abs(y - cyr) <= 1;
+        if (onBridge) { grid[y][x] = BRIDGE; bridgeTiles.push({ x, y }); }
+        else { grid[y][x] = CHASM; chasmTiles.push({ x, y }); }
+      }
+    }
+  }
+
+  // Broken walls: crumble a fraction of walls into rubble piles (still solid).
+  const rubbleWalls = [];
+  for (let y = 1; y < GRID - 1; y++) {
+    for (let x = 1; x < GRID - 1; x++) {
+      if (grid[y][x] === WALL && rand(0, 1) < 0.06) {
+        // only crumble walls that border floor, for visible destruction
+        const bordersFloor = [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) => grid[y+dy]?.[x+dx] === FLOOR || grid[y+dy]?.[x+dx] === BRIDGE);
+        if (bordersFloor) { grid[y][x] = RUBBLE; rubbleWalls.push({ x, y }); }
+      }
+    }
+  }
+
+  const isOpen = (t) => t === FLOOR || t === BRIDGE || t === DOOR;
+  // nudge a tile onto solid ground if it landed on a chasm
+  const solidNear = (x, y) => {
+    if (isOpen(grid[y]?.[x])) return { x, y };
+    for (let rad = 1; rad <= 3; rad++)
+      for (let dy = -rad; dy <= rad; dy++)
+        for (let dx = -rad; dx <= rad; dx++)
+          if (isOpen(grid[y + dy]?.[x + dx])) return { x: x + dx, y: y + dy };
+    return { x, y };
+  };
+
   // Torches on wall tiles that face floor, spaced out.
   const torches = placeTorches(grid);
 
@@ -84,7 +128,7 @@ export function generateDungeon(floor) {
   shuffle(chestRooms);
   for (let i = 0; i < chestCount; i++) {
     const r = chestRooms[i];
-    chests.push({ x: r.x + randInt(1, r.w - 2), y: r.y + randInt(1, r.h - 2) });
+    chests.push(solidNear(r.x + randInt(1, r.w - 2), r.y + randInt(1, r.h - 2)));
   }
 
   // Enemy spawns: every non-spawn room, count scaled by depth.
@@ -99,12 +143,8 @@ export function generateDungeon(floor) {
     let count = Math.min(8, randInt(2, 4) + Math.floor(Math.min(floor, 12) / 2));
     if (r === stairsRoom) count += 2;
     for (let i = 0; i < count; i++) {
-      enemies.push({
-        x: r.x + randInt(1, r.w - 2),
-        y: r.y + randInt(1, r.h - 2),
-        type: pickEnemyType(floor),
-        miniboss: false,
-      });
+      const sp = solidNear(r.x + randInt(1, r.w - 2), r.y + randInt(1, r.h - 2));
+      enemies.push({ x: sp.x, y: sp.y, type: pickEnemyType(floor), miniboss: false });
     }
     if (minibossFloor && !minibossPlaced && r === stairsRoom && distFromSpawn > 10) {
       enemies.push({ x: c.x, y: c.y, type: pickEnemyType(floor), miniboss: true });
@@ -147,7 +187,8 @@ export function generateDungeon(floor) {
   rubble.push(...take(8, 3));
   // (pit-fall traps removed — they yanked you to the next floor)
 
-  return { grid, size: GRID, rooms, spawn, stairs, torches, chests, doors, enemies, boss: null, scuffs, rubble, pits };
+  return { grid, size: GRID, rooms, spawn, stairs, torches, chests, doors, enemies, boss: null,
+    scuffs, rubble, pits, chasmTiles, bridgeTiles, rubbleWalls };
 }
 
 function carveCorridor(grid, a, b, horizFirst, doorSpots) {
