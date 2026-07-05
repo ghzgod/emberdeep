@@ -452,7 +452,8 @@ export function buildDungeonMeshes(dungeon, theme) {
 
       stall.position.set(w.x, 0, w.z);
       group.add(stall);
-      vendorMeshes.push({ ...v, wx: w.x, wz: w.z, mesh: stall });
+      // keeper + its home (local) pos so the game can wander it subtly on a tether
+      vendorMeshes.push({ ...v, wx: w.x, wz: w.z, mesh: stall, keeper, keeperHome: keeper.position.clone() });
     }
   }
 

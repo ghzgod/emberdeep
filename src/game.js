@@ -487,6 +487,24 @@ export class Game {
     if (net.isHost) this.broadcastWorld();
   }
 
+  // Vendors make subtle, tethered movements at their booth so they feel alive
+  // without wandering off — a slow look-around, a gentle shuffle and bob.
+  updateVendors(dt) {
+    const vendors = this.dungeonMeshes?.vendorMeshes;
+    if (!vendors) return;
+    this._vt = (this._vt || 0) + dt;
+    const t = this._vt;
+    vendors.forEach((v, i) => {
+      const k = v.keeper;
+      if (!k || !v.keeperHome) return;
+      const ph = i * 1.7;
+      k.rotation.y = Math.sin(t * 0.5 + ph) * 0.35;
+      k.position.x = v.keeperHome.x + Math.sin(t * 0.33 + ph) * 0.12;
+      k.position.z = v.keeperHome.z + Math.sin(t * 0.27 + ph * 1.3) * 0.07;
+      k.position.y = v.keeperHome.y + Math.abs(Math.sin(t * 0.9 + ph)) * 0.02;
+    });
+  }
+
   makeVendorStock(vendor) {
     const stock = [];
     if (vendor.type === 'potions') {
@@ -2276,6 +2294,7 @@ export class Game {
 
     this.setInteractable(candidate);
     if (this.wanderer && this.inTown && !this.inTavern) this.wanderer.update(dt, this);
+    if (this.inTown && !this.inTavern) this.updateVendors(dt);
 
     // tavern smoke + hearth idle animation data from the mesh builder
     const puffs = this.dungeonMeshes.smokePuffs;
