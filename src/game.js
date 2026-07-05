@@ -1009,6 +1009,7 @@ export class Game {
       rp.zone = msg.aw | 0;
       rp.away = rp.zone !== 0;
       rp.level = msg.lvl || 1; rp.hp = msg.hp || 0; rp.maxHp = msg.mhp || 0;
+      rp.aura = msg.au || 0; this.setHeroAura(rp.mesh, rp.aura);
     });
     net.on('dmg', (msg, from) => {
       if (!net.isHost) return; // only the authoritative host applies guest damage
@@ -1089,6 +1090,7 @@ export class Game {
         rp.zone = pl.aw | 0;
         rp.away = rp.zone !== 0;
         rp.level = pl.lvl || 1; rp.hp = pl.hp || 0; rp.maxHp = pl.mhp || 0;
+        rp.aura = pl.au || 0; this.setHeroAura(rp.mesh, rp.aura);
       }
       // town browsers still see fellow townsfolk, but not dungeon state
       if (this.localTown) return;
@@ -1327,6 +1329,56 @@ export class Game {
         }
       });
     }
+  }
+
+  // Cosmetic aura tier from the best-equipped rarity: 2 = Epic (gold),
+  // 1 = Super Rare (purple), 0 = none. Visible to the whole room.
+  heroAuraTier(equipped = this.player?.equipped) {
+    if (!equipped) return 0;
+    let tier = 0;
+    for (const it of Object.values(equipped)) {
+      if (!it) continue;
+      if (it.rarity === 'legendary') return 2;
+      if (it.rarity === 'epic') tier = 1;
+    }
+    return tier;
+  }
+
+  // Attach/refresh a glowing ground ring + orbiting sparkles on a hero mesh.
+  setHeroAura(mesh, tier) {
+    if (!mesh || mesh.userData.auraTier === tier) return;
+    mesh.userData.auraTier = tier;
+    if (mesh.userData.auraGroup) { mesh.remove(mesh.userData.auraGroup); mesh.userData.auraGroup = null; }
+    if (!tier) return;
+    const color = tier >= 2 ? 0xffd24a : 0xb060ff;
+    const grp = new THREE.Group();
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.42, 0.62, 20),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })
+    );
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03;
+    grp.add(ring);
+    const sparkles = new THREE.Group();
+    const n = tier >= 2 ? 6 : 4;
+    const sMat = new THREE.MeshBasicMaterial({ color });
+    for (let i = 0; i < n; i++) {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(0.04, 5, 5), sMat);
+      const a = (i / n) * Math.PI * 2;
+      s.position.set(Math.cos(a) * 0.55, 0.6 + Math.sin(a * 2) * 0.3, Math.sin(a) * 0.55);
+      sparkles.add(s);
+    }
+    grp.add(sparkles);
+    grp.userData.sparkles = sparkles;
+    mesh.add(grp);
+    mesh.userData.auraGroup = grp;
+  }
+
+  // Keep the local hero's aura in sync and spin every hero's sparkles.
+  animateAuras(dt) {
+    if (this.player?.mesh) this.setHeroAura(this.player.mesh, this.heroAuraTier());
+    const spin = (mesh) => { const g = mesh?.userData?.auraGroup; if (g) g.userData.sparkles.rotation.y += dt * 1.6; };
+    spin(this.player?.mesh);
+    for (const [, rp] of this.remotePlayers) spin(rp.mesh);
   }
 
   ensureRemotePlayer(id, cls = 'knight', name = null) {
@@ -2067,6 +2119,7 @@ export class Game {
       for (const e of this.enemies) e.update(dt, this);
     }
     this.enemies = this.enemies.filter((e) => !e.dead || e.isBoss);
+    this.animateAuras(dt);
     this.projectiles.update(dt, this);
     this.loot.update(dt, this);
     this.particles.update(dt);
@@ -2489,6 +2542,7 @@ export class Game {
           aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
           dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(),
           aw: this.myZone(), lvl: p.level, hp: Math.round(p.hp), mhp: p.maxHp,
+          au: this.heroAuraTier(),
         });
       }
     }
@@ -2506,14 +2560,14 @@ export class Game {
       id: 'host', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
       aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
       dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(), aw: this.myZone(),
-      lvl: p.level, hp: Math.round(p.hp), mhp: p.maxHp,
+      lvl: p.level, hp: Math.round(p.hp), mhp: p.maxHp, au: this.heroAuraTier(),
     }];
     for (const [id, rp] of this.remotePlayers) {
       pl.push({
         id, x: +rp.target.x.toFixed(2), z: +rp.target.z.toFixed(2),
         aim: +(rp.aim || 0).toFixed(2), mv: rp.moving ? 1 : 0, dead: rp.dead ? 1 : 0,
         cls: rp.cls, nm: rp.name, aw: rp.zone || 0,
-        lvl: rp.level || 1, hp: Math.round(rp.hp || 0), mhp: rp.maxHp || 0,
+        lvl: rp.level || 1, hp: Math.round(rp.hp || 0), mhp: rp.maxHp || 0, au: rp.aura || 0,
       });
     }
     const en = this.enemies
