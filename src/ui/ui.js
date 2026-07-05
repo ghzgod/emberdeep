@@ -1000,16 +1000,9 @@ export class UI {
     $('item-actions-info').innerHTML =
       `<h4 class="tt-${item.rarity}" style="display:inline">${item.icon} ${item.name}</h4><br>${stats}`;
     $('btn-item-equip').onclick = () => { this.game.equip(item); this.renderInventory(); };
+    // Selling is done only at an NPC vendor's menu, never from the inventory.
     const sellBtn = $('btn-item-sell');
-    if (this.game.inTown) {
-      sellBtn.disabled = false;
-      sellBtn.textContent = `Sell +${sellValue(item)}g`;
-      sellBtn.onclick = () => { this.game.sellItem(item); this.renderInventory(); };
-    } else {
-      sellBtn.disabled = true;
-      sellBtn.textContent = 'Sell (in town)';
-      sellBtn.onclick = null;
-    }
+    if (sellBtn) sellBtn.style.display = 'none';
     $('btn-item-drop').onclick = () => { this.game.dropItem(item); this.renderInventory(); };
   }
 

@@ -7,7 +7,7 @@ export function xpForLevel(level) {
   return Math.floor(80 * Math.pow(level, 1.4));
 }
 
-export const LEVEL_CAP = 99;
+export const LEVEL_CAP = 100;
 // Gear stat keys recompute() actually understands; anything else on a loaded
 // item is ignored so a hand-edited save can't inject bogus stats.
 const ALLOWED_ITEM_STATS = ['damagePct', 'maxHp', 'armor', 'crit', 'speed', 'regen'];
@@ -214,7 +214,7 @@ export class Player {
     amount = Math.round(amount * (1 + 0.06 * this.skillRank('scholar')));
     this.xp += amount;
     game.ui.floaters.spawn(this.pos, `+${amount} xp`, 'xp');
-    while (this.xp >= xpForLevel(this.level)) {
+    while (this.level < LEVEL_CAP && this.xp >= xpForLevel(this.level)) {
       this.xp -= xpForLevel(this.level);
       this.level++;
       this.recompute();
@@ -225,6 +225,7 @@ export class Player {
       game.particles.ring(this.pos.x, 0.5, this.pos.z, 3, 0xffd75e);
       game.particles.burst(this.pos.x, 1.2, this.pos.z, 30, 0xffd75e, { speed: 4, life: 0.9 });
     }
+    if (this.level >= LEVEL_CAP) this.xp = 0; // capped: no overflow XP past max level
   }
 
   tryBasicAttack(game) {
