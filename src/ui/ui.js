@@ -1013,6 +1013,39 @@ export class UI {
     return '';
   }
 
+  statName(k) {
+    return ({ damagePct: 'damage', maxHp: 'max HP', armor: 'armor', crit: 'crit', speed: 'move speed', regen: 'regen', cdr4: 'ult cooldown' })[k] || k;
+  }
+
+  // Compare a gear item against what's equipped in its slot: per-stat deltas
+  // (green gain / red loss, accounting for class affinity) + an overall verdict.
+  compareNote(item) {
+    if (!item || item.consumable || !item.slot) return '';
+    const p = this.game.player;
+    const equipped = p.equipped[item.slot];
+    if (!equipped) return `<div style="font-size:11px;margin-top:5px;color:#7ce87c">▲ ${item.slot} slot empty — straight upgrade</div>`;
+    if (equipped === item) return '';
+    const eff = (it) => {
+      const scale = (it.affinity && it.affinity !== p.classId) ? 0.5 : 1;
+      const m = {}; for (const [k, v] of Object.entries(it.stats || {})) m[k] = v * scale; return m;
+    };
+    const a = eff(item), b = eff(equipped);
+    const W = { maxHp: 0.15, armor: 1, crit: 1.5, speed: 1, regen: 0.8, damagePct: 1.2, cdr4: 1 };
+    let total = 0; const rows = [];
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+      const d = Math.round((a[k] || 0) - (b[k] || 0));
+      if (!d) continue;
+      total += d * (W[k] || 1);
+      const color = d > 0 ? '#7ce87c' : '#e86a6a';
+      rows.push(`<div class="tt-stat" style="color:${color}">${d > 0 ? '+' : ''}${d} ${this.statName(k)}</div>`);
+    }
+    const verdict = total > 0.5 ? '<span style="color:#7ce87c">▲ Upgrade</span>'
+      : total < -0.5 ? '<span style="color:#e86a6a">▼ Downgrade</span>'
+      : '<span style="opacity:0.6">≈ Sidegrade</span>';
+    return `<div style="border-top:1px solid rgba(255,255,255,0.12);margin-top:6px;padding-top:4px;">
+      <div style="font-size:11px;opacity:0.7;margin-bottom:2px;">vs equipped ${equipped.icon}: ${verdict}</div>${rows.join('')}</div>`;
+  }
+
   // Tap/click an item -> action panel (works on mobile where right-click doesn't exist).
   selectItem(item) {
     this.selectedItem = item;
@@ -1022,7 +1055,7 @@ export class UI {
       ? `<span class="tt-stat">${item.effectLabel || 'Temporary boon'}</span>`
       : Object.entries(item.stats).map(([k, v]) => `<span class="tt-stat">${statLabel(k, v)}</span>`).join(' · ');
     $('item-actions-info').innerHTML =
-      `<h4 class="tt-${item.rarity}" style="display:inline">${item.icon} ${item.name}</h4><br>${stats}${this.affinityNote(item)}`;
+      `<h4 class="tt-${item.rarity}" style="display:inline">${item.icon} ${item.name}</h4><br>${stats}${this.affinityNote(item)}${this.compareNote(item)}`;
     const equipBtn = $('btn-item-equip');
     equipBtn.textContent = item.consumable ? 'Drink' : 'Equip';
     equipBtn.onclick = () => { this.game.equip(item); this.renderInventory(); };
@@ -1043,6 +1076,7 @@ export class UI {
       <div style="opacity:0.6;font-size:11px;">${RARITIES[item.rarity].name} ${item.consumable ? 'elixir' : item.slot}</div>
       ${stats}
       ${this.affinityNote(item)}
+      ${this.compareNote(item)}
       <div style="opacity:0.5;font-size:11px;margin-top:6px;">${item.consumable ? 'Click to drink' : 'Click to equip'} · Right-click to drop</div>
     `;
     tt.style.left = `${Math.min(e.clientX + 16, window.innerWidth - 260)}px`;
