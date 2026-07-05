@@ -73,6 +73,19 @@ const LINES = {
   ],
 };
 
+// Foul one-time greetings the moment the player first approaches a mob LEADER
+// (elite / miniboss / boss). The name always leads — never a trailing pause.
+const GREETINGS = [
+  '{name}. I have been picking the last hero out of my teeth. You will taste better.',
+  'Ah, {name} — fresh meat and half a brain. My favorite.',
+  '{name}, you reek of the surface. Hold still, I will fix that. Permanently.',
+  '{name}! Come closer. It only hurts until you stop breathing.',
+  '{name}, the floor already knows your name. Soon it wears your face.',
+  '{name} — running would be the clever move. You will not, of course.',
+  '{name}, so the little morsel finally waddles into my hall.',
+  '{name}, kneel or bleed. I am flexible. You are not.',
+];
+
 // Voice casting per enemy type. `kokoro` picks the neural voice when the
 // Kokoro engine is enabled; pitch/rate shape the Web Speech fallback.
 // Every speaking character gets a UNIQUE voice: distinct kokoro ids for the
@@ -187,6 +200,20 @@ export class Roaster {
 
   update(dt, game) {
     if (!this.enabled || !game.player || game.inTown) return;
+    // One-time foul greeting the moment you get near a mob leader (host talks).
+    if (!net.active || net.isHost) {
+      const p = game.player;
+      for (const e of game.enemies) {
+        if (e.dead || e._greeted || !(e.elite || e.miniboss || e.isBoss)) continue;
+        if (Math.hypot(p.pos.x - e.pos.x, p.pos.z - e.pos.z) > 11) continue;
+        e._greeted = true;
+        const line = GREETINGS[Math.floor(Math.random() * GREETINGS.length)].replaceAll('{name}', game.playerName());
+        this.deliver(game, e, line);
+        if (net.isHost) net.send({ t: 'roast', txt: line, ty: e.typeId, ei: e.netId });
+        this.timer = Math.max(this.timer, 6); // don't immediately double up with periodic chatter
+        return;
+      }
+    }
     const elite = game.enemies.find((e) => !e.dead && e.elite && e.state && e.state !== 'idle');
     if (!elite) { this.timer = Math.min(this.timer, 4); return; }
     // guests just listen; the host does the talking
