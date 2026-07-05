@@ -118,6 +118,10 @@ export class UI {
       this.renderInventory();
     };
     $('btn-destroy-cancel').onclick = () => $('destroy-modal').classList.add('hidden');
+    // Click anywhere on a modal's dimmed backdrop (but not its card) to dismiss it.
+    $('relic-reveal').addEventListener('click', (e) => { if (e.target.id === 'relic-reveal') $('btn-relic-take').click(); });
+    $('buy-confirm').addEventListener('click', (e) => { if (e.target.id === 'buy-confirm') $('btn-buy-cancel').click(); });
+    $('destroy-modal').addEventListener('click', (e) => { if (e.target.id === 'destroy-modal') $('destroy-modal').classList.add('hidden'); });
     $('btn-shop-restock').onclick = () => {
       if (this.game.activeVendor) this.game.restockVendor(this.game.activeVendor);
     };
