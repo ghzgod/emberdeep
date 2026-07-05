@@ -221,6 +221,14 @@ export class Roaster {
     // they know your kit: mock one of the target class's actual abilities
     const clsDef = Object.values(CLASSES_BY_NAME).find((c) => c.name === pretty(target.cls));
     const ability = clsDef ? clsDef.abilities[Math.floor(Math.random() * clsDef.abilities.length)].name : 'flailing';
+    // The player's NAME must never be the last word — a trailing name reads as an
+    // awkward tacked-on pause. If the template ends with {name}, swap that final
+    // one for an epithet; the name still lands earlier in other lines.
+    if (/\{name\}[^A-Za-z0-9]*$/.test(line)) {
+      const epithets = [pretty(target.cls), 'coward', 'fool', 'worm', 'wretch', 'little one'];
+      const ep = epithets[Math.floor(Math.random() * epithets.length)];
+      line = line.replace(/\{name\}([^A-Za-z0-9]*)$/, ep + '$1');
+    }
     line = line.replaceAll('{name}', address).replaceAll('{name2}', pretty(name2)).replaceAll('{ability}', ability);
 
     this.deliver(game, elite, line);

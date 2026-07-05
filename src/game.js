@@ -174,15 +174,31 @@ export class Game {
       audio.init();
     } catch { /* will init on first gesture */ }
     if (audio.ctx) {
-      await audio.loadAll((f) => this.ui.setLoadingProgress(0.4 + f * 0.55, 'Summoning sounds…'));
+      await audio.loadAll((f) => this.ui.setLoadingProgress(0.4 + f * 0.3, 'Summoning sounds…'));
     }
-    this.ui.setLoadingProgress(1, 'Ready');
     // Enemy movement-learning net loads in the background (non-blocking).
     learner.init();
-    // Neural character voices (Kokoro) are the only voice engine now. Start the
-    // ~90 MB download eagerly so it's ready by the time the player reaches combat;
-    // until then, NPC/enemy lines show as subtitles only (never robotic Web Speech).
-    setTimeout(() => import('./ai/neuralVoice.js').then(({ neuralVoice }) => neuralVoice.load()), 1200);
+
+    // Neural character voices (Kokoro, ~90 MB) download as the FINAL loading
+    // phase so their progress shows in the loading bar. Soft-capped at 30s: if
+    // the download is slow we proceed to the title and it finishes in the
+    // background (lines stay subtitle-only until it's ready). Cached on repeat
+    // visits, so this is near-instant after the first load.
+    this.ui.setLoadingProgress(0.7, 'Downloading natural voices…');
+    try {
+      const { neuralVoice } = await import('./ai/neuralVoice.js');
+      neuralVoice.onStatus = (st, prog) => {
+        if (st === 'loading') {
+          const p = Math.max(0, prog || 0);
+          this.ui.setLoadingProgress(0.7 + p * 0.3, p > 0 ? `Downloading natural voices… ${Math.round(p * 100)}%` : 'Downloading natural voices…');
+        } else if (st === 'ready') {
+          this.ui.setLoadingProgress(1, 'Ready');
+        }
+      };
+      await Promise.race([neuralVoice.load(), new Promise((res) => setTimeout(res, 30000))]);
+    } catch { /* voices are optional — never block boot on them */ }
+
+    this.ui.setLoadingProgress(1, 'Ready');
     this.state = 'title';
     this.ui.showTitle();
   }
@@ -322,7 +338,14 @@ export class Game {
     this.player.resource = this.player.maxResource;
     this.player.statuses = [];
     this.player.buffs = [];
-    if (net.active && !net.isHost) this.localTown = true;
+    // clear the death pose (leaning-back final frame) so the hero stands upright
+    this.player.anim?.revive?.();
+    this.player.mesh.rotation.x = 0;
+    this.player.mesh.rotation.z = 0;
+    // In multiplayer, respawning is a LOCAL trip to town — it must not reset the
+    // shared dungeon or yank other players out of it. localTown keeps the zone
+    // change to this client only.
+    if (net.active) this.localTown = true;
     this.loadTown();
     this.enterPlaying();
   }
@@ -1599,6 +1622,17 @@ export class Game {
     this.requestSave();
   }
 
+  // Quick declutter: drop every common-rarity item at once. Returns the count.
+  dropAllCommons() {
+    const p = this.player;
+    const commons = p.inventory.filter((it) => it.rarity === 'common');
+    if (!commons.length) return 0;
+    p.inventory = p.inventory.filter((it) => it.rarity !== 'common');
+    commons.forEach((it, i) => this.loot.dropGear(p.pos.x + 1 + (i % 3) * 0.5, p.pos.z + Math.floor(i / 3) * 0.5, it));
+    this.requestSave();
+    return commons.length;
+  }
+
   // ---------------- saving ----------------
   requestSave(immediate = false) {
     if (!this.player) return;
@@ -1649,6 +1683,12 @@ export class Game {
   // ---------------- per-frame ----------------
   frame() {
     const dt = Math.min(0.05, this.clock.getDelta());
+
+    // Tab backgrounded: browsers keep firing rAF at ~1fps, which would let
+    // enemies keep attacking (and could kill/relocate the player) while you're
+    // on another tab. Freeze ALL gameplay until the tab is visible again — the
+    // clock delta above is still consumed so no giant step fires on return.
+    if (document.hidden) return;
 
     if (this.state === 'playing') {
       this.updatePlaying(dt);

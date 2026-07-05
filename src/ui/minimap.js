@@ -106,9 +106,15 @@ export class Minimap {
     }
     ctx.restore();
 
-    // player arrow at the fixed centre, always pointing up
+    // player arrow at the fixed centre, pointing where the player actually FACES
+    // (the map rotates by camYaw, so project the world facing vector through it)
+    const face = player.visualAngle ?? 0;
+    const fx = Math.cos(face), fz = Math.sin(face);
+    const sx = fx * Math.cos(camYaw) - fz * Math.sin(camYaw);
+    const sy = fx * Math.sin(camYaw) + fz * Math.cos(camYaw);
     ctx.save();
     ctx.translate(cx, cy);
+    ctx.rotate(Math.atan2(sy, sx) + Math.PI / 2); // arrow art points up by default
     ctx.fillStyle = '#7ce87c';
     ctx.beginPath();
     ctx.moveTo(0, -6);

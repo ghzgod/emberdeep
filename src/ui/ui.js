@@ -163,7 +163,21 @@ export class UI {
       wrap.appendChild(card);
       this.classCards.set(cls.id, card);
     }
+    // char-select name field: prefill from any saved/entered name, persist as typed
+    const csName = $('cs-name');
+    if (csName) {
+      csName.value = localStorage.getItem('emberdeep-name-v1') || '';
+      csName.addEventListener('input', () => {
+        csName.classList.remove('input-error');
+        const v = csName.value.trim().slice(0, 14);
+        if (v) localStorage.setItem('emberdeep-name-v1', v);
+      });
+    }
     $('btn-charselect-confirm').onclick = () => {
+      // a name is REQUIRED before starting
+      const name = (csName?.value || '').trim().slice(0, 14);
+      if (!name) { csName?.classList.add('input-error'); csName?.focus(); return; }
+      localStorage.setItem('emberdeep-name-v1', name);
       if (this.selectedClass) this.game.startNewGame(this.selectedClass);
     };
   }
@@ -589,13 +603,21 @@ export class UI {
     this.chatLog = [];
     this._chatIdleT = null;
     const input = $('chat-input');
-    // 💬 focuses the input (mobile); the scrollback frame is always visible — no
-    // full-screen chat log anymore (it used to cover the whole screen).
-    $('chat-open').onclick = () => this.openChatInput();
+    // Click anywhere on the chat frame to open the input row below it (WoW-style).
+    // No 💬 button — the scrollback frame itself is the affordance.
+    $('chat').addEventListener('click', (e) => {
+      if (e.target.closest('#chat-input-row')) return; // don't reopen while typing
+      this.openChatInput();
+    });
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
-      if (e.key === 'Enter') { this.sendChat(input.value); input.value=''; $('chat-input-row').classList.add('hidden'); }
-      else if (e.key === 'Escape') { input.value=''; $('chat-input-row').classList.add('hidden'); }
+      if (e.key === 'Enter') {
+        // send but KEEP the box open + focused so you can fire off several
+        // messages without re-clicking. Escape (or clicking away) closes it.
+        this.sendChat(input.value); input.value=''; this._wakeChat(); input.focus();
+      } else if (e.key === 'Escape') {
+        input.value=''; $('chat-input-row').classList.add('hidden'); input.blur();
+      }
     });
     input.addEventListener('focus', () => this._wakeChat());
   }
@@ -661,6 +683,8 @@ export class UI {
     $('subtitle-speaker').textContent = speaker;
     $('subtitle-text').textContent = text;
     el.classList.remove('hidden');
+    // the interact prompt sits in the same spot — hide it so they don't overlap
+    $('interact-prompt').classList.add('hidden');
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(this._subT);
     this._subT = setTimeout(() => el.classList.add('hidden'), durationMs);
@@ -716,6 +740,8 @@ export class UI {
   showInteract(candidate) {
     const el = $('interact-prompt');
     if (!candidate) { el.classList.add('hidden'); return; }
+    // while an NPC line (subtitle) is up, don't stack the prompt behind it
+    if (!$('subtitle').classList.contains('hidden')) { el.classList.add('hidden'); return; }
     // key chip is hidden by CSS on coarse-pointer devices — tap the pill there
     el.innerHTML = `${candidate.icon} ${candidate.label} <span class="key-chip">F</span>`;
     el.classList.remove('hidden');
@@ -947,6 +973,19 @@ export class UI {
       this.selectedItem = null;
       $('item-actions').classList.add('hidden');
     }
+
+    // quick "drop all commons" button — created once, shown only when commons exist
+    let dc = $('drop-commons-btn');
+    if (!dc) {
+      dc = document.createElement('button');
+      dc.id = 'drop-commons-btn';
+      dc.className = 'menu-btn small';
+      grid.parentElement.appendChild(dc);
+      dc.onclick = () => { this.game.dropAllCommons(); this.renderInventory(); };
+    }
+    const commons = p.inventory.filter((it) => it.rarity === 'common').length;
+    dc.textContent = `Drop all commons (${commons})`;
+    dc.style.display = commons ? '' : 'none';
   }
 
   // Tap/click an item -> action panel (works on mobile where right-click doesn't exist).

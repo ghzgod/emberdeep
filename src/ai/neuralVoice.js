@@ -53,6 +53,7 @@ class NeuralVoice {
     this.lastError = '';
     this._current = null;
     this._busy = false;
+    this._cache = new Map(); // key: voice|speed|text -> { audio, sr }
   }
 
   get ready() { return this.status === 'ready'; }
@@ -75,12 +76,14 @@ class NeuralVoice {
         env.backends.onnx.wasm.proxy = false;
       } catch { /* env shape changed; best-effort */ }
 
-      // WASM q8 first: the most compatible path (WebGPU session-create can
-      // hang indefinitely on some GPUs without ever rejecting). Each attempt
-      // is time-boxed so a hang falls through instead of stalling forever.
+      // WebGPU FIRST when available: generation is ~10x faster than WASM q8
+      // (sub-second vs ~6s per line), which is what makes the reference impl feel
+      // instant. WebGPU session-create can occasionally hang on some GPUs, so it's
+      // time-boxed — if it stalls we fall through to the universally-compatible
+      // single-threaded WASM q8 path instead of stalling forever.
       const attempts = [
+        ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32', timeout: 30000 }] : []),
         { device: 'wasm', dtype: 'q8', timeout: 120000 },
-        ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32', timeout: 60000 }] : []),
       ];
       const progress_callback = (p) => {
         if ((p.status === 'progress' || p.status === 'download') && p.total) {
@@ -123,32 +126,47 @@ class NeuralVoice {
   }
 
   async speak(text, { voice = 'af_heart', speed = 1 } = {}) {
-    if (!this.ready || this._busy) return false;
+    if (!this.ready) return false;
     const clean = normalizeForTTS(text);
     if (!clean) return false;
+    const key = `${voice}|${speed}|${clean}`;
+
+    // Cached line → play instantly, skipping the (slow) model call entirely.
+    // This is what makes repeated barks/vendor lines feel snappy.
+    const cached = this._cache.get(key);
+    if (cached) return this._playPcm(cached.audio, cached.sr);
+
+    if (this._busy) return false; // a generation is already in flight
     this._busy = true;
     try {
       const result = await this.tts.generate(clean, { voice, speed });
-      this.stop();
-      if (!audio.ctx) { this._busy = false; return false; }
-      const buf = audio.ctx.createBuffer(1, result.audio.length, result.sampling_rate);
-      buf.getChannelData(0).set(result.audio);
-      const src = audio.ctx.createBufferSource();
-      src.buffer = buf;
-      const gain = audio.ctx.createGain();
-      gain.gain.value = this.volume ?? 0.9;
-      src.connect(gain);
-      gain.connect(audio.sfxGain);
-      src.start();
-      this._current = src;
-      src.onended = () => { if (this._current === src) this._current = null; };
-      return true;
+      this._cache.set(key, { audio: result.audio, sr: result.sampling_rate });
+      if (this._cache.size > 80) this._cache.delete(this._cache.keys().next().value);
+      return this._playPcm(result.audio, result.sampling_rate);
     } catch (err) {
       console.warn('[neural-tts] generate failed', err);
       return false;
     } finally {
       this._busy = false;
     }
+  }
+
+  // Play raw PCM (Float32) through the SFX bus. Reused by fresh + cached lines.
+  _playPcm(audioData, sr) {
+    this.stop();
+    if (!audio.ctx) return false;
+    const buf = audio.ctx.createBuffer(1, audioData.length, sr);
+    buf.getChannelData(0).set(audioData);
+    const src = audio.ctx.createBufferSource();
+    src.buffer = buf;
+    const gain = audio.ctx.createGain();
+    gain.gain.value = this.volume ?? 0.9;
+    src.connect(gain);
+    gain.connect(audio.sfxGain);
+    src.start();
+    this._current = src;
+    src.onended = () => { if (this._current === src) this._current = null; };
+    return true;
   }
 
   stop() {

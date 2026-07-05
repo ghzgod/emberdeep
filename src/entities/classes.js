@@ -102,12 +102,12 @@ export const CLASSES = {
       },
       {
         id: 'arcane_storm', name: 'Arcane Storm', icon: '🌩️', cd: 14, cost: 55,
-        desc: 'Call down a crackling storm at your cursor for 4 seconds.',
+        desc: 'Call down a crackling storm around you for 4 seconds.',
         exec(game, p) {
           audio.play('arcane_storm');
-          const t = p.aimPoint(9);
+          // centered on the player — enemies path toward you, so this maximizes hits
           game.addZone({
-            x: t.x, z: t.z, radius: 3.4, duration: 4, tick: 0.4,
+            x: p.pos.x, z: p.pos.z, radius: 3.4, duration: 4, tick: 0.4,
             dps: p.damage * 2.4, friendly: true, color: 0xb45eff, spark: true,
           });
         },
@@ -161,12 +161,12 @@ export const CLASSES = {
       },
       {
         id: 'rain_arrows', name: 'Rain of Arrows', icon: '🌧️', cd: 13, cost: 50,
-        desc: 'After a beat, arrows hammer a wide area at your cursor.',
+        desc: 'After a beat, arrows hammer the area around you.',
         exec(game, p) {
           audio.play('rain_arrows');
-          const t = p.aimPoint(10);
+          // centered on the player so it lands on the enemies converging on you
           game.addZone({
-            x: t.x, z: t.z, radius: 3.6, duration: 2.6, tick: 0.35, delay: 0.6,
+            x: p.pos.x, z: p.pos.z, radius: 3.6, duration: 2.6, tick: 0.35, delay: 0.6,
             dps: p.damage * 2.6, friendly: true, color: 0xa8e86a, arrows: true,
           });
         },

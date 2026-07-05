@@ -125,5 +125,14 @@ export function buildAnimatedHero(classId) {
       if (!d) return;
       d.reset().play();
     },
+    // Undo the death pose on respawn: stop the death clip (which holds its
+    // leaning-back final frame) and snap back to idle.
+    revive() {
+      if (this.actions.death) this.actions.death.stop();
+      this.current = 'idle';
+      if (this.actions.idle) this.actions.idle.reset().play();
+      this.mesh.rotation.x = 0;
+      this.mesh.rotation.z = 0;
+    },
   };
 }

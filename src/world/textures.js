@@ -42,6 +42,17 @@ function jitterColor(hex, amount) {
   return `rgb(${r},${g},${b})`;
 }
 
+// Brightness-only variation: applies the SAME delta to every channel so the hue
+// is preserved. Using independent-channel jitter on a near-gray stone produced
+// distinctly coloured tiles (pink/green/orange) that tiled into rainbow stripes.
+function shadeColor(hex, amount) {
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const d = Math.floor((Math.random() - 0.5) * 2 * amount);
+  const c = (v) => Math.min(255, Math.max(0, v + d));
+  return `rgb(${c(r)},${c(g)},${c(b)})`;
+}
+
 function speckle(ctx, size, count, alpha) {
   for (let i = 0; i < count; i++) {
     ctx.fillStyle = `rgba(0,0,0,${Math.random() * alpha})`;
@@ -59,7 +70,7 @@ export function makeFloorTexture(theme) {
   ctx.fillRect(0, 0, size, size);
   for (let y = 0; y < tiles; y++) {
     for (let x = 0; x < tiles; x++) {
-      ctx.fillStyle = jitterColor(theme.floor, 14);
+      ctx.fillStyle = shadeColor(theme.floor, 10); // brightness only — keeps stone hue
       ctx.fillRect(x * ts + 2, y * ts + 2, ts - 4, ts - 4);
       // cracked corner detail
       if (Math.random() < 0.3) {

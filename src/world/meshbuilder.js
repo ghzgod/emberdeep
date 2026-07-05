@@ -517,11 +517,10 @@ export function buildDungeonMeshes(dungeon, theme) {
     group.add(stairsMesh);
   }
 
-  // --- Dungeon decoration: room rugs + wall-hugging themed props ---
-  if (!town) {
-    buildRoomRugs(group, dungeon, theme);
-    if (dungeon.props?.length) buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs);
-  }
+  // --- Dungeon decoration: wall-hugging themed props ---
+  // (Room-center "rug" rings were removed — their faint ring outline read as a
+  //  stray portal ring in every large room. The only ring is the real portal.)
+  if (!town && dungeon.props?.length) buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs);
   // --- World beyond the town walls: forest ring, horizon, a wandering critter ---
   if (town) buildTownSurroundings(group, dungeon, smokePuffs);
 

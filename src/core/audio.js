@@ -52,11 +52,18 @@ const MANIFEST = {
   equip:        ['audio/equip.mp3'],
   door_open:    ['audio/door_open.mp3'],
   stairs:       ['audio/stairs.mp3'],
-  // UI
-  ui_hover:  ['audio/ui_hover.mp3'],
-  ui_click:  ['audio/ui_click.mp3'],
-  ui_open:   ['audio/ui_open.mp3'],
-  ui_close:  ['audio/ui_close.mp3'],
+  // NOTE: UI sounds (ui_hover/click/open/close) are SYNTHESIZED procedurally in
+  // _playUI() — the old mp3s sounded harsh. They intentionally have no manifest
+  // entry so they aren't fetched.
+};
+
+// Soft procedural UI blips (WebAudio) — gentle sine/triangle tones with a quick
+// attack + exponential decay. Far more pleasant than the old sampled clicks.
+const UI_SYNTH = {
+  ui_hover: { type: 'sine',     f0: 680, f1: 680, dur: 0.05, gain: 0.045 },
+  ui_click: { type: 'triangle', f0: 540, f1: 680, dur: 0.08, gain: 0.10 },
+  ui_open:  { type: 'sine',     f0: 440, f1: 680, dur: 0.15, gain: 0.09 },
+  ui_close: { type: 'sine',     f0: 640, f1: 400, dur: 0.15, gain: 0.09 },
 };
 
 const MUSIC = {
@@ -139,8 +146,29 @@ export class AudioEngine {
   setListener(x, z) { this.listener.x = x; this.listener.z = z; }
 
   // play('sword_swing', { pos: {x, z}, volume, rate, throttleMs })
+  // Procedural UI blip: soft osc tone with a quick attack + exponential decay.
+  _playUI(name) {
+    const s = UI_SYNTH[name];
+    if (!this.ctx || this.ctx.state !== 'running' || !s) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = s.type;
+    osc.frequency.setValueAtTime(s.f0, t);
+    if (s.f1 !== s.f0) osc.frequency.exponentialRampToValueAtTime(s.f1, t + s.dur);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(s.gain, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + s.dur);
+    osc.connect(g);
+    g.connect(this.sfxGain || this.ctx.destination);
+    osc.start(t);
+    osc.stop(t + s.dur + 0.03);
+  }
+
   play(name, opts = {}) {
     if (!this.ctx || this.ctx.state !== 'running') return;
+    // UI blips are synthesized, not sampled — softer and more pleasant.
+    if (UI_SYNTH[name]) { this._playUI(name); return; }
     const variants = MANIFEST[name];
     if (!variants) return;
 
