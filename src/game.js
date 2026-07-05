@@ -908,7 +908,11 @@ export class Game {
       this.removeRemotePlayer(id);
     });
     net.on('hello', (msg, from) => {
+      // Only announce a genuinely new hero; a guest re-sending `hello` for one we
+      // already track must not spam join notices onto everyone's screen.
+      const known = this.remotePlayers.has(from);
       this.ensureRemotePlayer(from, msg.cls, msg.name);
+      if (known) return;
       if (this.player) this.ui.floaters.spawn(this.player.pos, `${msg.name || 'A hero'} has joined!`, 'crit');
       net.send({ t: 'notice', txt: `${msg.name || 'A hero'} has joined the room!` });
     });
@@ -923,18 +927,34 @@ export class Game {
       rp.level = msg.lvl || 1; rp.hp = msg.hp || 0; rp.maxHp = msg.mhp || 0;
     });
     net.on('dmg', (msg, from) => {
+      if (!net.isHost) return; // only the authoritative host applies guest damage
       const e = this.enemies.find((en) => en.netId === msg.ei && !en.dead);
       if (!e) return;
       const rp = this.remotePlayers.get(from);
-      this.damageEnemy(e, msg.a, {
+      // Guest-reported damage is a CLAIM, never trusted: clamp it so a tampered
+      // client can't one-shot the host's encounter. Ceiling scales with the
+      // sender's level; status/knockback are re-derived, not taken at face value.
+      const cap = 50 + (rp?.level || 1) * 40;
+      const amt = Math.min(Math.max(1, msg.a | 0), cap);
+      const kb = Math.min(Math.max(0, msg.kb || 0), 6);
+      this.damageEnemy(e, amt, {
         dot: true, // damage already rolled on the guest; no double crit
-        status: msg.st || undefined,
-        knockback: msg.kb || undefined,
+        status: this.sanitizeGuestStatus(msg.st, cap),
+        knockback: kb || undefined,
         kbFrom: rp ? rp.target : e.pos,
       });
     });
     net.on('portal', (msg, from) => {
       if (!net.isHost || this.stairsCooldown > 0) return;
+      // A guest can only descend the party if it's actually standing at the
+      // stairs — verify its last known position so it can't yank everyone down
+      // from across the floor. (Town has no stairs gate.)
+      if (!this.inTown && this.dungeon?.stairs) {
+        const rp = this.remotePlayers.get(from);
+        const w = tileToWorld(this.dungeon.stairs.x, this.dungeon.stairs.y);
+        const p = rp?.target;
+        if (!p || Math.hypot(p.x - w.x, p.z - w.z) > 3.5) return;
+      }
       if (!this.inTown && this.stairsLocked()) {
         net.send({
           t: 'notice',
@@ -1042,11 +1062,18 @@ export class Game {
       voice.syncPeers(msg.ids);
     });
     net.on('chat', (msg, from) => {
+      // Identity is bound to the connection the host tracks, never to the
+      // self-reported payload name — so a guest can't render chat under another
+      // hero's name. Relayed messages (from === 'host') were already relabeled.
+      const name = from === 'host'
+        ? (msg.name || 'Hero')
+        : (this.remotePlayers.get(from)?.name || 'Hero');
       // host relays a guest's chat to the OTHER guests (not the sender)
-      if (net.isHost && from !== 'host') net.sendExcept({ t: 'chat', name: msg.name, txt: msg.txt, ts: msg.ts }, from);
-      this.ui.addChatMessage(msg.name, msg.txt, msg.ts, false);
+      if (net.isHost && from !== 'host') net.sendExcept({ t: 'chat', name, txt: msg.txt, ts: msg.ts }, from);
+      this.ui.addChatMessage(name, msg.txt, msg.ts, false);
     });
-    net.on('notice', (msg) => {
+    net.on('notice', (msg, from) => {
+      if (from !== 'host') return; // only the host issues notices; ignore guest-crafted spam
       if (this.player) this.ui.floaters.spawn(this.player.pos, msg.txt, 'crit', 5);
     });
     net.on('room_full', () => {
@@ -1353,6 +1380,22 @@ export class Game {
       }
     }
     if (hitAny) audio.play(basic.hitSound);
+  }
+
+  // Rebuild a guest-supplied status into a clean, clamped object. A tampered
+  // client could otherwise send {burn:{dps:1e9,duration:9999}} to melt the
+  // host's encounter, so we only keep known keys and clamp every field.
+  sanitizeGuestStatus(st, cap) {
+    if (!st || typeof st !== 'object') return undefined;
+    const num = (v, min, max, dflt) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : dflt;
+    };
+    const out = {};
+    if (st.burn) out.burn = { dps: num(st.burn.dps, 1, cap, 1), duration: num(st.burn.duration, 0.5, 6, 3) };
+    if (st.poison) out.poison = { dps: num(st.poison.dps, 1, cap, 1), duration: num(st.poison.duration, 0.5, 6, 2) };
+    if (st.slow) out.slow = { mult: num(st.slow.mult, 0.1, 1, 0.35), duration: num(st.slow.duration, 0.5, 6, 3.5) };
+    return Object.keys(out).length ? out : undefined;
   }
 
   damageEnemy(e, amount, opts = {}) {

@@ -176,4 +176,4 @@ class NeuralVoice {
 }
 
 export const neuralVoice = new NeuralVoice();
-if (typeof window !== 'undefined') window.__neuralVoice = neuralVoice;
+if (import.meta.env.DEV && typeof window !== 'undefined') window.__neuralVoice = neuralVoice;

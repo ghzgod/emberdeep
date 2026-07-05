@@ -31,6 +31,10 @@ From the title screen pick **Single Player** or **Multiplayer** (enter a shared 
 - **60 context-mapped sounds** and two music tracks (all CC0/CC-BY sources — see [CREDITS.md](CREDITS.md))
 - **Animated heroes** from the CC0 KayKit Adventurers pack; everything else is generated in-engine
 
+## Multiplayer & privacy
+
+Co-op is **peer-to-peer over WebRTC** (via the public PeerJS broker). Because players connect directly to one another, **each player's public IP address is visible to the others in the room** through the normal WebRTC connection process — this is inherent to serverless P2P, with no relay server in between. Only play in rooms with people you trust, and treat a room name as a shared secret: anyone who knows it can join, and the first to claim it becomes the host. Single player never touches the network.
+
 ## Technology
 
 [Three.js](https://threejs.org) rendering, [TensorFlow.js](https://www.tensorflow.org/js) enemy learning, [PeerJS](https://peerjs.com) multiplayer networking (WebRTC), and [Vite](https://vitejs.dev) build tooling.
