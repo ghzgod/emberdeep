@@ -1889,36 +1889,32 @@ export class Game {
     }
   }
 
+  // Just animates the descend-stairs ring; actual descent is an interact
+  // prompt built in updateTownInteractions (so nothing triggers on contact).
   updateStairs(dt) {
     this.stairsCooldown = Math.max(0, this.stairsCooldown - dt);
-    if (!this.dungeon.stairs || this.stairsCooldown > 0) return;
-    const p = this.player;
-    const w = tileToWorld(this.dungeon.stairs.x, this.dungeon.stairs.y);
-    // spin the portal ring
-    if (this.dungeonMeshes.stairsMesh) {
+    if (this.dungeonMeshes?.stairsMesh) {
       this.dungeonMeshes.stairsMesh.children.forEach((ch) => {
         if (ch.geometry?.type === 'TorusGeometry') ch.rotation.z += dt * 1.5;
       });
     }
-    if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 1.4) {
-      if (this.stairsLocked() && (!net.active || net.isHost)) {
-        this._sealNoticeT -= dt;
-        if (this._sealNoticeT <= 0) {
-          this._sealNoticeT = 2.5;
-          const eliteLeft = this.enemies.some((en) => !en.dead && en.elite);
-          this.ui.floaters.spawn(p.pos,
-            `Sealed! Cull the horde (${this.floorKills}/${this.stairsClearNeed()})${eliteLeft ? ' · slay the Elite' : ''}`,
-            'player-dmg');
-          audio.play('shield_block', { volume: 0.5, rate: 0.7 });
-        }
-        return;
-      }
-      if (net.active && !net.isHost) {
-        this.stairsCooldown = 2;
-        net.send({ t: 'portal' });
-      } else if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 1.1) {
-        this.loadFloor(this.floor + 1);
-      }
+  }
+
+  // Player pressed F / tapped the prompt on the descend stairs.
+  descendStairs() {
+    if (this.stairsLocked()) {
+      const eliteLeft = this.enemies.some((en) => !en.dead && en.elite);
+      this.ui.floaters.spawn(this.player.pos,
+        `Sealed! Cull the horde (${this.floorKills}/${this.stairsClearNeed()})${eliteLeft ? ' · slay the Elite' : ''}`,
+        'player-dmg');
+      audio.play('shield_block', { volume: 0.5, rate: 0.7 });
+      return;
+    }
+    if (net.active && !net.isHost) {
+      this.stairsCooldown = 2;
+      net.send({ t: 'portal' });
+    } else {
+      this.loadFloor(this.floor + 1);
     }
   }
 
