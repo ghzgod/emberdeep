@@ -525,11 +525,11 @@ export function buildDungeonMeshes(dungeon, theme) {
   // --- Dungeon decoration: wall-hugging themed props ---
   // (Room-center "rug" rings were removed — their faint ring outline read as a
   //  stray portal ring in every large room. The only ring is the real portal.)
-  if (!town && dungeon.props?.length) buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs);
+  const breakables = (!town && dungeon.props?.length) ? buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs) : [];
   // --- World beyond the town walls: forest ring, horizon, a wandering critter ---
   if (town) buildTownSurroundings(group, dungeon, smokePuffs);
 
-  return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh, smokePuffs };
+  return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh, smokePuffs, breakables };
 }
 
 // ---------------- Embervale decor ----------------
@@ -897,6 +897,7 @@ function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs) {
   const kinds = SETS[theme.name] || SETS['The Old Halls'];
   const accent = new THREE.Color(theme.accent);
   const C = { WOOD: 0x54402c, IRON: 0x3f3f47, BONE: 0xcfc6a6, STONE: 0x5e5766, TERRA: 0x8a4b33, accent };
+  const breakables = [];
   for (const p of dungeon.props) {
     const kind = kinds[Math.min(kinds.length - 1, Math.floor((p.roll || 0) * kinds.length))];
     const w = tileToWorld(p.x, p.y);
@@ -907,7 +908,10 @@ function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs) {
     node.position.set(px, 0, pz);
     node.rotation.y = p.r || 0;
     group.add(node);
+    // containers can be smashed by attacks that land near them
+    if (kind === 'barrel' || kind === 'crate' || kind === 'pot') breakables.push({ mesh: node, x: px, z: pz, kind });
   }
+  return breakables;
 }
 
 function buildProp(kind, C, torchPositions, smokePuffs, px, pz) {
