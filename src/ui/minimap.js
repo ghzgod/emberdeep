@@ -52,14 +52,25 @@ export class Minimap {
     }
   }
 
-  draw(player) {
+  // Player-centered and rotated so the camera's forward is always "up".
+  draw(player, camYaw = 0) {
     if (!this.dungeon) return;
     const { ctx, canvas } = this;
     const n = this.dungeon.size;
     const s = canvas.width / n;
+    const cx = canvas.width / 2, cy = canvas.height / 2;
+    const px = (player.pos.x / TILE) * s;
+    const pz = (player.pos.z / TILE) * s;
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    // rotate the whole map about the player so their heading points up
+    ctx.translate(cx, cy);
+    ctx.rotate(camYaw);
+    ctx.translate(-px, -pz);
 
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
@@ -68,11 +79,10 @@ export class Minimap {
         const color = this.tileColor(t, x, y);
         if (!color) continue;
         ctx.fillStyle = color;
-        ctx.fillRect(x * s, y * s, s + 0.5, s + 0.5);
+        ctx.fillRect(x * s, y * s, s + 0.6, s + 0.6);
       }
     }
 
-    // stairs (if discovered)
     if (this.dungeon.stairs) {
       const st = this.dungeon.stairs;
       if (this.explored[st.y]?.[st.x]) {
@@ -81,17 +91,11 @@ export class Minimap {
       }
     }
 
-    // town: vendor + portal markers so the shops are findable
     if (this.dungeon.town) {
       const colors = { potions: '#e05a6a', gear: '#5a8ae0', mystery: '#b45aff' };
       for (const v of this.dungeon.vendors || []) {
         ctx.fillStyle = colors[v.type] || '#fff';
         ctx.fillRect(v.x * s - 2, v.y * s - 2, s + 4, s + 4);
-        ctx.fillStyle = '#000';
-        ctx.font = `bold ${Math.max(6, s + 2)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(v.type === 'potions' ? 'P' : v.type === 'gear' ? 'S' : '?', v.x * s + s / 2, v.y * s + s / 2 + 0.5);
       }
       if (this.dungeon.portal) {
         ctx.fillStyle = '#c77aff';
@@ -100,13 +104,29 @@ export class Minimap {
         ctx.fill();
       }
     }
+    ctx.restore();
 
-    // player dot
-    const px = (player.pos.x / TILE) * s;
-    const pz = (player.pos.z / TILE) * s;
+    // player arrow at the fixed centre, always pointing up
+    ctx.save();
+    ctx.translate(cx, cy);
     ctx.fillStyle = '#7ce87c';
     ctx.beginPath();
-    ctx.arc(px, pz, 3, 0, Math.PI * 2);
+    ctx.moveTo(0, -6);
+    ctx.lineTo(4.5, 5);
+    ctx.lineTo(0, 2.5);
+    ctx.lineTo(-4.5, 5);
+    ctx.closePath();
     ctx.fill();
+    ctx.restore();
+
+    // subtle compass "N" so rotation is legible
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(camYaw);
+    ctx.fillStyle = 'rgba(232,192,90,0.7)';
+    ctx.font = 'bold 10px Georgia';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('N', 0, -cy + 10);
+    ctx.restore();
   }
 }
