@@ -13,39 +13,39 @@ const LINES = {
   intro: [
     'Fresh meat wanders into my hall.',
     'Another {name} for my collection.',
-    'You smell of fear, little {name}.',
-    'The stairs are MINE, {name}.',
+    'Little {name}, you reek of fear.',
+    '{name}, the stairs are MINE.',
   ],
   flee: [
     'Running already, {name}? The exit is sealed, coward.',
     'Look at those little legs go! Pathetic.',
     'You run like the last {name} I ate.',
     'Flee all you like. I already know where you are going.',
-    'Cardio will not save you, {name}.',
+    '{name}, cardio will not save you.',
   ],
   hide: [
-    'I can see you skulking behind the wall, {name}.',
+    '{name}, I see you skulking behind that wall.',
     'Hiding? In MY room? Adorable.',
     'Come out, come out. The floor already told me where you stand.',
     'Is the brave {name} playing hide and seek?',
   ],
   idle: [
-    'Are you standing still? Bold strategy, {name}.',
+    'Standing still, {name}? Bold strategy.',
     'Did you fall asleep, {name}? I can fix that. Permanently.',
     'Statues die too, you know.',
   ],
   chug: [
-    'Another potion?! Leave some for the alchemist, {name}.',
+    'Another potion, {name}?! Leave some for the alchemist.',
     'Drink up, {name}. You will bleed it right back out.',
-    'The bottle will not love you back, {name}.',
+    '{name}, the bottle will not love you back.',
   ],
   kite: [
-    'Poke and run, poke and run. Fight me properly, {name}!',
+    '{name}, poke and run, poke and run. Fight me properly!',
     'All that dancing and barely a scratch on me.',
-    'You fight like a nervous chicken, {name}.',
+    '{name}, you fight like a nervous chicken.',
   ],
   lowhp: [
-    'I can hear your heartbeat stuttering, {name}.',
+    '{name}, I hear your heartbeat stuttering.',
     'One more hit, {name}. Just one.',
     'You are leaking, {name}. Everywhere.',
   ],
@@ -58,18 +58,18 @@ const LINES = {
   playerDeath: [
     'And STAY down.',
     'Was that it? Truly?',
-    'Tell the town I said hello, {name}.',
+    '{name}, tell the town I said hello.',
   ],
   generic: [
     'My grandmother swings harder, and she is a skeleton.',
     'Is this the hero the depths were warned about?',
-    'Yawn. Swing harder, {name}.',
+    '{name}, is that your hardest swing? Yawn.',
   ],
   ability: [
-    'Your precious {ability} will not save you, {name}.',
+    '{name}, your precious {ability} will not save you.',
     'Oh no. Not {ability}. Anything but {ability}. I am so scared.',
-    'I have eaten heroes who used {ability} better than you, {name}.',
-    'Spamming {ability} again? Predictable little {name}.',
+    '{name}, I have eaten heroes who used {ability} better than you.',
+    'Spamming {ability} again, {name}? Predictable.',
   ],
 };
 

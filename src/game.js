@@ -1937,9 +1937,8 @@ export class Game {
       if (input.wasPressed('Digit2')) p.tryAbility(1, this);
       if (input.wasPressed('Digit3')) p.tryAbility(2, this);
       if (input.wasPressed('Digit4')) p.tryAbility(3, this);
-    } else if (input.mouse.clicked || input.wasPressed('Digit1')) {
-      this.ui.floaters.spawn(p.pos, 'Peace reigns in Embervale.', 'heal');
     }
+    // (In town, attack input is simply ignored — no weapons drawn, no message.)
     if (input.wasPressed(this.settings.keybinds.potion)) p.drinkPotion(this);
     if (input.wasPressed(this.settings.keybinds.inventory) || input.wasPressed('KeyI')) {
       this.state = 'inventory';
