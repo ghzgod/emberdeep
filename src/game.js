@@ -1376,16 +1376,43 @@ export class Game {
     }
     grp.add(sparkles);
     grp.userData.sparkles = sparkles;
+    // Epic tier also gets a little glowing winged companion flitting around.
+    if (tier >= 2) {
+      const comp = new THREE.Group();
+      comp.add(new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshBasicMaterial({ color: 0xfff2c0 })));
+      comp.add(new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.35 })));
+      const wingMat = new THREE.MeshBasicMaterial({ color: 0xffe680, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
+      const wl = new THREE.Mesh(new THREE.CircleGeometry(0.1, 3), wingMat); wl.position.x = -0.05;
+      const wr = new THREE.Mesh(new THREE.CircleGeometry(0.1, 3), wingMat); wr.position.x = 0.05;
+      comp.add(wl, wr);
+      comp.userData.wings = [wl, wr];
+      grp.add(comp);
+      grp.userData.companion = comp;
+    }
     mesh.add(grp);
     mesh.userData.auraGroup = grp;
   }
 
-  // Keep the local hero's aura in sync and spin every hero's sparkles.
+  // Keep the local hero's aura in sync, spin sparkles, and fly the companion.
   animateAuras(dt) {
     if (this.player?.mesh) this.setHeroAura(this.player.mesh, this.heroAuraTier());
-    const spin = (mesh) => { const g = mesh?.userData?.auraGroup; if (g) g.userData.sparkles.rotation.y += dt * 1.6; };
-    spin(this.player?.mesh);
-    for (const [, rp] of this.remotePlayers) spin(rp.mesh);
+    this._auraT = (this._auraT || 0) + dt;
+    const t = this._auraT;
+    const anim = (mesh) => {
+      const g = mesh?.userData?.auraGroup;
+      if (!g) return;
+      g.userData.sparkles.rotation.y += dt * 1.6;
+      const c = g.userData.companion;
+      if (c) {
+        c.position.set(Math.cos(t * 1.6) * 0.85, 1.55 + Math.sin(t * 3) * 0.18, Math.sin(t * 1.6) * 0.85);
+        c.rotation.y = -t * 1.6 + Math.PI / 2;
+        const flap = 0.5 + Math.sin(t * 22) * 0.5;
+        c.userData.wings[0].rotation.y = flap;
+        c.userData.wings[1].rotation.y = -flap;
+      }
+    };
+    anim(this.player?.mesh);
+    for (const [, rp] of this.remotePlayers) anim(rp.mesh);
   }
 
   // A compact snapshot of the equipped gear, for co-op inspect panels.
