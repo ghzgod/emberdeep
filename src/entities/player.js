@@ -22,7 +22,7 @@ export class Player {
     this.potions = 2;
     this.inventory = [];     // gear items
     this.invSize = 12;       // expandable via rare bag drops, max 24
-    this.equipped = { weapon: null, armor: null, trinket: null };
+    this.equipped = { weapon: null, helmet: null, chest: null, legs: null, hands: null, trinket: null };
     this.skills = {};        // mastery tree: id -> rank
 
     this.pos = new THREE.Vector3();
@@ -84,13 +84,17 @@ export class Player {
     let dmgPct = 0, speedPct = 0, critPct = 0, armorPct = 0, regenFlat = 0;
     for (const item of Object.values(this.equipped)) {
       if (!item) continue;
+      // Off-class gear (attuned to another class) yields HALF its stats, so
+      // the same ring "better suits" the class it was made for.
+      const scale = (item.affinity && item.affinity !== this.classId) ? 0.5 : 1;
       for (const [stat, val] of Object.entries(item.stats)) {
-        if (stat === 'damagePct') dmgPct += val;
-        else if (stat === 'maxHp') maxHp += val;
-        else if (stat === 'armor') armorPct += val;
-        else if (stat === 'crit') critPct += val;
-        else if (stat === 'speed') speedPct += val;
-        else if (stat === 'regen') regenFlat += val;
+        const v = val * scale;
+        if (stat === 'damagePct') dmgPct += v;
+        else if (stat === 'maxHp') maxHp += v;
+        else if (stat === 'armor') armorPct += v;
+        else if (stat === 'crit') critPct += v;
+        else if (stat === 'speed') speedPct += v;
+        else if (stat === 'regen') regenFlat += v;
       }
     }
     const effDmg = dmgPct <= 100 ? dmgPct : 100 + (dmgPct - 100) * 0.5;
@@ -372,6 +376,7 @@ export class Player {
     // Keep only recognized, finite gear stats — reject anything else on load.
     const cleanItem = (item) => {
       if (!item || typeof item !== 'object') return null;
+      if (item.slot === 'armor') item.slot = 'chest'; // migrate the old single armour slot
       if (item.stats && typeof item.stats === 'object') {
         const clean = {};
         for (const k of ALLOWED_ITEM_STATS) {
@@ -393,7 +398,14 @@ export class Player {
     p.inventory = Array.isArray(data.inventory) ? data.inventory.map(cleanItem).filter(Boolean) : [];
     p.invSize = Math.floor(clampNum(data.invSize, 12, 24, 12));
     const eq = data.equipped && typeof data.equipped === 'object' ? data.equipped : {};
-    p.equipped = { weapon: cleanItem(eq.weapon), armor: cleanItem(eq.armor), trinket: cleanItem(eq.trinket) };
+    p.equipped = {
+      weapon: cleanItem(eq.weapon),
+      helmet: cleanItem(eq.helmet),
+      chest: cleanItem(eq.chest) || cleanItem(eq.armor), // old single 'armor' slot → chest
+      legs: cleanItem(eq.legs),
+      hands: cleanItem(eq.hands),
+      trinket: cleanItem(eq.trinket),
+    };
     // Mastery ranks are capped at 5 in play; clamp loaded ranks the same way.
     const skills = {};
     if (data.skills && typeof data.skills === 'object') {
