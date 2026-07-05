@@ -122,6 +122,8 @@ export class UI {
     $('relic-reveal').addEventListener('click', (e) => { if (e.target.id === 'relic-reveal') $('btn-relic-take').click(); });
     $('buy-confirm').addEventListener('click', (e) => { if (e.target.id === 'buy-confirm') $('btn-buy-cancel').click(); });
     $('destroy-modal').addEventListener('click', (e) => { if (e.target.id === 'destroy-modal') $('destroy-modal').classList.add('hidden'); });
+    $('btn-act-cancel').onclick = () => $('act-select').classList.add('hidden');
+    $('act-select').addEventListener('click', (e) => { if (e.target.id === 'act-select') $('act-select').classList.add('hidden'); });
     $('btn-shop-restock').onclick = () => {
       if (this.game.activeVendor) this.game.restockVendor(this.game.activeVendor);
     };
@@ -949,6 +951,26 @@ export class UI {
     this.game.buyFromVendor(pend.vendor, pend.entry);
     this.renderShop(pend.vendor);
     this._pendingBuy = null;
+  }
+
+  // Pick which cleared act to travel into (opened from the town dungeon portal).
+  showActSelect() {
+    const g = this.game;
+    const maxAct = Math.min(5, g.actsCleared + 1);
+    const cur = g.currentAct();
+    const names = ['', 'The Old Halls', 'The Rotting Depths', 'The Ember Vaults', 'The Sunless Court', 'The Abyssal Throne'];
+    const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V'];
+    const list = $('act-list');
+    list.innerHTML = '';
+    for (let a = 1; a <= maxAct; a++) {
+      const btn = document.createElement('button');
+      btn.className = 'menu-btn';
+      const isCur = a === cur;
+      btn.innerHTML = `Act ${ROMAN[a]} — ${names[a]}<small>${isCur ? `resume · floor ${Math.min(g.floor, 50)}` : 'revisit from the start'}</small>`;
+      btn.onclick = () => { $('act-select').classList.add('hidden'); g.travelToAct(a); };
+      list.appendChild(btn);
+    }
+    $('act-select').classList.remove('hidden');
   }
 
   // Zoltan's mystery relic: reveal what fate handed over, click to keep.

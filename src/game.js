@@ -2183,9 +2183,20 @@ export class Game {
       this.stairsCooldown = 2;
       if (this.lastWorldMsg) { this.localTown = false; this.applyWorld(this.lastWorldMsg); }
       else this.ui.floaters.spawn(this.player.pos, 'The dungeon has not been opened yet…', 'xp');
+    } else if (this.actsCleared >= 1) {
+      // cleared at least one act — let the hero choose which to travel into
+      this.ui.showActSelect();
     } else {
       this.loadFloor(this.floor);
     }
+  }
+
+  // Travel to a chosen act: resume the current act at its checkpoint, or
+  // revisit an earlier, already-cleared act from its first floor.
+  travelToAct(a) {
+    const cur = this.currentAct();
+    this.floor = (a === cur) ? this.floor : (a - 1) * 10 + 1;
+    this.loadFloor(this.floor);
   }
 
   // Player pressed F / tapped the prompt on the descend stairs.
