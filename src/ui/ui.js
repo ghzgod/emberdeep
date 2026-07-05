@@ -934,6 +934,11 @@ export class UI {
     const broke = p.gold < entry.price;
     buyBtn.disabled = broke;
     buyBtn.textContent = broke ? 'Not enough gold' : 'Buy';
+    // mystery relics rest between draws — tell the player how long
+    if (entry.kind === 'gamble') {
+      const left = Math.ceil(((this.game._gambleReadyAt || 0) - performance.now()) / 1000);
+      if (left > 0) { buyBtn.disabled = true; buyBtn.textContent = `Fate rests (${left}s)`; }
+    }
     $('buy-confirm').classList.remove('hidden');
   }
 
