@@ -54,16 +54,28 @@
     </div>
 
     <!-- Vendor shop -->
-    <div id="shop-screen" class="overlay panel">
-      <h2 class="screen-heading" id="shop-title">Shop</h2>
-      <div id="shop-gold" class="shop-gold"></div>
-      <div class="shop-columns">
-        <div class="shop-col"><h3>Buy</h3><div id="shop-buy-list"></div></div>
-        <div class="shop-col"><h3>Sell</h3><div id="shop-sell-list"></div></div>
-      </div>
-      <div class="menu-buttons">
-        <button id="btn-shop-restock" class="menu-btn small">Restock</button>
-        <button id="btn-shop-close" class="menu-btn small">Leave</button>
+    <div id="shop-screen" class="overlay">
+      <div id="shop-panel">
+        <div class="shop-head">
+          <div id="shop-portrait">⚗️</div>
+          <div class="shop-head-text">
+            <h2 id="shop-title">Shop</h2>
+            <div id="shop-tagline"></div>
+          </div>
+          <div id="shop-gold" class="shop-gold"></div>
+        </div>
+        <div class="shop-columns">
+          <div class="shop-col">
+            <h3><span>Buy</span></h3>
+            <div id="shop-buy-list"></div>
+            <button id="btn-shop-restock" class="shop-restock">Restock</button>
+          </div>
+          <div class="shop-col">
+            <h3><span>Sell</span></h3>
+            <div id="shop-sell-list"></div>
+          </div>
+        </div>
+        <button id="btn-shop-close" class="menu-btn">Leave</button>
       </div>
     </div>
 
@@ -97,7 +109,16 @@
         <div class="bar-wrap boss"><div id="boss-bar" class="bar boss"></div></div>
       </div>
       <div id="hotbar"></div>
-      <div id="hud-hints">R potion · Q/E rotate view · Tab inventory · J quests · K mastery · Esc pause</div>
+      <button id="interact-prompt" class="hidden"></button>
+      <div id="action-bar">
+        <button id="ab-inv" title="Inventory (Tab)">🎒</button>
+        <button id="ab-quests" title="Quest Log (J)">📜</button>
+        <button id="ab-skills" title="Mastery (K)">✦</button>
+        <button id="ab-potion" title="Drink Potion (R)">🧪</button>
+        <button id="ab-mic" class="hidden" title="Push-to-talk: hold V">🎤</button>
+        <button id="ab-pause" title="Menu (Esc)">⚙️</button>
+        <button id="ab-toggle" title="Toggle menu">☰</button>
+      </div>
       <div id="voice-indicator" class="hidden">🎤 LIVE</div>
     </div>
 
@@ -130,6 +151,13 @@
       </div>
       <div id="item-tooltip" class="hidden"></div>
       <p class="hint">Tap an item for actions · Tab/Esc to close</p>
+    </div>
+
+    <!-- Notice board -->
+    <div id="notices-screen" class="overlay panel">
+      <h2 class="screen-heading">Notice Board</h2>
+      <div id="notices-list"></div>
+      <div class="menu-buttons"><button id="btn-notices-close" class="menu-btn small">Step back</button></div>
     </div>
 
     <!-- Story cards -->
@@ -176,6 +204,9 @@
         <label>Master Volume <input type="range" id="set-master" min="0" max="100" value="80"><span id="set-master-val"></span></label>
         <label>Music Volume <input type="range" id="set-music" min="0" max="100" value="60"><span id="set-music-val"></span></label>
         <label>SFX Volume <input type="range" id="set-sfx" min="0" max="100" value="90"><span id="set-sfx-val"></span></label>
+        <label>Voice Chat Volume <input type="range" id="set-vchat" min="0" max="100" value="90"><span id="set-vchat-val"></span></label>
+        <label>NPC Speech <input type="range" id="set-speech" min="0" max="100" value="90"><span id="set-speech-val"></span></label>
+        <button id="btn-auto-level" class="menu-btn small" type="button">⚖️ Auto-Balance Audio</button>
         <label>Quality
           <select id="set-quality">
             <option value="low">Low</option>
@@ -185,6 +216,14 @@
         </label>
         <label>Screen Shake <input type="checkbox" id="set-shake" checked></label>
         <label>Enemy Taunts (spoken) <input type="checkbox" id="set-taunts" checked></label>
+        <label>Character Voices
+          <select id="set-voice-engine">
+            <option value="standard" selected>Standard (instant)</option>
+            <option value="neural">Neural — natural (~90 MB, one-time)</option>
+          </select>
+        </label>
+        <p id="voice-engine-status" class="hint hidden"></p>
+        <div id="voice-engine-bar" class="hidden"><div id="voice-engine-fill"></div></div>
         <label>Voice Chat (multiplayer)
           <select id="set-voice">
             <option value="off">Off</option>

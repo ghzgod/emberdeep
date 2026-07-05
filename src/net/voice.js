@@ -114,6 +114,11 @@ export class VoiceChat {
     }
   }
 
+  setOutputVolume(v) {
+    this.outputVolume = v;
+    for (const el of this.audioEls.values()) el.volume = v;
+  }
+
   _wireCall(call) {
     this.calls.set(call.peer, call);
     call.on('stream', (remote) => {
@@ -125,6 +130,7 @@ export class VoiceChat {
         document.body.appendChild(el);
         this.audioEls.set(call.peer, el);
       }
+      el.volume = this.outputVolume ?? 0.9;
       el.srcObject = remote;
       el.play().catch(() => {});
     });

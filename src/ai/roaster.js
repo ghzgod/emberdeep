@@ -1,5 +1,6 @@
 import { learner } from './learner.js';
 import { net } from '../net/net.js';
+import { CLASSES as CLASSES_BY_NAME } from '../entities/classes.js';
 
 // Elite enemies read your playstyle and ROAST you for it, out loud.
 // Behavior detection combines live combat telemetry with the TensorFlow.js
@@ -64,14 +65,24 @@ const LINES = {
     'Is this the hero the depths were warned about?',
     'Yawn. Swing harder, {name}.',
   ],
+  ability: [
+    'Your precious {ability} will not save you, {name}.',
+    'Oh no. Not {ability}. Anything but {ability}. I am so scared.',
+    'I have eaten heroes who used {ability} better than you, {name}.',
+    'Spamming {ability} again? Predictable little {name}.',
+  ],
 };
 
-// Voice casting per enemy type: [preferFemale, pitch, rate]
+// Voice casting per enemy type. `kokoro` picks the neural voice when the
+// Kokoro engine is enabled; pitch/rate shape the Web Speech fallback.
+// Every speaking character gets a UNIQUE voice: distinct kokoro ids for the
+// neural engine, and distinct system-voice indexes (vi) + pitch/rate shaping
+// for the Web Speech fallback.
 const VOICE_CAST = {
-  skeleton: { female: false, pitch: 0.5, rate: 0.92 },
-  golem: { female: false, pitch: 0.25, rate: 0.78 },
-  imp: { female: true, pitch: 1.6, rate: 1.18 },
-  spider: { female: true, pitch: 1.35, rate: 1.05 },
+  skeleton: { female: false, vi: 0, pitch: 0.5, rate: 0.92, kokoro: 'bm_lewis', kSpeed: 0.92 },
+  golem: { female: false, vi: 1, pitch: 0.25, rate: 0.78, kokoro: 'am_onyx', kSpeed: 0.8 },
+  imp: { female: true, vi: 0, pitch: 1.6, rate: 1.18, kokoro: 'af_nicole', kSpeed: 1.15 },
+  spider: { female: true, vi: 1, pitch: 1.35, rate: 1.05, kokoro: 'af_sky', kSpeed: 1.05 },
 };
 
 const FEMALE_HINT = /female|samantha|victoria|karen|moira|tessa|fiona|kate|serena|susan|allison|ava|zira|jenny/i;
@@ -96,7 +107,8 @@ export class Roaster {
     const pool = en.length ? en : this.voices;
     if (!pool.length) return { voice: null, ...cast };
     const gendered = pool.filter((v) => (cast.female ? FEMALE_HINT : MALE_HINT).test(v.name));
-    const voice = (gendered.length ? gendered : pool)[0];
+    const source = gendered.length ? gendered : pool;
+    const voice = source[(cast.vi || 0) % source.length];
     return { voice, ...cast };
   }
 
@@ -105,7 +117,19 @@ export class Roaster {
   }
 
   // Speak with an explicit voice cast — vendors, narrators, anyone.
+  // Prefers the neural Kokoro engine when it's loaded; Web Speech otherwise.
   speakAs(text, cast) {
+    if (!this.enabled) return;
+    import('./neuralVoice.js').then(async ({ neuralVoice }) => {
+      if (neuralVoice.ready) {
+        const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1 });
+        if (ok) return;
+      }
+      this._speakWebSpeech(text, cast);
+    }).catch(() => this._speakWebSpeech(text, cast));
+  }
+
+  _speakWebSpeech(text, cast) {
     if (!this.enabled || !('speechSynthesis' in window)) return;
     try {
       speechSynthesis.cancel(); // characters don't talk over each other
@@ -115,12 +139,13 @@ export class Roaster {
         const en = this.voices.filter((v) => v.lang.startsWith('en'));
         const pool = en.length ? en : this.voices;
         const gendered = pool.filter((v) => (cast.female ? FEMALE_HINT : MALE_HINT).test(v.name));
-        voice = (gendered.length ? gendered : pool)[0];
+        const source = gendered.length ? gendered : pool;
+        voice = source[(cast.vi || 0) % source.length];
       }
       if (voice) u.voice = voice;
       u.pitch = cast.pitch ?? 1;
       u.rate = cast.rate ?? 1;
-      u.volume = 0.9;
+      u.volume = this.volume ?? 0.9;
       speechSynthesis.speak(u);
     } catch { /* speech not available */ }
   }
@@ -167,11 +192,11 @@ export class Roaster {
     if (this.timer > 0) return;
     this.timer = 9 + Math.random() * 6;
 
-    // pick a victim: local player or a connected guest
-    const targets = [{ local: true, cls: game.player.classDef.name }];
+    // pick a victim: local player or a connected guest. Elites know your NAME.
+    const targets = [{ local: true, cls: game.player.classDef.name, name: game.playerName() }];
     if (net.isHost) {
       for (const rp of game.remotePlayers.values()) {
-        if (!rp.dead && !rp.away) targets.push({ local: false, pos: rp.target, cls: (rp.cls || 'hero') });
+        if (!rp.dead && !rp.away) targets.push({ local: false, pos: rp.target, cls: (rp.cls || 'hero'), name: rp.name });
       }
     }
     const target = targets[Math.floor(Math.random() * targets.length)];
@@ -179,14 +204,20 @@ export class Roaster {
     let category;
     if (!elite._introDone) { category = targets.length > 1 ? 'duo' : 'intro'; elite._introDone = true; }
     else category = this.analyze(game, elite, target);
+    if (category === 'generic' && Math.random() < 0.4) category = 'ability';
     if (category === this.lastCategory && Math.random() < 0.5) category = 'generic';
     this.lastCategory = category;
 
     const pretty = (c) => { const s = String(c || 'hero'); return s.charAt(0).toUpperCase() + s.slice(1); };
+    // address by real name most of the time, class as an insult otherwise
+    const address = target.name && Math.random() < 0.7 ? target.name : pretty(target.cls);
     const bank = LINES[category] || LINES.generic;
     let line = bank[Math.floor(Math.random() * bank.length)];
-    const name2 = targets.length > 1 ? targets[(targets.indexOf(target) + 1) % targets.length].cls : 'friend';
-    line = line.replaceAll('{name}', pretty(target.cls)).replaceAll('{name2}', pretty(name2));
+    const name2 = targets.length > 1 ? targets[(targets.indexOf(target) + 1) % targets.length].name || 'friend' : 'friend';
+    // they know your kit: mock one of the target class's actual abilities
+    const clsDef = Object.values(CLASSES_BY_NAME).find((c) => c.name === pretty(target.cls));
+    const ability = clsDef ? clsDef.abilities[Math.floor(Math.random() * clsDef.abilities.length)].name : 'flailing';
+    line = line.replaceAll('{name}', address).replaceAll('{name2}', pretty(name2)).replaceAll('{ability}', ability);
 
     this.deliver(game, elite, line);
     if (net.isHost) net.send({ t: 'roast', txt: line, ty: elite.typeId, ei: elite.netId });

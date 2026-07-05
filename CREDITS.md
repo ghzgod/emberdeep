@@ -29,4 +29,5 @@ Enemy models, dungeon geometry, and textures are procedurally generated in-engin
 - [Three.js](https://threejs.org) — rendering
 - [TensorFlow.js](https://www.tensorflow.org/js) — in-browser enemy machine learning (movement prediction)
 - [PeerJS](https://peerjs.com) — multiplayer networking (WebRTC peer-to-peer co-op via the public PeerJS broker)
+- [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) via [kokoro-js](https://www.npmjs.com/package/kokoro-js) (Apache 2.0) — optional neural character voices, in-browser
 - [Vite](https://vitejs.dev) — build tooling

@@ -329,6 +329,9 @@ export function generateTown() {
   }
 
   const well = { x: 10, y: 14 };
+  // solid props: you can't walk through the well, the stalls, or their keepers
+  grid[well.y][well.x] = WALL;
+  for (const v of vendors) grid[v.y][v.x] = WALL;
 
   // extra decor: notice board, crates/sacks, cart, hedges (kept off cobbles/lane/vendor/tavern/well tiles)
   const noticeBoard = { x: 9, y: 9 };
@@ -336,8 +339,12 @@ export function generateTown() {
 
   const crates = [];
   const crateSpots = [[7, 10], [21, 9], [22, 17], [22, 19], [9, 20]];
+  // small clutter (crates, sacks, cart) stays walkable — brushing past a sack
+  // shouldn't stop a hero; only substantial objects block movement
   for (const [x, y] of crateSpots) {
-    if (grid[y]?.[x] === FLOOR) crates.push({ x, y, kind: srand() < 0.5 ? 'crate' : 'sack', r: srand() * Math.PI * 2 });
+    if (grid[y]?.[x] === FLOOR) {
+      crates.push({ x, y, kind: srand() < 0.5 ? 'crate' : 'sack', r: srand() * Math.PI * 2 });
+    }
   }
 
   const cartSpots = [[9, 18], [22, 21]];
@@ -352,7 +359,7 @@ export function generateTown() {
     [6, 21], [7, 21], [8, 21], [19, 22], [20, 22], [21, 22],
   ];
   for (const [x, y] of hedgeSpots) {
-    if (grid[y]?.[x] === FLOOR) hedges.push({ x, y });
+    if (grid[y]?.[x] === FLOOR) hedges.push({ x, y }); // shrubs: walk-through
   }
 
   const extraFlowerSpots = [[21, 11], [21, 13], [6, 9], [24, 16]];

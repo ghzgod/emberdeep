@@ -19,6 +19,7 @@ import { learner } from './ai/learner.js';
 import { roaster } from './ai/roaster.js';
 import { STORIES } from './story.js';
 import { generateTavernInterior, buildTavernInterior } from './world/tavern.js';
+import { Wanderer } from './entities/wanderer.js';
 import { TouchControls } from './core/touch.js';
 
 // Five acts × ten floors; the Dungeon Lord waits on floor 50. Beyond lies the endless abyss.
@@ -49,7 +50,7 @@ export class Game {
 
     this.input = new Input(this.canvas);
     this.settings = Object.assign(
-      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true },
+      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true, voiceEngine: 'standard', voiceChatVolume: 0.9, speechVolume: 0.9 },
       SaveManager.loadSettings() || {}
     );
     // one-time migration: settings saved before push-to-talk became the
@@ -67,6 +68,7 @@ export class Game {
 
     this.playerModule = { xpForLevel };
     roaster.enabled = this.settings.taunts !== false;
+    this.applyAudioSettings();
     this.particles = new ParticleSystem(this.scene);
     this.projectiles = new ProjectileSystem(this.scene);
     this.loot = new LootSystem(this.scene);
@@ -133,6 +135,7 @@ export class Game {
       voice.enable(this.settings.voiceMode, this.settings.voiceThreshold);
     }
     voice.onTransmitChange = (on) => this.ui.setMicIndicator(on);
+    this.ui.setMicAvailable(this.settings.voiceMode === 'ptt');
     if (net.isHost) net.broadcastRoster();
     return result;
   }
@@ -162,6 +165,10 @@ export class Game {
     this.ui.setLoadingProgress(1, 'Ready');
     // Enemy movement-learning net loads in the background (non-blocking).
     learner.init();
+    // Neural character voices (Kokoro) — only if the user opted in before.
+    if (this.settings.voiceEngine === 'neural') {
+      setTimeout(() => import('./ai/neuralVoice.js').then(({ neuralVoice }) => neuralVoice.load()), 4000);
+    }
     this.state = 'title';
     this.ui.showTitle();
   }
@@ -234,6 +241,7 @@ export class Game {
   quitToTitle() {
     this.requestSave(true);
     voice.disable();
+    this.ui.setMicAvailable(false);
     net.stop();
     this.clearRemotePlayers();
     this.teardownFloor();
@@ -341,6 +349,8 @@ export class Game {
     this.ui.floaters.clear();
     for (const l of this.torchLights) this.scene.remove(l);
     this.torchLights = [];
+    if (this.wanderer) { this.wanderer.dispose(); this.wanderer = null; }
+    this.setInteractable(null);
   }
 
   // Step inside The Sleeping Golem.
@@ -361,6 +371,7 @@ export class Game {
     this.setupTorchLights({ ...theme, accent: 0xffa95e });
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner('THE SLEEPING GOLEM', 'Rest a while, hero', true);
+    audio.playMusic('tavern');
     this.stairsCooldown = 1.5;
   }
 
@@ -381,7 +392,7 @@ export class Game {
     const spawnTile = opts.fromDungeon
       ? { x: this.dungeon.portal.x, y: this.dungeon.portal.y + 3 }
       : opts.fromTavern
-        ? { x: this.dungeon.tavern.x + 2, y: this.dungeon.tavern.y + this.dungeon.tavern.h + 1 }
+        ? { x: this.dungeon.tavern.x + 4, y: this.dungeon.tavern.y + this.dungeon.tavern.h + 1 }
         : this.dungeon.spawn;
     const spawn = tileToWorld(spawnTile.x, spawnTile.y);
     this.player.pos.set(spawn.x, 0, spawn.z);
@@ -391,6 +402,8 @@ export class Game {
     for (const v of this.dungeonMeshes.vendorMeshes) {
       v.stock = this.makeVendorStock(v);
     }
+    // Old Fenwick roams the square
+    this.wanderer = new Wanderer(this.dungeon, this.scene);
     this.setTownAtmosphere(true);
 
     this.setupTorchLights(theme);
@@ -561,6 +574,65 @@ export class Game {
     }
   }
 
+  // ---------------- tavern folk + notice board ----------------
+  barkeepChat() {
+    const p = this.player;
+    const n = this.playerName();
+    const lines = [];
+    if (p.hp < p.maxHp * 0.6) lines.push(`Rough night, ${n}? Sit by the fire. The hearth mends what potions can't.`);
+    if (this.deaths >= 3) lines.push('Heard the floor\'s been winning. It always brags. Ignore it.');
+    if (this.actsCleared >= 1) lines.push(`Word travels — ${['', 'Malruk', 'Sszarra', 'Vexmal', 'the Colossus'][this.actsCleared] || 'the lords'} fell to you. First round's full price anyway.`);
+    lines.push(
+      'Welcome to the Sleeping Golem. He\'s out back. Still sleeping.',
+      `Zoltan's dice are loaded, ${n}. Course they are. Doesn't mean they won't love you.`,
+      'The bard quit. Said the dungeon "hummed in the wrong key". So it\'s just the fire and me.',
+    );
+    const line = lines[Math.floor(Math.random() * lines.length)];
+    const b = this.dungeonMeshes.barkeepPos;
+    this.ui.floaters.spawn({ x: b.x, y: 1.6, z: b.z - 1.2 }, `“${line}”`, 'roast', 3.4);
+    roaster.speakAs(line, { female: false, vi: 5, pitch: 0.8, rate: 0.95, kokoro: 'am_liam', kSpeed: 0.95 });
+  }
+
+  patronChat(pm) {
+    const drunkLines = [
+      'I saw the Dungeon Lord once. *hic* Or a very tall barrel. One of those.',
+      '*hic* You\'re my besht friend. Whoever you are.',
+      'The pits aren\'t holes. *hic* They\'re SHORTCUTS. I fell four floors once. Saved HOURS.',
+    ];
+    const soberLines = [
+      'Fenwick\'s mad, but he\'s never wrong. Worst combination.',
+      'They say the elites wear crowns because the stairs obey them. Kill the crown, free the stairs.',
+      'Maribel restocks whenever you come back through the portal. Handy woman.',
+    ];
+    const bank = pm.drunk ? drunkLines : soberLines;
+    const line = bank[Math.floor(Math.random() * bank.length)];
+    this.ui.floaters.spawn({ x: pm.x, y: 1.5, z: pm.z }, `“${line}”`, 'roast', 3.2);
+    roaster.speakAs(line, pm.drunk
+      ? { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82 }
+      : { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 });
+  }
+
+  openNotices() {
+    this.state = 'notices';
+    this.ui.openNotices(this.buildNotices());
+  }
+
+  buildNotices() {
+    const act = Math.min(5, this.actsCleared + 1);
+    const boss = ACT_BOSSES[act].name;
+    const flavor = [
+      'LOST: one cat, answers to "Whiskers". Last seen entering the dungeon. Do NOT bring back whatever answers to Whiskers now.',
+      'Zoltan\'s Mystery Relics: all sales final. Fate offers no refunds. — Z.',
+      'RUMOR: travelers\' satchels seen on the strongest fiends below. Cut them open, carry more home.',
+      'The well is NOT a portal. Stop jumping in. — the Town',
+    ];
+    return [
+      { title: `⚔️ BOUNTY: ${boss}`, text: `By order of Embervale: the lord of Act ${['', 'I', 'II', 'III', 'IV', 'V'][act]} holds the deep seal. Slay it and the way below opens. Reward: the road onward, and whatever it drops.` },
+      { title: '📜 DECREE OF THE STAIRS', text: 'The stair-seals hold until seven of every ten fiends on a floor are cut down AND the crowned elite falls. Pits are exempt. Fall at your own peril.' },
+      { title: '📌 NOTICE', text: flavor[Math.floor(Math.random() * flavor.length)] },
+    ];
+  }
+
   restockFee(vendor) {
     return vendor.type === 'mystery' ? 60 : 25;
   }
@@ -583,18 +655,35 @@ export class Game {
     this.greetFromVendor(vendor);
   }
 
-  // Vendors greet you by name, each in their own voice.
+  // Vendors greet you by name, each in their own voice — and they READ you:
+  // health, potions, gold, gear. No "you look wounded" at full health.
   greetFromVendor(vendor) {
     const n = this.playerName();
-    const lines = {
-      potions: [`Hello, ${n}! Potions, fresh from the still.`, `Welcome back, ${n}. Drink responsibly, dear.`, `${n}! You look… wounded. Perfect timing.`],
-      gear: [`Ah, ${n}! Steel for the worthy.`, `Hello ${n}. Swing something heavier, eh?`, `${n}, my friend! The forge burned all night for this.`],
-      mystery: [`Ahhh… ${n}. Fate has been expecting you.`, `Hello, ${n}. Care to tempt destiny?`, `${n}… the relics whisper your name.`],
-    };
+    const p = this.player;
+    const hurt = p.hp < p.maxHp * 0.6;
+    const rich = p.gold > 300;
+    const lines = { potions: [], gear: [], mystery: [] };
+
+    // Maribel — health/potion aware
+    if (hurt) lines.potions.push(`Oh dear, ${n}, you're hurt. Sit, drink, live.`);
+    else if (p.potions === 0) lines.potions.push(`Empty satchel, ${n}? Never descend without a red bottle.`);
+    else lines.potions.push('Potions, fresh from the still.', `Welcome back, ${n}. Drink responsibly, dear.`, 'You look well! Let’s keep it that way.');
+
+    // Torvald — gear aware
+    const weapon = p.equipped.weapon;
+    if (!weapon) lines.gear.push(`Bare-handed, ${n}?! By the forge, take a blade before the deep takes you.`);
+    else if (weapon.rarity === 'common') lines.gear.push('That old iron of yours has seen better days. Browse a while.');
+    else lines.gear.push(`Ah, ${n}! Steel for the worthy.`, 'The forge burned all night for this.');
+
+    // Zoltan — gold aware
+    if (rich) lines.mystery.push(`${p.gold} gold. Fate can hear it jingling, ${n}.`);
+    else if (p.gold < 100) lines.mystery.push('Light pockets today… fate does not work on credit, friend.');
+    else lines.mystery.push(`Ah, ${n}. Fate has been expecting you.`, 'Care to tempt destiny?');
+    // unique voices: no vendor shares a voice with any enemy or each other
     const casts = {
-      potions: { female: true, pitch: 1.2, rate: 1.02 },
-      gear: { female: false, pitch: 0.6, rate: 0.95 },
-      mystery: { female: false, pitch: 0.85, rate: 0.88 },
+      potions: { female: true, vi: 2, pitch: 1.2, rate: 1.02, kokoro: 'af_bella', kSpeed: 1.0 },
+      gear: { female: false, vi: 2, pitch: 0.6, rate: 0.95, kokoro: 'am_michael', kSpeed: 0.92 },
+      mystery: { female: false, vi: 3, pitch: 0.85, rate: 0.88, kokoro: 'bm_george', kSpeed: 0.88 },
     };
     const bank = lines[vendor.type] || lines.gear;
     const line = bank[Math.floor(Math.random() * bank.length)];
@@ -618,11 +707,17 @@ export class Game {
       this.scene.fog = new THREE.Fog(0x151d30, 24, 52);
       this.ambient.color.setHex(0x9aa4c8);
       this.ambient.intensity = 0.85;
+      // no "flashlight" under the open sky — just a faint presence
+      this.playerLight.intensity = 5;
+      this.playerLight.distance = 6;
     } else {
       this.scene.background = new THREE.Color(0x08060c);
       this.scene.fog = new THREE.Fog(0x08060c, 18, 42);
       this.ambient.color.setHex(0x8a7a9a);
       this.ambient.intensity = 0.55;
+      // underground the hero carries the light
+      this.playerLight.intensity = 40;
+      this.playerLight.distance = 14;
     }
   }
 
@@ -960,6 +1055,7 @@ export class Game {
     this.setTownAtmosphere(this.inTown);
     if (this.inTown) {
       for (const v of this.dungeonMeshes.vendorMeshes) v.stock = this.makeVendorStock(v);
+      this.wanderer = new Wanderer(this.dungeon, this.scene);
     }
     const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
     this.player.pos.set(spawn.x, 0, spawn.z);
@@ -1461,6 +1557,17 @@ export class Game {
 
   saveSettings() { SaveManager.saveSettings(this.settings); }
 
+  // Push all mixer channels to their consumers.
+  applyAudioSettings() {
+    const s = this.settings;
+    audio.setVolume('master', s.masterVolume);
+    audio.setVolume('music', s.musicVolume);
+    audio.setVolume('sfx', s.sfxVolume);
+    roaster.volume = s.speechVolume;
+    import('./ai/neuralVoice.js').then(({ neuralVoice }) => { neuralVoice.volume = s.speechVolume; }).catch(() => {});
+    voice.setOutputVolume(s.voiceChatVolume);
+  }
+
   applyQuality() {
     const q = this.settings.quality;
     const ratio = { low: 0.75, medium: 1, high: Math.min(window.devicePixelRatio, 2) }[q] || 1;
@@ -1479,7 +1586,7 @@ export class Game {
 
     if (this.state === 'playing') {
       this.updatePlaying(dt);
-    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story'].includes(this.state)) {
+    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story', 'notices'].includes(this.state)) {
       // world is frozen; still render + light flicker for life
       this.updateTorches(dt, true);
       if (net.active) this.netFrozenTick(dt);
@@ -1489,6 +1596,7 @@ export class Game {
       }
       if (this.state === 'shop' && this.input.wasPressed('Escape')) this.closeShop();
       if (this.state === 'quest' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyJ'))) this.toggleQuestLog();
+      if (this.state === 'notices' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyF'))) { this.state = 'playing'; this.ui.hideAll(); }
       if (this.state === 'skills' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyK'))) this.toggleSkills();
       if (this.state === 'story' && (this.input.wasPressed('Escape') || this.input.wasPressed('Space') || this.input.wasPressed('Enter'))) {
         this.state = 'playing';
@@ -1500,8 +1608,14 @@ export class Game {
     // push-to-talk (V) works in every state while connected
     if (voice.active && voice.mode === 'ptt') voice.ptt = this.input.isDown('KeyV') || this.touchPtt;
 
-    // idle touch buttons fade out to free up the screen
+    // idle touch buttons fade out to free up the screen; they only exist at
+    // all during gameplay and the inventory (menus have their own buttons)
     this.touch.update(dt);
+    const wantTouchUi = this.state === 'playing' || this.state === 'inventory';
+    if (wantTouchUi !== this._touchUiVisible) {
+      this._touchUiVisible = wantTouchUi;
+      this.touch.setVisible(wantTouchUi);
+    }
 
     // debounced save
     this.saveTimer -= dt;
@@ -1599,6 +1713,7 @@ export class Game {
     }
     if (input.wasPressed('KeyJ')) { this.toggleQuestLog(); return; }
     if (input.wasPressed('KeyK')) { this.toggleSkills(); return; }
+    if (input.wasPressed('KeyF')) { this.doInteract(); return; }
     if (input.wasPressed('Escape')) { this.togglePause(true); return; }
 
     // ---- systems ----
@@ -1649,6 +1764,16 @@ export class Game {
 
     // enemy ML observes player movement for online training
     learner.observe(dt, p);
+
+    // playstyle profile: how much of a runner is this hero? Elites use it to
+    // lean harder into interception; Fenwick uses it to mock you.
+    this._fleeSampleT = (this._fleeSampleT || 0) - dt;
+    if (this._fleeSampleT <= 0) {
+      this._fleeSampleT = 1;
+      const pred = learner.predict(p);
+      const mag = pred ? Math.min(1, Math.hypot(pred.dx, pred.dz) / 3) : 0;
+      this.fleeTendency = (this.fleeTendency || 0) * 0.9 + mag * 0.1;
+    }
 
     // ---- UI ----
     this.ui.minimap.revealAround(p.pos.x, p.pos.z);
@@ -1848,8 +1973,8 @@ export class Game {
       rp.rotation.y += dt * 1.2;
       const d = Math.hypot(p.pos.x - rp.position.x, p.pos.z - rp.position.z);
       if (!this.returnPortalArmed) {
-        if (d > 3.0) this.returnPortalArmed = true;
-      } else if (d < 1.7 && this.stairsCooldown <= 0) {
+        if (d > 4.0) this.returnPortalArmed = true;
+      } else if (d < 1.1 && this.stairsCooldown <= 0) {
         audio.play('stairs', { volume: 0.8, rate: 1.2 });
         if (net.active && !net.isHost) {
           // slip back to your own town; the others keep fighting
@@ -1886,37 +2011,72 @@ export class Game {
       }
     }
 
+    // interactables: show a "press F / tap" prompt instead of auto-opening
+    let candidate = null;
     if (this.shopCooldown <= 0) {
       for (const v of this.dungeonMeshes.vendorMeshes) {
-        if (Math.hypot(p.pos.x - v.wx, p.pos.z - v.wz) < 1.9) {
-          this.openShop(v);
-          return;
+        if (Math.hypot(p.pos.x - v.wx, p.pos.z - v.wz) < 2.4) {
+          candidate = { label: `Talk to ${v.name.split(' ')[0]}`, icon: '💬', action: () => this.openShop(v) };
+          break;
         }
       }
     }
-
-    // tavern door: step up to The Sleeping Golem to go inside
+    if (!candidate && this.wanderer && !this.inTavern) {
+      const wd = Math.hypot(p.pos.x - this.wanderer.pos.x, p.pos.z - this.wanderer.pos.z);
+      if (wd < 2.6) {
+        candidate = { label: 'Talk to Old Fenwick', icon: '🧙', action: () => this.wanderer.speakTo(this) };
+      }
+    }
+    // tavern doors are AUTOMATIC — walk in, walk out
     if (!this.inTavern && this.dungeon.tavern && this.stairsCooldown <= 0) {
+      // the visible door sits 28% right of the facade centre — match it
       const t = this.dungeon.tavern;
-      const door = tileToWorld(t.x + 2, t.y + t.h);
-      if (Math.hypot(p.pos.x - door.x, p.pos.z - door.z) < 1.5) {
+      const cx = (t.x + t.w / 2 - 0.5) * TILE + TILE / 2;
+      const door = { x: cx + t.w * TILE * 0.28, z: (t.y + t.h) * TILE + TILE * 0.4 };
+      if (Math.hypot(p.pos.x - door.x, p.pos.z - door.z) < 1.6) {
         this.stairsCooldown = 1.5;
         audio.play('door_open');
         this.loadTavern();
         return;
       }
     }
-
-    // tavern exit: the doormat leads back to the square
     if (this.inTavern && this.dungeon.exit && this.stairsCooldown <= 0) {
       const w = tileToWorld(this.dungeon.exit.x, this.dungeon.exit.y);
-      if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 1.2) {
+      if (Math.hypot(p.pos.x - w.x, p.pos.z - (w.z + 0.6)) < 1.1) {
         this.stairsCooldown = 1.5;
         audio.play('door_open');
         this.loadTown({ fromTavern: true });
         return;
       }
     }
+
+    // tavern folk: chat with Barlow or the regulars
+    if (!candidate && this.inTavern && this.dungeonMeshes.barkeepPos) {
+      const b = this.dungeonMeshes.barkeepPos;
+      if (Math.hypot(p.pos.x - b.x, p.pos.z - b.z) < 2.4) {
+        candidate = { label: 'Talk to Barlow', icon: '🍺', action: () => this.barkeepChat() };
+      }
+      if (!candidate) {
+        for (const pm of this.dungeonMeshes.patronMeshes || []) {
+          if (Math.hypot(p.pos.x - pm.x, p.pos.z - pm.z) < 1.8) {
+            candidate = { label: pm.drunk ? 'Nudge the drunk' : 'Chat with the patron', icon: '💬', action: () => this.patronChat(pm) };
+            break;
+          }
+        }
+      }
+    }
+
+    // the notice board is readable up close
+    if (!candidate && !this.inTavern && this.dungeon.noticeBoard) {
+      const nb = tileToWorld(this.dungeon.noticeBoard.x, this.dungeon.noticeBoard.y);
+      if (Math.hypot(p.pos.x - nb.x, p.pos.z - nb.z) < 2.2) {
+        candidate = { label: 'Read the notice board', icon: '📌', action: () => this.openNotices() };
+      }
+    }
+    this.setInteractable(candidate);
+
+    // Old Fenwick ambles about
+    if (this.wanderer && !this.inTavern) this.wanderer.update(dt, this);
 
     // tavern smoke + hearth idle animation data from the mesh builder
     const puffs = this.dungeonMeshes.smokePuffs;
@@ -1928,11 +2088,31 @@ export class Game {
           puff.mesh.position.y = puff.baseY + Math.sin(puff.phase * 2.4) * 0.18;
           continue;
         }
+        if (puff.kind === 'fire') {
+          // living flame: fast asymmetric flicker in height and width
+          const f = 1 + Math.sin(puff.phase * 7) * 0.18 + Math.sin(puff.phase * 13.7) * 0.1;
+          puff.mesh.scale.set(2 - f, f, 2 - f);
+          puff.mesh.position.y = puff.baseY + (f - 1) * 0.1;
+          continue;
+        }
         const cycle = puff.phase % 1;
         puff.mesh.position.y = puff.baseY + cycle * 1.6;
         puff.mesh.material.opacity = 0.38 * (1 - cycle);
         puff.mesh.position.x += Math.sin(puff.phase * 4) * dt * 0.15;
       }
+    }
+  }
+
+  setInteractable(candidate) {
+    this.interactable = candidate;
+    this.ui.showInteract(candidate);
+  }
+
+  doInteract() {
+    if (this.state === 'playing' && this.interactable) {
+      const act = this.interactable.action;
+      this.setInteractable(null);
+      act();
     }
   }
 
