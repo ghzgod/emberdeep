@@ -127,12 +127,32 @@ export class Enemy {
     this.stateTimer = duration;
   }
 
+  // Oscillate the registered limbs so the mob visibly walks/flaps rather than
+  // gliding. Legs/arms swing hard while chasing, idle otherwise; wings and tails
+  // always move. Child rotations are safe (the group's position is copied each
+  // frame, its children's rotations are not).
+  _animateGait(dt) {
+    const gait = this.mesh.userData?.gait;
+    if (!gait || !gait.length) return;
+    if (this._gt === undefined) this._gt = Math.random() * 6;
+    const chasing = this.state === 'chase';
+    this._gt += dt * (chasing ? 9 : 3);
+    const t = this._gt;
+    for (const p of gait) {
+      if (p.kind === 'leg') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp * (chasing ? 1 : 0.3);
+      else if (p.kind === 'arm') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp * (chasing ? 0.85 : 0.25);
+      else if (p.kind === 'wing') p.mesh.rotation.z = p.bz + Math.sin(t * 1.9 + p.phase) * p.amp;
+      else if (p.kind === 'tail') p.mesh.rotation.x = p.bx + Math.sin(t * 1.2 + p.phase) * p.amp;
+    }
+  }
+
   update(dt, game) {
     if (this.dead) return;
     const player = game.player;
 
     this.attackCd = Math.max(0, this.attackCd - dt);
     this.hitFlash = Math.max(0, this.hitFlash - dt);
+    this._animateGait(dt);
 
     // DoT statuses
     for (const st of this.statuses) {
@@ -407,6 +427,12 @@ export function buildEnemyMesh(typeId, scale = 1) {
   const g = new THREE.Group();
   const def = ENEMY_TYPES[typeId];
 
+  // Limbs registered here are oscillated by Enemy._animateGait so mobs actually
+  // walk/flap instead of gliding. Each entry remembers its base rotation.
+  const gait = [];
+  const reg = (mesh, kind, phase = 0, amp = 0.3) =>
+    gait.push({ mesh, kind, phase, amp, bx: mesh.rotation.x, bz: mesh.rotation.z });
+
   if (typeId === 'skeleton') {
     const bone = def.color;
     // pelvis + spine
@@ -451,6 +477,10 @@ export function buildEnemyMesh(typeId, scale = 1) {
     sword.position.set(0.42, 0.78, 0.12); sword.rotation.z = -0.35;
     const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.03, 6), makeMat(0x6a5a3a, 0.6));
     shield.position.set(-0.4, 0.82, 0.06); shield.rotation.x = Math.PI / 2; shield.rotation.z = 0.2;
+    reg(legLU, 'leg', 0, 0.42); reg(legLL, 'leg', 0.3, 0.34);
+    reg(legRU, 'leg', Math.PI, 0.42); reg(legRL, 'leg', Math.PI + 0.3, 0.34);
+    reg(armLU, 'arm', Math.PI, 0.28); reg(armLL, 'arm', Math.PI + 0.2, 0.2);
+    reg(armRU, 'arm', 0, 0.28); reg(armRL, 'arm', 0.2, 0.2);
     g.add(pelvis, spine, rib1, rib2, rib3, skull, jaw, socketL, socketR, eyeL, eyeR,
       armLU, armLL, armRU, armRL, legLU, legLL, legRU, legRL, sword, shield);
     addShadowBlob(g, 0.4);
@@ -491,6 +521,9 @@ export function buildEnemyMesh(typeId, scale = 1) {
         const shin = limbSeg(0.02, 0.012, 0.32, legColor);
         shin.position.set(dir * (0.4 + i * 0.05), 0.1, zOff - 0.06);
         shin.rotation.set(0.5, 0, dir * 0.5);
+        // alternating tetrapod gait: neighbouring legs step out of phase
+        const ph = i * 0.9 + (dir < 0 ? 0 : Math.PI);
+        reg(hip, 'leg', ph, 0.22); reg(shin, 'leg', ph + 0.5, 0.3);
         g.add(hip, shin);
       }
     }
@@ -528,6 +561,9 @@ export function buildEnemyMesh(typeId, scale = 1) {
     orb.position.set(0.32, 0.7, 0.2);
     const orbGlow = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.35 }));
     orbGlow.position.copy(orb.position);
+    reg(wingL, 'wing', 0, 0.45); reg(wingR, 'wing', Math.PI, 0.45); // symmetric flap
+    reg(armL, 'arm', Math.PI, 0.22); reg(armR, 'arm', 0, 0.22);
+    reg(tailA, 'tail', 0, 0.25); reg(tailB, 'tail', 0.6, 0.32);
     g.add(body, head, hornL, hornR, eyeL, eyeR, wingL, wingR, armL, armR, tailA, tailB, orb, orbGlow);
     addShadowBlob(g, 0.35);
   } else { // golem
@@ -564,11 +600,14 @@ export function buildEnemyMesh(typeId, scale = 1) {
     // legs
     const legs = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.42, 0.48), makeMat(0x565248, 0.95));
     legs.position.y = 0.21;
+    reg(armL, 'arm', 0, 0.2); reg(armR, 'arm', Math.PI, 0.2);
+    reg(fistL, 'arm', 0, 0.16); reg(fistR, 'arm', Math.PI, 0.16);
     g.add(slabLow, slabMid, slabUp, shoulderL, shoulderR, head, eye, seam1, seam2,
       armL, armR, fistL, fistR, legs);
     addShadowBlob(g, 0.65);
   }
 
+  g.userData.gait = gait;
   g.scale.setScalar(scale);
   if (scale !== 1) {
     // miniboss glow crown
