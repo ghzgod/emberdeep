@@ -101,14 +101,25 @@ export class Roaster {
   }
 
   speak(text, typeId) {
+    this.speakAs(text, this.pickVoice(typeId));
+  }
+
+  // Speak with an explicit voice cast — vendors, narrators, anyone.
+  speakAs(text, cast) {
     if (!this.enabled || !('speechSynthesis' in window)) return;
     try {
-      speechSynthesis.cancel(); // elites don't talk over themselves
+      speechSynthesis.cancel(); // characters don't talk over each other
       const u = new SpeechSynthesisUtterance(text);
-      const { voice, pitch, rate } = this.pickVoice(typeId);
+      let voice = cast.voice;
+      if (!voice) {
+        const en = this.voices.filter((v) => v.lang.startsWith('en'));
+        const pool = en.length ? en : this.voices;
+        const gendered = pool.filter((v) => (cast.female ? FEMALE_HINT : MALE_HINT).test(v.name));
+        voice = (gendered.length ? gendered : pool)[0];
+      }
       if (voice) u.voice = voice;
-      u.pitch = pitch;
-      u.rate = rate;
+      u.pitch = cast.pitch ?? 1;
+      u.rate = cast.rate ?? 1;
       u.volume = 0.9;
       speechSynthesis.speak(u);
     } catch { /* speech not available */ }

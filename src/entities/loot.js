@@ -250,9 +250,10 @@ export class LootSystem {
   pickup(d, game) {
     const p = game.player;
     if (d.kind === 'gold') {
-      p.gold += d.amount;
+      const amount = Math.round(d.amount * (1 + 0.06 * p.skillRank('greed')));
+      p.gold += amount;
       audio.play('coin_pickup', { volume: 0.7, throttleMs: 60 });
-      game.ui.floaters.spawn(p.pos, `+${d.amount}g`, 'gold');
+      game.ui.floaters.spawn(p.pos, `+${amount}g`, 'gold');
     } else if (d.kind === 'potion') {
       p.potions++;
       audio.play('potion_pickup');

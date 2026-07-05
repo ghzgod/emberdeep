@@ -329,6 +329,37 @@ export function generateTown() {
   }
 
   const well = { x: 10, y: 14 };
+
+  // extra decor: notice board, crates/sacks, cart, hedges (kept off cobbles/lane/vendor/tavern/well tiles)
+  const noticeBoard = { x: 9, y: 9 };
+  if (grid[noticeBoard.y]?.[noticeBoard.x] === FLOOR) grid[noticeBoard.y][noticeBoard.x] = WALL;
+
+  const crates = [];
+  const crateSpots = [[7, 10], [21, 9], [22, 17], [22, 19], [9, 20]];
+  for (const [x, y] of crateSpots) {
+    if (grid[y]?.[x] === FLOOR) crates.push({ x, y, kind: srand() < 0.5 ? 'crate' : 'sack', r: srand() * Math.PI * 2 });
+  }
+
+  const cartSpots = [[9, 18], [22, 21]];
+  let cart = null;
+  for (const [x, y] of cartSpots) {
+    if (grid[y]?.[x] === FLOOR) { cart = { x, y, r: srand() * Math.PI * 2 }; break; }
+  }
+
+  const hedges = [];
+  const hedgeSpots = [
+    [6, 6], [7, 6], [8, 6], [20, 6], [21, 6], [22, 6],
+    [6, 21], [7, 21], [8, 21], [19, 22], [20, 22], [21, 22],
+  ];
+  for (const [x, y] of hedgeSpots) {
+    if (grid[y]?.[x] === FLOOR) hedges.push({ x, y });
+  }
+
+  const extraFlowerSpots = [[21, 11], [21, 13], [6, 9], [24, 16]];
+  for (const [x, y] of extraFlowerSpots) {
+    if (grid[y]?.[x] === FLOOR) plants.push({ x, y, kind: 'flowers' });
+  }
+
   // lamp posts light the lane and square (reuse the torch light pool)
   const torches = [
     { x: 13, y: 8, fx: 12.6, fy: 8 }, { x: 15, y: 8, fx: 15.4, fy: 8 },
@@ -342,6 +373,7 @@ export function generateTown() {
     torches, chests: [], doors: [], enemies: [],
     boss: null, town: true, portal, vendors,
     cobbles, tavern, trees, plants, well,
+    noticeBoard, crates, cart, hedges,
   };
 }
 

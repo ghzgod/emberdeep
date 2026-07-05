@@ -17,6 +17,8 @@ import { ParticleSystem } from './combat/particles.js';
 import { UI } from './ui/ui.js';
 import { learner } from './ai/learner.js';
 import { roaster } from './ai/roaster.js';
+import { STORIES } from './story.js';
+import { generateTavernInterior, buildTavernInterior } from './world/tavern.js';
 import { TouchControls } from './core/touch.js';
 
 // Five acts × ten floors; the Dungeon Lord waits on floor 50. Beyond lies the endless abyss.
@@ -50,6 +52,13 @@ export class Game {
       { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true },
       SaveManager.loadSettings() || {}
     );
+    // one-time migration: settings saved before push-to-talk became the
+    // default carried voiceMode:'off' that the user never chose
+    if (!this.settings._v2) {
+      if (this.settings.voiceMode === 'off') this.settings.voiceMode = 'ptt';
+      this.settings._v2 = true;
+      SaveManager.saveSettings(this.settings);
+    }
     audio.volumes = {
       master: this.settings.masterVolume,
       music: this.settings.musicVolume,
@@ -78,7 +87,9 @@ export class Game {
     this.bossDefeated = false;
     this.actsCleared = 0;
     this.elitesKilled = 0;
+    this.storySeen = [];
     this.inTown = false;
+    this.inTavern = false;
     this.slotId = null;
     this.shopCooldown = 0;
     this.activeVendor = null;
@@ -166,8 +177,10 @@ export class Game {
     this.bossDefeated = false;
     this.actsCleared = 0;
     this.elitesKilled = 0;
+    this.storySeen = [];
     this.ui.buildHotbar(this.player);
     this.enterWorld();
+    this.showStory('prologue');
   }
 
   continueGame(slotId) {
@@ -184,6 +197,7 @@ export class Game {
     if (this.bossDefeated && this.floor <= 11) this.bossDefeated = false;
     this.elitesKilled = data.elitesKilled || 0;
     this.actsCleared = data.actsCleared ?? (this.bossDefeated ? 5 : Math.min(4, Math.floor((this.floor - 1) / 10)));
+    this.storySeen = data.storySeen || [];
     if (this.floor === MAX_FLOOR && this.bossDefeated) this.floor = MAX_FLOOR + 1;
     this.ui.buildHotbar(this.player);
     this.enterWorld();
@@ -202,6 +216,11 @@ export class Game {
 
   playerName() {
     return (localStorage.getItem('emberdeep-name-v1') || 'Hero').slice(0, 14);
+  }
+
+  // 0 = dungeon, 1 = town square, 2 = tavern — heroes see zone-mates only
+  myZone() {
+    return this.inTavern ? 2 : this.inTown ? 1 : 0;
   }
 
   enterPlaying() {
@@ -297,6 +316,7 @@ export class Game {
     this.floor = MAX_FLOOR + 1;
     this.loadFloor(this.floor);
     this.enterPlaying();
+    this.showStory('epilogue');
   }
 
   // ---------------- floor management ----------------
@@ -323,17 +343,47 @@ export class Game {
     this.torchLights = [];
   }
 
-  // ---------------- town ----------------
-  loadTown() {
+  // Step inside The Sleeping Golem.
+  loadTavern() {
     this.teardownFloor();
     this.inTown = true;
+    this.inTavern = true;
+    this.dungeon = generateTavernInterior();
+    this.dungeonMeshes = buildTavernInterior();
+    this.scene.add(this.dungeonMeshes.group);
+    this.openedDoors = new Set();
+    const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
+    this.player.pos.set(spawn.x, 0, spawn.z);
+    this.setTownAtmosphere(true);
+    this.scene.background = new THREE.Color(0x0d0a12);
+    this.scene.fog = new THREE.Fog(0x0d0a12, 16, 34);
+    const theme = themeForFloor(1);
+    this.setupTorchLights({ ...theme, accent: 0xffa95e });
+    this.ui.minimap.setDungeon(this.dungeon);
+    this.ui.showFloorBanner('THE SLEEPING GOLEM', 'Rest a while, hero', true);
+    this.stairsCooldown = 1.5;
+  }
+
+  // ---------------- town ----------------
+  loadTown(opts = {}) {
+    this.teardownFloor();
+    this.inTown = true;
+    this.inTavern = false;
     const theme = themeForFloor(1);
     this.dungeon = generateTown();
     this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme);
     this.scene.add(this.dungeonMeshes.group);
     this.openedDoors = new Set();
 
-    const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
+    // returning from the dungeon puts you beside the portal you left through
+    // (a few tiles south, so you don't step straight back in); leaving the
+    // tavern puts you at its doorstep
+    const spawnTile = opts.fromDungeon
+      ? { x: this.dungeon.portal.x, y: this.dungeon.portal.y + 3 }
+      : opts.fromTavern
+        ? { x: this.dungeon.tavern.x + 2, y: this.dungeon.tavern.y + this.dungeon.tavern.h + 1 }
+        : this.dungeon.spawn;
+    const spawn = tileToWorld(spawnTile.x, spawnTile.y);
     this.player.pos.set(spawn.x, 0, spawn.z);
     this.player.dead = false;
 
@@ -472,6 +522,35 @@ export class Game {
     return `Hunt ${boss} (Act ${ROMAN[act]})`;
   }
 
+  // Story cards: shown once per save, at each act's threshold.
+  showStory(key) {
+    if (!STORIES[key] || this.storySeen.includes(key)) return;
+    this.storySeen.push(key);
+    this.requestSave();
+    this._storyReturn = this.state === 'playing' ? 'playing' : this.state;
+    this.state = 'story';
+    this.ui.showStory(STORIES[key]);
+  }
+
+  toggleSkills() {
+    if (this.state === 'playing') {
+      this.state = 'skills';
+      this.ui.openSkills();
+    } else if (this.state === 'skills') {
+      this.state = 'playing';
+      this.ui.hideAll();
+    }
+  }
+
+  buySkill(id) {
+    if (!this.player) return;
+    if (this.player.addSkillRank(id)) {
+      audio.play('level_up', { volume: 0.35, rate: 1.6 });
+      this.requestSave();
+      this.ui.openSkills();
+    }
+  }
+
   toggleQuestLog() {
     if (this.state === 'playing') {
       this.state = 'quest';
@@ -501,6 +580,26 @@ export class Game {
     this.state = 'shop';
     this.touch.setVisible(false); // touch buttons aren't needed at a counter
     this.ui.openShop(vendor);
+    this.greetFromVendor(vendor);
+  }
+
+  // Vendors greet you by name, each in their own voice.
+  greetFromVendor(vendor) {
+    const n = this.playerName();
+    const lines = {
+      potions: [`Hello, ${n}! Potions, fresh from the still.`, `Welcome back, ${n}. Drink responsibly, dear.`, `${n}! You look… wounded. Perfect timing.`],
+      gear: [`Ah, ${n}! Steel for the worthy.`, `Hello ${n}. Swing something heavier, eh?`, `${n}, my friend! The forge burned all night for this.`],
+      mystery: [`Ahhh… ${n}. Fate has been expecting you.`, `Hello, ${n}. Care to tempt destiny?`, `${n}… the relics whisper your name.`],
+    };
+    const casts = {
+      potions: { female: true, pitch: 1.2, rate: 1.02 },
+      gear: { female: false, pitch: 0.6, rate: 0.95 },
+      mystery: { female: false, pitch: 0.85, rate: 0.88 },
+    };
+    const bank = lines[vendor.type] || lines.gear;
+    const line = bank[Math.floor(Math.random() * bank.length)];
+    this.ui.floaters.spawn({ x: vendor.wx, y: 1.4, z: vendor.wz }, `“${line}”`, 'roast', 2.6);
+    roaster.speakAs(line, casts[vendor.type] || casts.gear);
   }
 
   closeShop() {
@@ -530,6 +629,7 @@ export class Game {
   loadFloor(floor) {
     this.teardownFloor();
     this.inTown = false;
+    this.inTavern = false;
     this.setTownAtmosphere(false);
     this.floor = floor;
     const theme = themeForFloor(floor);
@@ -586,6 +686,11 @@ export class Game {
     this.requestSave(true);
 
     if (net.isHost) this.broadcastWorld();
+
+    // act-opening lore card, once per save
+    if (floor <= MAX_FLOOR && actFloorOf(floor) === 1) {
+      this.showStory('act' + actOfFloor(floor));
+    }
   }
 
   currentAct() { return actOfFloor(Math.min(this.floor, MAX_FLOOR)); }
@@ -597,6 +702,7 @@ export class Game {
   }
 
   floorLabelText() {
+    if (this.inTavern) return '🍺 The Sleeping Golem';
     if (this.inTown) return '🏘️ Embervale';
     if (this.floor > MAX_FLOOR) return `🌀 Depths ${this.floor}`;
     const act = actOfFloor(this.floor), af = actFloorOf(this.floor);
@@ -643,7 +749,8 @@ export class Game {
       rp.aim = msg.aim;
       rp.moving = !!msg.mv;
       rp.dead = !!msg.dead;
-      rp.away = !!msg.aw;
+      rp.zone = msg.aw | 0;
+      rp.away = rp.zone !== 0;
     });
     net.on('dmg', (msg, from) => {
       const e = this.enemies.find((en) => en.netId === msg.ei && !en.dead);
@@ -672,7 +779,7 @@ export class Game {
     net.on('townportal', () => {
       if (!net.isHost || this.stairsCooldown > 0 || this.inTown) return;
       this.stairsCooldown = 1.5;
-      this.loadTown();
+      this.loadTown({ fromDungeon: true });
     });
 
     // --- guest side ---
@@ -699,7 +806,8 @@ export class Game {
         rp.aim = pl.aim;
         rp.moving = !!pl.mv;
         rp.dead = !!pl.dead;
-        rp.away = !!pl.aw;
+        rp.zone = pl.aw | 0;
+        rp.away = rp.zone !== 0;
       }
       // town browsers still see fellow townsfolk, but not dungeon state
       if (this.localTown) return;
@@ -956,13 +1064,13 @@ export class Game {
   }
 
   updateRemotePlayers(dt) {
-    // A remote hero is visible when we're in the same zone: both in town
-    // (every Embervale is the same place) or both in the dungeon.
-    const myAway = !!this.inTown;
+    // A remote hero is visible when we're in the same zone: dungeon, town
+    // square (every Embervale is the same place), or the tavern.
+    const zone = this.myZone();
     for (const rp of this.remotePlayers.values()) {
       rp.mesh.position.lerp(rp.target, Math.min(1, 10 * dt));
       rp.mesh.rotation.y = Math.PI / 2 - rp.aim;
-      const visible = !rp.dead && !!rp.away === myAway;
+      const visible = !rp.dead && (rp.zone || 0) === zone;
       rp.mesh.visible = visible;
       if (rp.tag) {
         rp.tag.visible = visible;
@@ -1347,6 +1455,7 @@ export class Game {
       bossDefeated: this.bossDefeated,
       actsCleared: this.actsCleared,
       elitesKilled: this.elitesKilled,
+      storySeen: this.storySeen,
     });
   }
 
@@ -1370,7 +1479,7 @@ export class Game {
 
     if (this.state === 'playing') {
       this.updatePlaying(dt);
-    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest'].includes(this.state)) {
+    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story'].includes(this.state)) {
       // world is frozen; still render + light flicker for life
       this.updateTorches(dt, true);
       if (net.active) this.netFrozenTick(dt);
@@ -1380,11 +1489,19 @@ export class Game {
       }
       if (this.state === 'shop' && this.input.wasPressed('Escape')) this.closeShop();
       if (this.state === 'quest' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyJ'))) this.toggleQuestLog();
+      if (this.state === 'skills' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyK'))) this.toggleSkills();
+      if (this.state === 'story' && (this.input.wasPressed('Escape') || this.input.wasPressed('Space') || this.input.wasPressed('Enter'))) {
+        this.state = 'playing';
+        this.ui.hideAll();
+      }
       if (this.state === 'paused' && this.input.wasPressed('Escape')) this.togglePause(false);
     }
 
     // push-to-talk (V) works in every state while connected
     if (voice.active && voice.mode === 'ptt') voice.ptt = this.input.isDown('KeyV') || this.touchPtt;
+
+    // idle touch buttons fade out to free up the screen
+    this.touch.update(dt);
 
     // debounced save
     this.saveTimer -= dt;
@@ -1443,6 +1560,27 @@ export class Game {
       p.aimDir.z = dz / alen;
     }
 
+    // facing rule: aim only counts while attack input is held
+    p.aiming = !this.inTown && (input.mouse.down || this.touch.attacking);
+
+    // mobile aim assist: while attacking by touch, snap aim to the nearest
+    // living enemy in range — thumbs aren't mice
+    if (this.touch.enabled && this.touch.attacking && !this.inTown) {
+      let best = null, bestD = 9;
+      for (const e of this.enemies) {
+        if (e.dead) continue;
+        const d = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
+        if (d < bestD) { bestD = d; best = e; }
+      }
+      if (best) {
+        const dx = best.pos.x - p.pos.x, dz = best.pos.z - p.pos.z;
+        const alen = Math.hypot(dx, dz) || 1;
+        p.aimAngle = Math.atan2(dz, dx);
+        p.aimDir.x = dx / alen;
+        p.aimDir.z = dz / alen;
+      }
+    }
+
     // ---- input: actions (Embervale is a place of peace — no weapons drawn) ----
     if (!this.inTown) {
       if (input.mouse.down || this.touch.attacking) p.tryBasicAttack(this);
@@ -1460,6 +1598,7 @@ export class Game {
       return;
     }
     if (input.wasPressed('KeyJ')) { this.toggleQuestLog(); return; }
+    if (input.wasPressed('KeyK')) { this.toggleSkills(); return; }
     if (input.wasPressed('Escape')) { this.togglePause(true); return; }
 
     // ---- systems ----
@@ -1716,10 +1855,8 @@ export class Game {
           // slip back to your own town; the others keep fighting
           this.stairsCooldown = 2;
           this.localTown = true;
-          this.loadTown();
-        } else {
-          this.loadTown();
         }
+        this.loadTown({ fromDungeon: true });
         return;
       }
     }
@@ -1757,6 +1894,46 @@ export class Game {
         }
       }
     }
+
+    // tavern door: step up to The Sleeping Golem to go inside
+    if (!this.inTavern && this.dungeon.tavern && this.stairsCooldown <= 0) {
+      const t = this.dungeon.tavern;
+      const door = tileToWorld(t.x + 2, t.y + t.h);
+      if (Math.hypot(p.pos.x - door.x, p.pos.z - door.z) < 1.5) {
+        this.stairsCooldown = 1.5;
+        audio.play('door_open');
+        this.loadTavern();
+        return;
+      }
+    }
+
+    // tavern exit: the doormat leads back to the square
+    if (this.inTavern && this.dungeon.exit && this.stairsCooldown <= 0) {
+      const w = tileToWorld(this.dungeon.exit.x, this.dungeon.exit.y);
+      if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < 1.2) {
+        this.stairsCooldown = 1.5;
+        audio.play('door_open');
+        this.loadTown({ fromTavern: true });
+        return;
+      }
+    }
+
+    // tavern smoke + hearth idle animation data from the mesh builder
+    const puffs = this.dungeonMeshes.smokePuffs;
+    if (puffs?.length) {
+      for (const puff of puffs) {
+        puff.phase = (puff.phase || 0) + dt * (puff.speed || 0.4);
+        if (puff.kind === 'firefly') {
+          // hovering glow — bob gently, never fades out
+          puff.mesh.position.y = puff.baseY + Math.sin(puff.phase * 2.4) * 0.18;
+          continue;
+        }
+        const cycle = puff.phase % 1;
+        puff.mesh.position.y = puff.baseY + cycle * 1.6;
+        puff.mesh.material.opacity = 0.38 * (1 - cycle);
+        puff.mesh.position.x += Math.sin(puff.phase * 4) * dt * 0.15;
+      }
+    }
   }
 
   // ---------------- network ticks ----------------
@@ -1776,7 +1953,7 @@ export class Game {
           t: 'pos', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
           aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
           dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(),
-          aw: this.inTown ? 1 : 0, // "away" = visiting town
+          aw: this.myZone(),
         });
       }
     }
@@ -1793,13 +1970,13 @@ export class Game {
     const pl = [{
       id: 'host', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
       aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
-      dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(), aw: this.inTown ? 1 : 0,
+      dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(), aw: this.myZone(),
     }];
     for (const [id, rp] of this.remotePlayers) {
       pl.push({
         id, x: +rp.target.x.toFixed(2), z: +rp.target.z.toFixed(2),
         aim: +(rp.aim || 0).toFixed(2), mv: rp.moving ? 1 : 0, dead: rp.dead ? 1 : 0,
-        cls: rp.cls, nm: rp.name, aw: rp.away ? 1 : 0,
+        cls: rp.cls, nm: rp.name, aw: rp.zone || 0,
       });
     }
     const en = this.enemies

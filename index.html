@@ -26,7 +26,8 @@
         <button id="btn-multi" class="menu-btn">Multiplayer</button>
         <button id="btn-title-settings" class="menu-btn">Settings</button>
       </div>
-      <p class="hint">WASD to move · Mouse to aim & attack · 1–4 abilities</p>
+      <p class="hint" id="title-controls">WASD to move · Mouse to aim & attack · 1–4 abilities</p>
+      <p class="hint" id="build-info"></p>
     </div>
 
     <!-- Save slots -->
@@ -96,7 +97,7 @@
         <div class="bar-wrap boss"><div id="boss-bar" class="bar boss"></div></div>
       </div>
       <div id="hotbar"></div>
-      <div id="hud-hints">R potion · Q/E rotate view · Tab inventory · J quests · Esc pause</div>
+      <div id="hud-hints">R potion · Q/E rotate view · Tab inventory · J quests · K mastery · Esc pause</div>
       <div id="voice-indicator" class="hidden">🎤 LIVE</div>
     </div>
 
@@ -131,6 +132,23 @@
       <p class="hint">Tap an item for actions · Tab/Esc to close</p>
     </div>
 
+    <!-- Story cards -->
+    <div id="story-screen" class="overlay">
+      <div id="story-card">
+        <h2 id="story-title"></h2>
+        <p id="story-text"></p>
+        <button id="btn-story-continue" class="menu-btn">Continue</button>
+      </div>
+    </div>
+
+    <!-- Mastery tree -->
+    <div id="skills-screen" class="overlay panel">
+      <h2 class="screen-heading">Mastery</h2>
+      <p id="skills-points" class="skills-points"></p>
+      <div id="skills-grid"></div>
+      <div class="menu-buttons"><button id="btn-skills-close" class="menu-btn small">Close</button></div>
+    </div>
+
     <!-- Quest log -->
     <div id="quest-screen" class="overlay panel">
       <h2 class="screen-heading">Quest Log</h2>
@@ -145,6 +163,7 @@
       <div class="menu-buttons">
         <button id="btn-resume" class="menu-btn">Resume</button>
         <button id="btn-pause-quests" class="menu-btn">Quest Log</button>
+        <button id="btn-pause-skills" class="menu-btn">Mastery</button>
         <button id="btn-pause-settings" class="menu-btn">Settings</button>
         <button id="btn-quit-title" class="menu-btn">Save & Quit to Title</button>
       </div>

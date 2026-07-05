@@ -18,6 +18,7 @@ export class Player {
     this.inventory = [];     // gear items
     this.invSize = 12;       // expandable via rare bag drops, max 24
     this.equipped = { weapon: null, armor: null, trinket: null };
+    this.skills = {};        // mastery tree: id -> rank
 
     this.pos = new THREE.Vector3();
     this.aimAngle = 0;
@@ -35,6 +36,9 @@ export class Player {
     this.attackAnim = 0;
     this.dead = false;
     this.invulnTimer = 0;
+    this.aiming = false;      // set by the game while attack input is held
+    this.faceAimTimer = 0;    // keep facing the aim briefly after an attack
+    this.visualAngle = 0;     // smoothed facing angle
 
     this.recompute();
     this.hp = this.maxHp;
@@ -43,6 +47,17 @@ export class Player {
     // Prefer the animated KayKit model; fall back to primitives if it failed to load.
     this.anim = buildAnimatedHero(classId);
     this.mesh = this.anim ? this.anim.mesh : buildHeroMesh(this.classDef);
+  }
+
+  // ---- mastery tree ----
+  skillRank(id) { return this.skills[id] || 0; }
+  spentSkillPoints() { return Object.values(this.skills).reduce((s, r) => s + r, 0); }
+  skillPoints() { return Math.max(0, this.level - 1 - this.spentSkillPoints()); }
+  addSkillRank(id, max = 5) {
+    if (this.skillPoints() <= 0 || this.skillRank(id) >= max) return false;
+    this.skills[id] = this.skillRank(id) + 1;
+    this.recompute();
+    return true;
   }
 
   // ---- derived stats: class base + level growth + gear ----
@@ -79,6 +94,13 @@ export class Player {
     crit += Math.min(35, critPct) / 100;
     armor += Math.min(45, armorPct) / 100;
     regen += Math.min(15, regenFlat);
+
+    // mastery tree bonuses (small, capped by the same limits below)
+    maxHp *= 1 + 0.06 * this.skillRank('vitality');
+    damage *= 1 + 0.04 * this.skillRank('brutality');
+    crit += 0.02 * this.skillRank('precision');
+    armor += 0.02 * this.skillRank('ironhide');
+    speed *= 1 + 0.01 * this.skillRank('swiftness');
 
     this.maxHp = Math.round(maxHp);
     this.baseDamage = damage;
@@ -177,11 +199,12 @@ export class Player {
     this.potions--;
     this._lastPotionAt = performance.now();
     audio.play('potion_drink');
-    this.heal(Math.round(this.maxHp * 0.45), game);
+    this.heal(Math.round(this.maxHp * 0.45 * (1 + 0.08 * this.skillRank('alchemy'))), game);
     return true;
   }
 
   gainXp(amount, game) {
+    amount = Math.round(amount * (1 + 0.06 * this.skillRank('scholar')));
     this.xp += amount;
     game.ui.floaters.spawn(this.pos, `+${amount} xp`, 'xp');
     while (this.xp >= xpForLevel(this.level)) {
@@ -202,6 +225,7 @@ export class Player {
     const basic = this.classDef.basic;
     this.attackCd = basic.cooldown;
     this.attackAnim = 0.22;
+    this.faceAimTimer = 0.8;
     this._lastAttackAt = performance.now();
     if (this.anim) this.anim.playAttack();
     audio.play(basic.sound);
@@ -225,8 +249,9 @@ export class Player {
       return;
     }
     this.resource -= ab.cost;
-    this.abilityCds[index] = ab.cd;
+    this.abilityCds[index] = ab.cd * (1 - 0.03 * this.skillRank('celerity'));
     this.attackAnim = 0.25;
+    this.faceAimTimer = 0.8;
     if (this.anim) this.anim.playAttack();
     ab.exec(game, this);
   }
@@ -289,14 +314,22 @@ export class Player {
       }
     }
 
-    // mesh sync
+    // mesh sync + facing: aim while fighting, movement direction otherwise
     this.mesh.position.copy(this.pos);
-    const targetRot = this.aimAngle;
+    this.faceAimTimer = Math.max(0, this.faceAimTimer - dt);
+    const movingNow = !!(this.moveDir.x || this.moveDir.z) || !!this.dash;
+    let targetRot = this.visualAngle;
+    if (this.aiming || this.faceAimTimer > 0) targetRot = this.aimAngle;
+    else if (movingNow) targetRot = Math.atan2(this.moveDir.z, this.moveDir.x);
+    // shortest-path smooth turn
+    let diff = targetRot - this.visualAngle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    this.visualAngle += diff * Math.min(1, 14 * dt);
     if (this.spinTimer > 0) {
       this.mesh.rotation.y += 18 * dt; // whirlwind spin
     } else {
-      // face aim direction (negate for three.js Y rotation from XZ angle)
-      this.mesh.rotation.y = -targetRot + Math.PI / 2;
+      this.mesh.rotation.y = -this.visualAngle + Math.PI / 2;
     }
     if (this.anim) {
       const moving = !!(this.moveDir.x || this.moveDir.z) || !!this.dash;
@@ -318,6 +351,7 @@ export class Player {
       inventory: this.inventory,
       invSize: this.invSize,
       equipped: this.equipped,
+      skills: this.skills,
     };
   }
 
@@ -330,6 +364,7 @@ export class Player {
     p.inventory = data.inventory || [];
     p.invSize = data.invSize || 12;
     p.equipped = data.equipped || { weapon: null, armor: null, trinket: null };
+    p.skills = data.skills || {};
     p.recompute();
     p.hp = p.maxHp;
     p.resource = p.maxResource;

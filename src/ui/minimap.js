@@ -39,8 +39,8 @@ export class Minimap {
 
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
-        if (!this.explored[y][x]) continue;
-        const t = this.dungeon.grid[y][x];
+        if (!this.explored[y]?.[x]) continue;
+        const t = this.dungeon.grid[y]?.[x];
         if (t === FLOOR) ctx.fillStyle = '#5a5568';
         else if (t === WALL) ctx.fillStyle = '#28242f';
         else if (t === DOOR) ctx.fillStyle = '#8a6a3a';
