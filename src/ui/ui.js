@@ -124,6 +124,8 @@ export class UI {
     $('destroy-modal').addEventListener('click', (e) => { if (e.target.id === 'destroy-modal') $('destroy-modal').classList.add('hidden'); });
     $('btn-act-cancel').onclick = () => $('act-select').classList.add('hidden');
     $('act-select').addEventListener('click', (e) => { if (e.target.id === 'act-select') $('act-select').classList.add('hidden'); });
+    $('btn-inspect-close').onclick = () => $('inspect-panel').classList.add('hidden');
+    $('inspect-panel').addEventListener('click', (e) => { if (e.target.id === 'inspect-panel') $('inspect-panel').classList.add('hidden'); });
     $('btn-shop-restock').onclick = () => {
       if (this.game.activeVendor) this.game.restockVendor(this.game.activeVendor);
     };
@@ -978,6 +980,31 @@ export class UI {
     this.game.buyFromVendor(pend.vendor, pend.entry);
     this.renderShop(pend.vendor);
     this._pendingBuy = null;
+  }
+
+  // Diablo-style inspect: another co-op hero's class, level and equipped gear.
+  showInspect(rp) {
+    $('inspect-name').textContent = rp.name || 'Hero';
+    $('inspect-sub').textContent = `${this.className(rp.cls)} · Level ${rp.level || 1}`;
+    const wrap = $('inspect-slots');
+    wrap.innerHTML = '';
+    const eq = rp.loadout || {};
+    let any = false;
+    for (const slot of ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket']) {
+      const it = eq[slot];
+      const el = document.createElement('div');
+      el.className = `inspect-slot ${it ? 'rarity-' + it.rarity : 'empty'}`;
+      if (it) {
+        any = true;
+        const stats = Object.entries(it.stats || {}).map(([k, v]) => statLabel(k, v)).join(' · ');
+        el.innerHTML = `<span class="is-icon">${it.icon}</span><div class="is-txt"><span class="tt-${it.rarity}">${it.name}</span><small>${stats || slot}</small></div>`;
+      } else {
+        el.innerHTML = `<span class="is-icon">·</span><div class="is-txt"><small class="is-empty">${slot} — empty</small></div>`;
+      }
+      wrap.appendChild(el);
+    }
+    if (!any) wrap.insertAdjacentHTML('afterbegin', '<div class="is-empty" style="text-align:center;margin-bottom:6px">No gear info yet</div>');
+    $('inspect-panel').classList.remove('hidden');
   }
 
   // Pick which cleared act to travel into (opened from the town dungeon portal).

@@ -996,6 +996,7 @@ export class Game {
       // already track must not spam join notices onto everyone's screen.
       const known = this.remotePlayers.has(from);
       this.ensureRemotePlayer(from, msg.cls, msg.name);
+      this.sendLoadout(); // let the (re)joining hero see our gear
       if (known) return;
       if (this.player) this.ui.floaters.spawn(this.player.pos, `${msg.name || 'A hero'} has joined!`, 'crit');
       net.send({ t: 'notice', txt: `${msg.name || 'A hero'} has joined the room!` });
@@ -1179,6 +1180,12 @@ export class Game {
     net.on('pickup', (msg, from) => {
       this.loot.removeByDid(msg.did); // someone took it — clear it from my ground
       if (net.isHost && from !== 'host') net.sendExcept(msg, from);
+    });
+    net.on('loadout', (msg, from) => {
+      const id = msg.pid || from; // host relays carry the original owner's id
+      const rp = this.remotePlayers.get(id);
+      if (rp) rp.loadout = msg.eq;
+      if (net.isHost && from !== 'host') net.sendExcept({ t: 'loadout', eq: msg.eq, pid: from }, from);
     });
     net.on('room_full', () => {
       net.stop();
@@ -1379,6 +1386,40 @@ export class Game {
     const spin = (mesh) => { const g = mesh?.userData?.auraGroup; if (g) g.userData.sparkles.rotation.y += dt * 1.6; };
     spin(this.player?.mesh);
     for (const [, rp] of this.remotePlayers) spin(rp.mesh);
+  }
+
+  // A compact snapshot of the equipped gear, for co-op inspect panels.
+  compactLoadout() {
+    const out = {};
+    for (const slot of ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket']) {
+      const it = this.player.equipped[slot];
+      out[slot] = it ? { icon: it.icon, name: it.name, rarity: it.rarity, slot: it.slot, stats: it.stats, affinity: it.affinity || null } : null;
+    }
+    return out;
+  }
+
+  // Broadcast our loadout so others can inspect us (sent on equip changes + join).
+  sendLoadout() {
+    if (net.active) net.send({ t: 'loadout', eq: this.compactLoadout() });
+  }
+
+  // Click a co-op hero to inspect their gear (Diablo-style). Returns true if a
+  // player was hit, so the click doesn't also trigger an attack.
+  tryInspectClick() {
+    const input = this.input;
+    if (!net.active || !input.mouse.clicked || this.state !== 'playing' || !this.remotePlayers.size) return false;
+    this._mouseNdc.set((input.mouse.x / window.innerWidth) * 2 - 1, -(input.mouse.y / window.innerHeight) * 2 + 1);
+    this.raycaster.setFromCamera(this._mouseNdc, this.camera);
+    const visible = [...this.remotePlayers.values()].filter((rp) => rp.mesh && rp.mesh.visible);
+    const hits = this.raycaster.intersectObjects(visible.map((rp) => rp.mesh), true);
+    if (!hits.length) return false;
+    const rp = visible.find((r) => {
+      let o = hits[0].object;
+      while (o) { if (o === r.mesh) return true; o = o.parent; }
+      return false;
+    });
+    if (rp) { this.ui.showInspect(rp); return true; }
+    return false;
   }
 
   ensureRemotePlayer(id, cls = 'knight', name = null) {
@@ -1846,6 +1887,7 @@ export class Game {
     if (prev) p.inventory.push(prev);
     p.recompute();
     audio.play('equip');
+    this.sendLoadout();
     this.requestSave();
   }
 
@@ -1857,6 +1899,7 @@ export class Game {
     p.inventory.push(item);
     p.recompute();
     audio.play('equip');
+    this.sendLoadout();
     this.requestSave();
   }
 
@@ -2081,7 +2124,9 @@ export class Game {
     }
 
     // ---- input: actions (Embervale is a place of peace — no weapons drawn) ----
-    if (!this.inTown) {
+    // clicking a co-op hero opens their inspect panel and eats the click
+    const inspected = this.tryInspectClick();
+    if (!this.inTown && !inspected) {
       if (input.mouse.down || this.touch.attacking) p.tryBasicAttack(this);
       if (input.wasPressed('Digit1')) p.tryAbility(0, this);
       if (input.wasPressed('Digit2')) p.tryAbility(1, this);
