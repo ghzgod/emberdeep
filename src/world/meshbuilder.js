@@ -526,6 +526,21 @@ export function buildDungeonMeshes(dungeon, theme) {
   // (Room-center "rug" rings were removed — their faint ring outline read as a
   //  stray portal ring in every large room. The only ring is the real portal.)
   const breakables = (!town && dungeon.props?.length) ? buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs) : [];
+  // atmospheric dust motes drifting through the dungeon air (themed, animated
+  // by the smoke-puff loop) — cheap depth without external assets
+  if (!town && floorTiles.length) {
+    const moteGeo = new THREE.SphereGeometry(0.03, 4, 4);
+    const moteMat = new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.22, depthWrite: false, fog: true });
+    for (let i = 0; i < 26; i++) {
+      const tp = floorTiles[Math.floor(Math.random() * floorTiles.length)];
+      const w = tileToWorld(tp.x, tp.y);
+      const m = new THREE.Mesh(moteGeo, moteMat);
+      const baseY = 0.4 + Math.random() * 1.3;
+      m.position.set(w.x + (Math.random() - 0.5) * TILE, baseY, w.z + (Math.random() - 0.5) * TILE);
+      group.add(m);
+      smokePuffs.push({ mesh: m, kind: 'mote', baseY, phase: Math.random() * 10, speed: 0.15 + Math.random() * 0.2, cx: m.position.x, cz: m.position.z, drift: Math.random() * Math.PI * 2 });
+    }
+  }
   // --- World beyond the town walls: forest ring, horizon, a wandering critter ---
   if (town) buildTownSurroundings(group, dungeon, smokePuffs);
 
