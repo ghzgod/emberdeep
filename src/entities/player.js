@@ -37,6 +37,7 @@ export class Player {
     this.spinTimer = 0;
     this.attackCd = 0;
     this.abilityCds = [0, 0, 0, 0];
+    this.abilityCdMax = [0, 0, 0, 0]; // actual (post-reduction) cooldown, for the UI wheel
     this.footstepTimer = 0;
     this.attackAnim = 0;
     this.dead = false;
@@ -271,6 +272,7 @@ export class Player {
     let cd = ab.cd * (1 - 0.03 * this.skillRank('celerity'));
     if (index === 3) cd *= 1 - (this.ult4Cdr || 0); // weapon ultimate-CDR affects slot 4
     this.abilityCds[index] = cd;
+    this.abilityCdMax[index] = cd; // remember the true duration so the UI wheel is accurate
     this.attackAnim = 0.25;
     this.faceAimTimer = 0.8;
     if (this.anim) this.anim.playAttack();

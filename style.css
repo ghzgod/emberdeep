@@ -217,7 +217,16 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 .hotbar-slot:hover { border-color: var(--gold); transform: translateY(-2px); }
 .hotbar-slot:active { transform: translateY(0); }
 .hotbar-slot .key { position: absolute; top: 2px; left: 5px; font-size: 11px; opacity: 0.7; }
-.hotbar-slot .cd-sweep { position: absolute; inset: 0; background: rgba(0,0,0,0.75); transform-origin: bottom; transform: scaleY(0); }
+/* Radial clock: a dark wedge covers the remaining cooldown and shrinks
+   clockwise, revealing the ability colour underneath. No numbers. */
+.hotbar-slot .cd-sweep {
+  position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: conic-gradient(rgba(6,4,10,0.80) var(--cd-ang, 0deg), transparent var(--cd-ang, 0deg));
+}
+.hotbar-slot.cooling .ab-icon { filter: grayscale(0.5) brightness(0.7); }
+/* off cooldown but too little resource: clearly dimmed so it doesn't look ready */
+.hotbar-slot.no-resource { border-color: #7a3030; }
+.hotbar-slot.no-resource .ab-icon { opacity: 0.4; }
 .hotbar-slot .ab-name { position: absolute; bottom: 3px; left: 0; right: 0; font-size: 9px; text-align: center; opacity: 0.85; letter-spacing: 0.3px; line-height: 1.1; padding: 0 2px; }
 .hotbar-slot.ready { border-color: #6e5a8e; box-shadow: 0 0 8px rgba(160,120,220,0.25); }
 .hotbar-slot.no-resource { border-color: #7a3030; }
