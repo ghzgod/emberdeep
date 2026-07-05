@@ -59,6 +59,27 @@ export function makeCobwebTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+// A small framed "oil painting": a dusk landscape with a moon and layered
+// hills, procedurally generated so each tavern painting differs. No image asset.
+export function makePaintingTexture() {
+  const [c, x] = makeCanvas(128);
+  const g = x.createLinearGradient(0, 0, 0, 128);
+  g.addColorStop(0, '#33456a'); g.addColorStop(0.6, '#7a5a6a'); g.addColorStop(1, '#c88a5a');
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+  x.fillStyle = 'rgba(240,224,170,0.9)';
+  x.beginPath(); x.arc(30 + Math.random() * 70, 28 + Math.random() * 20, 10 + Math.random() * 6, 0, Math.PI * 2); x.fill();
+  const cols = ['#2c3a2a', '#213021', '#172417'];
+  for (let layer = 0; layer < 3; layer++) {
+    x.fillStyle = cols[layer];
+    x.beginPath(); x.moveTo(0, 128);
+    const base = 74 + layer * 16, ph = Math.random() * 6;
+    for (let px = 0; px <= 128; px += 12) x.lineTo(px, base + Math.sin(px * 0.08 + layer + ph) * 9 - Math.random() * 5);
+    x.lineTo(128, 128); x.closePath(); x.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
+
 function jitterColor(hex, amount) {
   const n = parseInt(hex.slice(1), 16);
   let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
