@@ -920,6 +920,7 @@ export class Game {
       rp.dead = !!msg.dead;
       rp.zone = msg.aw | 0;
       rp.away = rp.zone !== 0;
+      rp.level = msg.lvl || 1; rp.hp = msg.hp || 0; rp.maxHp = msg.mhp || 0;
     });
     net.on('dmg', (msg, from) => {
       const e = this.enemies.find((en) => en.netId === msg.ei && !en.dead);
@@ -962,7 +963,7 @@ export class Game {
     net.on('roast', (msg) => {
       if (net.isHost || !this.player) return;
       const e = this.enemies.find((en) => en.netId === msg.ei && !en.dead);
-      if (e) this.ui.floaters.spawn(e.pos, `“${msg.txt}”`, 'roast', 3.2);
+      if (e) this.ui.floaters.spawn(e.pos, `“${msg.txt}”`, 'roast', 6);
       roaster.speak(msg.txt, msg.ty);
     });
     net.on('state', (msg) => {
@@ -977,6 +978,7 @@ export class Game {
         rp.dead = !!pl.dead;
         rp.zone = pl.aw | 0;
         rp.away = rp.zone !== 0;
+        rp.level = pl.lvl || 1; rp.hp = pl.hp || 0; rp.maxHp = pl.mhp || 0;
       }
       // town browsers still see fellow townsfolk, but not dungeon state
       if (this.localTown) return;
@@ -1039,7 +1041,7 @@ export class Game {
       this.ui.addChatMessage(msg.name, msg.txt, msg.ts, false);
     });
     net.on('notice', (msg) => {
-      if (this.player) this.ui.floaters.spawn(this.player.pos, msg.txt, 'crit');
+      if (this.player) this.ui.floaters.spawn(this.player.pos, msg.txt, 'crit', 5);
     });
     net.on('room_full', () => {
       net.stop();
@@ -1193,37 +1195,53 @@ export class Game {
   ensureRemotePlayer(id, cls = 'knight', name = null) {
     let rp = this.remotePlayers.get(id);
     if (rp) {
-      if (name && rp.name !== name) { rp.name = name; this.setNametag(rp, name); }
+      if (name && rp.name !== name) { rp.name = name; this.updateNametag(rp, false); }
       return rp;
     }
     const anim = buildAnimatedHero(cls);
     const mesh = anim ? anim.mesh : buildHeroMesh(CLASSES[cls] || CLASSES.knight);
     this.scene.add(mesh);
-    rp = { mesh, anim, cls, name: name || 'Hero', target: new THREE.Vector3(), aim: 0, moving: false, dead: false, away: false };
-    this.setNametag(rp, rp.name);
+    rp = { mesh, anim, cls, name: name || 'Hero', target: new THREE.Vector3(), aim: 0, moving: false, dead: false, away: false, level: 1, hp: 0, maxHp: 0 };
+    this.updateNametag(rp, false);
     this.remotePlayers.set(id, rp);
     return rp;
   }
 
-  // Floating nametag sprite above a remote hero.
-  setNametag(rp, name) {
-    if (rp.tag) { this.scene.remove(rp.tag); rp.tag.material.map?.dispose(); }
-    const canvas = document.createElement('canvas');
-    canvas.width = 256; canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.font = 'bold 34px Georgia';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-    ctx.lineWidth = 6;
-    ctx.strokeText(name, 128, 32);
-    ctx.fillStyle = '#e8dcae';
-    ctx.fillText(name, 128, 32);
-    const tex = new THREE.CanvasTexture(canvas);
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-    sprite.scale.set(2.2, 0.55, 1);
-    this.scene.add(sprite);
-    rp.tag = sprite;
+  // Floating nameplate above a remote hero: NAME + Lv always, plus a health bar
+  // while in the dungeon. Redraws only when the content actually changes.
+  updateNametag(rp, showHealth) {
+    const name = rp.name || 'Hero';
+    const lvl = rp.level || 1;
+    const hpFrac = rp.maxHp > 0 ? Math.max(0, Math.min(1, rp.hp / rp.maxHp)) : 0;
+    const key = `${name}|${lvl}|${showHealth ? 1 : 0}|${Math.round(hpFrac * 40)}`;
+    if (rp.tag && rp._tagKey === key) return;
+    rp._tagKey = key;
+    if (!rp.tag) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256; canvas.height = 96;
+      rp._tagCanvas = canvas;
+      const tex = new THREE.CanvasTexture(canvas);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+      sprite.scale.set(2.7, 1.0, 1);
+      this.scene.add(sprite);
+      rp.tag = sprite;
+    }
+    const ctx = rp._tagCanvas.getContext('2d');
+    ctx.clearRect(0, 0, 256, 96);
+    ctx.font = 'bold 30px Georgia';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const label = `${name}  Lv ${lvl}`;
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+    ctx.strokeText(label, 128, 26);
+    ctx.fillStyle = '#e8dcae'; ctx.fillText(label, 128, 26);
+    if (showHealth && rp.maxHp > 0) {
+      const bw = 200, bh = 16, bx = 28, by = 56;
+      ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(bx - 2, by - 2, bw + 4, bh + 4);
+      ctx.fillStyle = '#3a1416'; ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = hpFrac > 0.5 ? '#5fd06a' : hpFrac > 0.25 ? '#e0b64a' : '#e0564a';
+      ctx.fillRect(bx, by, bw * hpFrac, bh);
+    }
+    rp.tag.material.map.needsUpdate = true;
   }
 
   removeRemotePlayer(id) {
@@ -1247,9 +1265,11 @@ export class Game {
       rp.mesh.rotation.y = Math.PI / 2 - rp.aim;
       const visible = !rp.dead && (rp.zone || 0) === zone;
       rp.mesh.visible = visible;
+      // name + level always; health bar only while in the dungeon (zone 0)
+      this.updateNametag(rp, (rp.zone || 0) === 0);
       if (rp.tag) {
         rp.tag.visible = visible;
-        rp.tag.position.set(rp.mesh.position.x, rp.mesh.position.y + 2.15, rp.mesh.position.z);
+        rp.tag.position.set(rp.mesh.position.x, rp.mesh.position.y + 2.35, rp.mesh.position.z);
       }
       if (rp.anim) {
         rp.anim.mixer.update(dt);
@@ -2208,7 +2228,7 @@ export class Game {
           t: 'pos', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
           aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
           dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(),
-          aw: this.myZone(),
+          aw: this.myZone(), lvl: p.level, hp: Math.round(p.hp), mhp: p.maxHp,
         });
       }
     }
@@ -2226,12 +2246,14 @@ export class Game {
       id: 'host', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
       aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
       dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(), aw: this.myZone(),
+      lvl: p.level, hp: Math.round(p.hp), mhp: p.maxHp,
     }];
     for (const [id, rp] of this.remotePlayers) {
       pl.push({
         id, x: +rp.target.x.toFixed(2), z: +rp.target.z.toFixed(2),
         aim: +(rp.aim || 0).toFixed(2), mv: rp.moving ? 1 : 0, dead: rp.dead ? 1 : 0,
         cls: rp.cls, nm: rp.name, aw: rp.zone || 0,
+        lvl: rp.level || 1, hp: Math.round(rp.hp || 0), mhp: rp.maxHp || 0,
       });
     }
     const en = this.enemies
