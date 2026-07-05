@@ -32,6 +32,33 @@ function makeCanvas(size) {
   return [c, c.getContext('2d')];
 }
 
+// A corner cobweb: faint radial spokes + concentric threads on a transparent
+// canvas, so the prop reads as a spiderweb instead of a stray flat triangle.
+export function makeCobwebTexture() {
+  const [c, x] = makeCanvas(128);
+  x.clearRect(0, 0, 128, 128);
+  x.strokeStyle = 'rgba(222,218,232,0.55)';
+  x.lineWidth = 1;
+  const cx = 6, cy = 6, R = 118, spokes = 7;
+  for (let i = 0; i <= spokes; i++) {
+    const a = (i / spokes) * (Math.PI / 2);
+    x.beginPath();
+    x.moveTo(cx, cy);
+    x.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+    x.stroke();
+  }
+  for (let r = 16; r < R; r += 19) {
+    x.beginPath();
+    for (let i = 0; i <= spokes; i++) {
+      const a = (i / spokes) * (Math.PI / 2);
+      const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r;
+      i === 0 ? x.moveTo(px, py) : x.lineTo(px, py);
+    }
+    x.stroke();
+  }
+  return new THREE.CanvasTexture(c);
+}
+
 function jitterColor(hex, amount) {
   const n = parseInt(hex.slice(1), 16);
   let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
