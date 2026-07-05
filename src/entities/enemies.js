@@ -49,6 +49,15 @@ export const ENEMY_TYPES = {
     sounds: { hurt: 'imp_hurt', death: 'imp_death' },
     color: 0xbcd0e8,
   },
+  ghoul: {
+    name: 'Ghoul',
+    base: { hp: 26, damage: 10, speed: 5.2, xp: 9, gold: [1, 5] },
+    perFloor: { hp: 8, damage: 2.8, xp: 3 },
+    attack: { kind: 'melee', range: 1.4, cooldown: 0.9, windup: 0.22 },
+    aggroRange: 11, radius: 0.36,
+    sounds: { hurt: 'skeleton_hurt', death: 'skeleton_death' },
+    color: 0x8a9a6a,
+  },
 };
 
 const MINIBOSS_NAMES = {
@@ -604,6 +613,26 @@ export function buildEnemyMesh(typeId, scale = 1) {
     g.add(hood, head, shroud, eyeL, eyeR, armL, armR);
     reg(armL, 'arm', 0, 0.32); reg(armR, 'arm', Math.PI, 0.32);
     reg(shroud, 'tail', 0, 0.12);
+  } else if (typeId === 'ghoul') {
+    // A gaunt, hunched undead — long clawed arms, heavy jaw, spindly legs.
+    const flesh = def.color;
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.4, 4, 7), makeMat(flesh, 0.9));
+    body.position.y = 0.62; body.rotation.x = 0.35; // hunched
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), makeMat(0x9aaa78));
+    head.position.set(0, 0.98, 0.16); head.scale.set(1, 0.9, 1.1);
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.07, 0.13), makeMat(0x7a8a5a));
+    jaw.position.set(0, 0.9, 0.24);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xf0e060 });
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.026, 6, 6), eyeMat); eyeL.position.set(-0.05, 1.0, 0.27);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.05;
+    const armL = limbSeg(0.04, 0.03, 0.36, flesh); armL.position.set(-0.22, 0.66, 0.1); armL.rotation.set(0.5, 0, 0.5);
+    const armR = armL.clone(); armR.position.x = 0.22; armR.rotation.z = -0.5;
+    const legL = limbSeg(0.045, 0.03, 0.34, flesh); legL.position.set(-0.1, 0.28, 0);
+    const legR = legL.clone(); legR.position.x = 0.1;
+    g.add(body, head, jaw, eyeL, eyeR, armL, armR, legL, legR);
+    reg(legL, 'leg', 0, 0.45); reg(legR, 'leg', Math.PI, 0.45);
+    reg(armL, 'arm', Math.PI, 0.3); reg(armR, 'arm', 0, 0.3);
+    addShadowBlob(g, 0.36);
   } else { // golem
     const rock = def.color;
     // layered stone slabs of varied size for torso
