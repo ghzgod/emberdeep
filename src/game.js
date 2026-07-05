@@ -1331,8 +1331,22 @@ export class Game {
       if (!this.player.dead) {
         m.mesh.rotation.y = Math.atan2(this.player.pos.x - m.pos.x, this.player.pos.z - m.pos.z);
       }
-      // animate mirrored mobs on the guest too (they're always pursuing)
-      if (typeof m._animateGait === 'function') { m.state = 'chase'; m._animateGait(dt); }
+      // Animate mirrored mobs' limbs on the guest too. Mirror enemies are plain
+      // object literals (not Enemy instances), so Enemy._animateGait isn't on them;
+      // inline the same oscillation, reading the gait registered on the mesh and
+      // keeping a per-mirror time accumulator. Mirrors are always pursuing.
+      const gait = m.mesh.userData?.gait;
+      if (gait && gait.length) {
+        if (m._gt === undefined) m._gt = m.pos.x + m.pos.z; // deterministic-ish phase offset
+        m._gt += dt * 9; // chasing cadence
+        const t = m._gt;
+        for (const p of gait) {
+          if (p.kind === 'leg') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp;
+          else if (p.kind === 'arm') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp * 0.85;
+          else if (p.kind === 'wing') p.mesh.rotation.z = p.bz + Math.sin(t * 1.9 + p.phase) * p.amp;
+          else if (p.kind === 'tail') p.mesh.rotation.x = p.bx + Math.sin(t * 1.2 + p.phase) * p.amp;
+        }
+      }
       m.hitFlash = Math.max(0, m.hitFlash - dt);
       m.mesh.traverse((o) => {
         if (o.isMesh && o.material?.emissive !== undefined) {
