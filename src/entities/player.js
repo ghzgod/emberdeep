@@ -7,6 +7,11 @@ export function xpForLevel(level) {
   return Math.floor(80 * Math.pow(level, 1.4));
 }
 
+export const LEVEL_CAP = 99;
+// Gear stat keys recompute() actually understands; anything else on a loaded
+// item is ignored so a hand-edited save can't inject bogus stats.
+const ALLOWED_ITEM_STATS = ['damagePct', 'maxHp', 'armor', 'crit', 'speed', 'regen'];
+
 export class Player {
   constructor(classId) {
     this.classDef = CLASSES[classId];
@@ -358,15 +363,45 @@ export class Player {
   }
 
   static fromSave(data) {
-    const p = new Player(data.classId);
-    p.level = data.level;
-    p.xp = data.xp;
-    p.gold = data.gold;
-    p.potions = data.potions;
-    p.inventory = data.inventory || [];
-    p.invSize = data.invSize || 12;
-    p.equipped = data.equipped || { weapon: null, armor: null, trinket: null };
-    p.skills = data.skills || {};
+    data = data || {};
+    const clampNum = (v, min, max, dflt) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : dflt;
+    };
+    // Keep only recognized, finite gear stats — reject anything else on load.
+    const cleanItem = (item) => {
+      if (!item || typeof item !== 'object') return null;
+      if (item.stats && typeof item.stats === 'object') {
+        const clean = {};
+        for (const k of ALLOWED_ITEM_STATS) {
+          if (item.stats[k] !== undefined) clean[k] = clampNum(item.stats[k], -100, 1000, 0);
+        }
+        item.stats = clean;
+      } else {
+        item.stats = {};
+      }
+      return item;
+    };
+
+    const classId = CLASSES[data.classId] ? data.classId : 'knight';
+    const p = new Player(classId);
+    p.level = Math.floor(clampNum(data.level, 1, LEVEL_CAP, 1));
+    p.xp = clampNum(data.xp, 0, Number.MAX_SAFE_INTEGER, 0);
+    p.gold = clampNum(data.gold, 0, Number.MAX_SAFE_INTEGER, 0);
+    p.potions = Math.floor(clampNum(data.potions, 0, 99, 2));
+    p.inventory = Array.isArray(data.inventory) ? data.inventory.map(cleanItem).filter(Boolean) : [];
+    p.invSize = Math.floor(clampNum(data.invSize, 12, 24, 12));
+    const eq = data.equipped && typeof data.equipped === 'object' ? data.equipped : {};
+    p.equipped = { weapon: cleanItem(eq.weapon), armor: cleanItem(eq.armor), trinket: cleanItem(eq.trinket) };
+    // Mastery ranks are capped at 5 in play; clamp loaded ranks the same way.
+    const skills = {};
+    if (data.skills && typeof data.skills === 'object') {
+      for (const [id, rank] of Object.entries(data.skills)) {
+        const r = Math.floor(clampNum(rank, 0, 5, 0));
+        if (r > 0) skills[id] = r;
+      }
+    }
+    p.skills = skills;
     p.recompute();
     p.hp = p.maxHp;
     p.resource = p.maxResource;

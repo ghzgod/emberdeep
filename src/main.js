@@ -1,7 +1,7 @@
 import { Game } from './game.js';
 
 const game = new Game();
-window.__game = game; // handy for debugging/tests
+if (import.meta.env.DEV) window.__game = game; // dev-only debug handle; stripped from prod build
 game.boot();
 
 // title screen: platform-appropriate controls + build stamp
