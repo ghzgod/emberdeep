@@ -167,6 +167,11 @@ export function generateGear(floor, forcedRarity = null, classId = 'knight') {
     }
   }
 
+  // Epic+ weapons can roll cooldown reduction for the slot-4 ultimate/AoE.
+  if (isWeapon && (rarity === 'epic' || rarity === 'legendary') && Math.random() < 0.55) {
+    stats.cdr4 = (stats.cdr4 || 0) + Math.round(8 + power);
+  }
+
   const prefix = def.prefixes[Math.min(def.prefixes.length - 1, Math.floor(power / 2.2))];
   let name = `${prefix} ${def.names[Math.floor(Math.random() * def.names.length)]}`;
   if (rarity === 'epic') name += ` ${SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)]}`;
@@ -196,6 +201,7 @@ export function statLabel(stat, val) {
     case 'crit': return `+${val}% crit chance`;
     case 'speed': return `+${val}% move speed`;
     case 'regen': return `+${val} resource regen`;
+    case 'cdr4': return `-${val}% ultimate cooldown`;
     default: return `+${val} ${stat}`;
   }
 }
