@@ -111,6 +111,13 @@ export class UI {
     $('btn-relic-take').onclick = () => { $('relic-reveal').classList.add('hidden'); this.renderShop?.(this.game.activeVendor); };
     $('btn-buy-confirm').onclick = () => this.confirmBuy();
     $('btn-buy-cancel').onclick = () => { $('buy-confirm').classList.add('hidden'); this._pendingBuy = null; };
+    $('btn-destroy-confirm').onclick = () => {
+      this.game.destroyItems([...(this.destroySel || [])]);
+      this.destroySel?.clear(); this.destroyMode = false;
+      $('destroy-modal').classList.add('hidden');
+      this.renderInventory();
+    };
+    $('btn-destroy-cancel').onclick = () => $('destroy-modal').classList.add('hidden');
     $('btn-shop-restock').onclick = () => {
       if (this.game.activeVendor) this.game.restockVendor(this.game.activeVendor);
     };
@@ -1019,23 +1026,28 @@ export class UI {
       equipWrap.appendChild(el);
     }
 
+    this.destroySel ||= new Set();
+    // drop any queued-for-destruction items that left the pack
+    for (const it of [...this.destroySel]) if (!p.inventory.includes(it)) this.destroySel.delete(it);
+
     const grid = $('inv-grid');
     grid.innerHTML = '';
     for (let i = 0; i < p.invSize; i++) {
       const item = p.inventory[i];
       const el = document.createElement('div');
-      el.className = `inv-slot ${item ? 'rarity-' + item.rarity : ''}`;
+      const marked = item && this.destroySel.has(item);
+      el.className = `inv-slot ${item ? 'rarity-' + item.rarity : ''} ${marked ? 'marked' : ''}`;
       el.textContent = item ? item.icon : '';
       if (item) {
         el.onmouseenter = (e) => this.showTooltip(item, e);
         el.onmouseleave = () => this.hideTooltip();
-        el.onclick = () => this.selectItem(item);
-        el.oncontextmenu = (e) => {
-          e.preventDefault();
-          this.game.dropItem(item);
-          this.renderInventory();
-          this.hideTooltip();
-        };
+        if (this.destroyMode) {
+          // multi-select: tap to mark/unmark for permanent destruction
+          el.onclick = () => { this.destroySel.has(item) ? this.destroySel.delete(item) : this.destroySel.add(item); this.renderInventory(); };
+        } else {
+          el.onclick = () => this.selectItem(item);
+          el.oncontextmenu = (e) => { e.preventDefault(); this.game.dropItem(item); this.renderInventory(); this.hideTooltip(); };
+        }
       }
       grid.appendChild(el);
     }
@@ -1056,6 +1068,34 @@ export class UI {
     const commons = p.inventory.filter((it) => it.rarity === 'common').length;
     dc.textContent = `Drop all commons (${commons})`;
     dc.style.display = commons ? '' : 'none';
+
+    // trash mode: multi-select + confirm to permanently destroy items
+    let tb = $('destroy-toggle-btn');
+    if (!tb) {
+      tb = document.createElement('button');
+      tb.id = 'destroy-toggle-btn'; tb.className = 'menu-btn small';
+      grid.parentElement.appendChild(tb);
+      tb.onclick = () => { this.destroyMode = !this.destroyMode; this.destroySel.clear(); this.renderInventory(); };
+    }
+    tb.textContent = this.destroyMode ? '✖ Cancel destroy' : '🗑 Destroy items';
+    let db = $('destroy-confirm-btn');
+    if (!db) {
+      db = document.createElement('button');
+      db.id = 'destroy-confirm-btn'; db.className = 'menu-btn small danger';
+      grid.parentElement.appendChild(db);
+      db.onclick = () => this.confirmDestroy();
+    }
+    db.textContent = `🗑 Destroy ${this.destroySel.size}`;
+    db.style.display = (this.destroyMode && this.destroySel.size) ? '' : 'none';
+  }
+
+  // List the marked items and ask before wiping them for good.
+  confirmDestroy() {
+    const items = [...this.destroySel];
+    if (!items.length) return;
+    $('destroy-count').textContent = `Permanently destroy ${items.length} item${items.length > 1 ? 's' : ''}? This cannot be undone.`;
+    $('destroy-list').innerHTML = items.map((it) => `<div class="tt-stat tt-${it.rarity}">${it.icon} ${it.name}</div>`).join('');
+    $('destroy-modal').classList.remove('hidden');
   }
 
   className(id) { return ({ knight: 'Knight', mage: 'Mage', ranger: 'Ranger' })[id] || id; }
