@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { FLOOR, WALL, DOOR, PIT, BRIDGE, RUBBLE, CHASM } from './dungeon.js';
-import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture } from './textures.js';
+import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture } from './textures.js';
+
+// Built once, shared by every cobweb prop (cheap; avoids a canvas per web).
+let _cobwebTex = null;
+const cobwebTexture = () => (_cobwebTex ||= makeCobwebTexture());
 
 export const TILE = 2;          // world units per grid tile
 export const WALL_HEIGHT = 3;
@@ -926,8 +930,11 @@ function buildProp(kind, C, torchPositions, smokePuffs, px, pz) {
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.34, 8), std(C.TERRA)); base.position.y = 0.17; g.add(base);
     for (let i = 0; i < 3; i++) { const sh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.02), std(C.TERRA)); sh.position.set((Math.random() - 0.5) * 0.6, 0.05, (Math.random() - 0.5) * 0.6); sh.rotation.set(Math.PI / 2.3, Math.random(), 0); g.add(sh); }
   } else if (kind === 'cobweb') {
-    const web = new THREE.Mesh(new THREE.CircleGeometry(0.6, 3), new THREE.MeshBasicMaterial({ color: 0xdedae8, transparent: true, opacity: 0.16, side: THREE.DoubleSide }));
-    web.position.set(0, 2.2, 0); web.rotation.set(-Math.PI / 4, Math.PI / 4, 0); g.add(web);
+    // A textured web plane tucked into the ceiling corner — reads as a real
+    // cobweb rather than the flat translucent triangle it used to be.
+    const web = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95),
+      new THREE.MeshBasicMaterial({ map: cobwebTexture(), transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, fog: true }));
+    web.position.set(0, 2.05, 0); web.rotation.set(0, Math.PI / 4, 0); g.add(web);
   } else if (kind === 'banner') {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6), std(0x2a2a30)); pole.position.y = 1.2; g.add(pole);
     const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 1.4), new THREE.MeshStandardMaterial({ color: C.accent.clone().multiplyScalar(0.7), roughness: 1, side: THREE.DoubleSide }));
