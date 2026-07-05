@@ -19,12 +19,12 @@ export const RARITIES = {
 const L = (f) => Math.sqrt(Math.min(f, 60)); // shared depth factor
 const GAMBLE_LEGENDARIES = [
   { slot: 'weapon', icon: '🔨', name: 'Starfall, Hammer of Dawn', stats: (f) => ({ damagePct: Math.round(45 + L(f) * 14), maxHp: Math.round(60 + L(f) * 22), crit: 8 }) },
-  { slot: 'armor', icon: '🥋', name: 'Shroud of the Last Ember', stats: (f) => ({ maxHp: Math.round(110 + L(f) * 30), speed: 15, crit: 12, armor: 8 }) },
+  { slot: 'chest', icon: '🥋', name: 'Shroud of the Last Ember', stats: (f) => ({ maxHp: Math.round(110 + L(f) * 30), speed: 15, crit: 12, armor: 8 }) },
   { slot: 'trinket', icon: '🗝️', name: 'Zoltan’s Loaded Die', stats: (f) => ({ crit: Math.round(24 + L(f) * 2), speed: 10, regen: Math.round(4 + L(f)) }) },
 ];
 const DROP_LEGENDARIES = [
   { slot: 'weapon', icon: '🗡️', name: 'Doomblade Vharkûl', stats: (f) => ({ damagePct: Math.round(60 + L(f) * 16), crit: 18 }) },
-  { slot: 'armor', icon: '🛡️', name: 'Aegis of the Fallen King', stats: (f) => ({ maxHp: Math.round(150 + L(f) * 36), armor: 18, regen: 7 }) },
+  { slot: 'chest', icon: '🛡️', name: 'Aegis of the Fallen King', stats: (f) => ({ maxHp: Math.round(150 + L(f) * 36), armor: 18, regen: 7 }) },
   { slot: 'trinket', icon: '💎', name: 'The Emberdeep Heart', stats: (f) => ({ crit: 18, speed: 12, regen: Math.round(7 + L(f) * 1.5) }) },
   { slot: 'trinket', icon: '👑', name: 'Crown of the Dungeon Lord', stats: (f) => ({ maxHp: Math.round(110 + L(f) * 26), crit: 16, regen: 6 }) },
 ];
@@ -62,6 +62,9 @@ const CLASS_WEAPONS = {
   ranger: { icon: '🏹', names: ['Bow', 'Longbow', 'Recurve', 'Shortbow', 'Warbow'] },
 };
 
+// Six wearable slots. Weapons are class-LOCKED (a mage can't hold a sword).
+// Armour pieces + trinkets are shareable across classes but carry an
+// "affinity": the class they're tuned for. See CLASS_AFFINITY below.
 const SLOT_DEFS = {
   weapon: {
     icon: '⚔️',
@@ -69,11 +72,29 @@ const SLOT_DEFS = {
     prefixes: ['Rusty', 'Fine', 'Steel', 'Tempered', 'Runed', 'Ancient'],
     stats: (power) => ({ damagePct: Math.round(5 + power * 4) }),
   },
-  armor: {
+  helmet: {
+    icon: '⛑️',
+    names: ['Helm', 'Coif', 'Hood', 'Casque', 'Visage'],
+    prefixes: ['Worn', 'Sturdy', 'Reinforced', 'Warded', 'Dragoncrest'],
+    stats: (power) => ({ maxHp: Math.round(7 + power * 6), armor: Math.round(1 + power * 0.6) }),
+  },
+  chest: {
     icon: '🛡️',
-    names: ['Mail', 'Plate', 'Cuirass', 'Vestments', 'Hide'],
+    names: ['Mail', 'Plate', 'Cuirass', 'Vestments', 'Hauberk'],
     prefixes: ['Worn', 'Sturdy', 'Reinforced', 'Warded', 'Dragonscale'],
     stats: (power) => ({ maxHp: Math.round(14 + power * 11), armor: Math.round(2 + power * 0.9) }),
+  },
+  legs: {
+    icon: '👖',
+    names: ['Greaves', 'Legguards', 'Leggings', 'Tassets', 'Faulds'],
+    prefixes: ['Worn', 'Sturdy', 'Reinforced', 'Warded', 'Dragonhide'],
+    stats: (power) => ({ maxHp: Math.round(8 + power * 7), armor: Math.round(1 + power * 0.6) }),
+  },
+  hands: {
+    icon: '🧤',
+    names: ['Gauntlets', 'Gloves', 'Grips', 'Bracers', 'Fists'],
+    prefixes: ['Worn', 'Fine', 'Steel', 'Runed', 'Ancient'],
+    stats: (power) => ({ damagePct: Math.round(3 + power * 2.2) }),
   },
   trinket: {
     icon: '💍',
@@ -88,6 +109,19 @@ const SLOT_DEFS = {
   },
 };
 
+// The stat that best serves each class — an affinity item rolls its bonus
+// stats from here, so a Mage-attuned ring leans into crit/regen while a
+// Knight-attuned one leans into health/armour. Off-class wearers still get
+// HALF value (see Player.recompute), so gear "better suits one class".
+const CLASS_AFFINITY = {
+  knight: ['maxHp', 'armor', 'damagePct'],
+  mage:   ['crit', 'regen', 'maxHp'],
+  ranger: ['speed', 'crit', 'damagePct'],
+};
+const CLASS_LIST = ['knight', 'mage', 'ranger'];
+// Slots that are shared across classes (everything except the locked weapon).
+const AFFINITY_SLOTS = ['helmet', 'chest', 'legs', 'hands', 'trinket'];
+
 const SUFFIXES = ['of Embers', 'of the Wolf', 'of Vigor', 'of the Depths', 'of Shadows', 'of the Colossus', 'of Swiftness'];
 
 let nextItemId = 1;
@@ -100,22 +134,33 @@ export function rollRarity(bonus = 0) {
 }
 
 export function generateGear(floor, forcedRarity = null, classId = 'knight') {
-  const slot = ['weapon', 'armor', 'trinket'][Math.floor(Math.random() * 3)];
+  const slot = ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket'][Math.floor(Math.random() * 6)];
+  const isWeapon = slot === 'weapon';
   const rarity = forcedRarity || rollRarity(floor);
-  // weapons take their names/icon from the finder's class
-  const def = slot === 'weapon'
+  // weapons take their names/icon from the finder's class (and are class-locked)
+  const def = isWeapon
     ? { ...SLOT_DEFS.weapon, ...(CLASS_WEAPONS[classId] || CLASS_WEAPONS.knight) }
     : SLOT_DEFS[slot];
   const power = (Math.sqrt(floor) * 1.7 + Math.random()) * RARITIES[rarity].mult;
 
   const stats = def.stats(power);
-  // rare/epic get a bonus secondary stat
+
+  // Shared gear is attuned to a class — usually the finder's, sometimes
+  // another's (so off-class loot exists to trade/inspect). Its bonus stats
+  // come from that class's affinity pool, and off-class wearers get half
+  // value in Player.recompute.
+  const affinity = isWeapon ? null
+    : (Math.random() < 0.6 ? classId : CLASS_LIST[Math.floor(Math.random() * CLASS_LIST.length)]);
+
+  // rare/epic get bonus secondary stats, flavoured by the affinity
   if (rarity !== 'common') {
     const extras = { rare: 1, epic: 2, legendary: 2 }[rarity] || 1;
+    const pool = affinity ? CLASS_AFFINITY[affinity] : ['maxHp', 'crit', 'speed', 'regen'];
     for (let i = 0; i < extras; i++) {
-      const pool = ['maxHp', 'crit', 'speed', 'regen'];
       const stat = pool[Math.floor(Math.random() * pool.length)];
-      const gain = stat === 'maxHp' ? Math.round(8 + power * 5) : Math.round(1 + power * 0.5);
+      const gain = stat === 'maxHp' ? Math.round(8 + power * 5)
+        : stat === 'damagePct' ? Math.round(2 + power * 1.5)
+        : Math.round(1 + power * 0.5);
       stats[stat] = (stats[stat] || 0) + gain;
     }
   }
@@ -125,9 +170,9 @@ export function generateGear(floor, forcedRarity = null, classId = 'knight') {
   if (rarity === 'epic') name += ` ${SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)]}`;
 
   const value = Math.round((14 + floor * 6) * RARITIES[rarity].mult);
-  // weapons carry the class that can wield them
-  const forClass = slot === 'weapon' ? classId : null;
-  return { id: nextItemId++, slot, rarity, name, icon: def.icon, stats, value, forClass };
+  // weapons carry the class that can wield them; shared gear carries affinity
+  const forClass = isWeapon ? classId : null;
+  return { id: nextItemId++, slot, rarity, name, icon: def.icon, stats, value, forClass, affinity };
 }
 
 // Gold received when selling (items from old saves may lack a stored value).

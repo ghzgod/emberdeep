@@ -938,10 +938,11 @@ export class UI {
     const p = this.game.player;
     const equipWrap = $('equip-slots');
     equipWrap.innerHTML = '';
-    for (const slotName of ['weapon', 'armor', 'trinket']) {
+    for (const slotName of ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket']) {
       const item = p.equipped[slotName];
       const el = document.createElement('div');
-      el.className = `inv-slot equip ${item ? 'rarity-' + item.rarity : ''}`;
+      const offClass = item && item.affinity && item.affinity !== p.classId;
+      el.className = `inv-slot equip ${item ? 'rarity-' + item.rarity : ''} ${offClass ? 'off-class' : ''}`;
       el.innerHTML = `${item ? item.icon : '·'}<span class="slot-label">${slotName}</span>`;
       if (item) {
         el.onmouseenter = (e) => this.showTooltip(item, e);
@@ -990,6 +991,22 @@ export class UI {
     dc.style.display = commons ? '' : 'none';
   }
 
+  className(id) { return ({ knight: 'Knight', mage: 'Mage', ranger: 'Ranger' })[id] || id; }
+
+  // A one-line note about class-lock (weapons) or affinity (shared gear).
+  affinityNote(item) {
+    const cls = this.game.player.classId;
+    if (item.forClass) {
+      const ok = item.forClass === cls;
+      return `<div style="font-size:11px;margin-top:2px;color:${ok ? '#7ce87c' : '#e86a6a'}">${ok ? '★ Your class' : '⛔ ' + this.className(item.forClass) + ' only'}</div>`;
+    }
+    if (item.affinity) {
+      const ok = item.affinity === cls;
+      return `<div style="font-size:11px;margin-top:2px;color:${ok ? '#7ce87c' : '#e8a85a'}">${ok ? '★ Attuned to your class' : '½ stats · attuned to ' + this.className(item.affinity)}</div>`;
+    }
+    return '';
+  }
+
   // Tap/click an item -> action panel (works on mobile where right-click doesn't exist).
   selectItem(item) {
     this.selectedItem = item;
@@ -998,7 +1015,7 @@ export class UI {
     const stats = Object.entries(item.stats)
       .map(([k, v]) => `<span class="tt-stat">${statLabel(k, v)}</span>`).join(' · ');
     $('item-actions-info').innerHTML =
-      `<h4 class="tt-${item.rarity}" style="display:inline">${item.icon} ${item.name}</h4><br>${stats}`;
+      `<h4 class="tt-${item.rarity}" style="display:inline">${item.icon} ${item.name}</h4><br>${stats}${this.affinityNote(item)}`;
     $('btn-item-equip').onclick = () => { this.game.equip(item); this.renderInventory(); };
     // Selling is done only at an NPC vendor's menu, never from the inventory.
     const sellBtn = $('btn-item-sell');
@@ -1015,6 +1032,7 @@ export class UI {
       <h4 class="tt-${item.rarity}">${item.icon} ${item.name}</h4>
       <div style="opacity:0.6;font-size:11px;">${RARITIES[item.rarity].name} ${item.slot}</div>
       ${stats}
+      ${this.affinityNote(item)}
       <div style="opacity:0.5;font-size:11px;margin-top:6px;">Click to equip · Right-click to drop</div>
     `;
     tt.style.left = `${Math.min(e.clientX + 16, window.innerWidth - 260)}px`;
