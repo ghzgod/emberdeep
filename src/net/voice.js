@@ -50,9 +50,12 @@ export class VoiceChat {
     this.track = this.stream.getAudioTracks()[0];
     this.track.enabled = false;
 
-    // level meter for auto-detection
+    // level meter for auto-detection. A fresh AudioContext starts suspended
+    // (autoplay policy) and would feed the analyser silence, so resume it —
+    // enable() is always triggered by a user gesture (settings toggle).
     const Ctx = window.AudioContext || window.webkitAudioContext;
     this._ctx = new Ctx();
+    try { await this._ctx.resume(); } catch { /* resumes on next gesture */ }
     const src = this._ctx.createMediaStreamSource(this.stream);
     this._analyser = this._ctx.createAnalyser();
     this._analyser.fftSize = 512;
@@ -70,8 +73,26 @@ export class VoiceChat {
     return true;
   }
 
+  // Settings "mic test": keep the mic un-muted so the level meter reads input
+  // without transmitting to anyone.
+  setMonitor(on) { this.monitor = on; }
+
   _tick() {
     if (!this._analyser) return;
+
+    let want = false;
+    if (this.mode === 'ptt') {
+      want = this.ptt;
+    } else if (this.mode === 'auto') {
+      // level was computed last tick; decide before we (maybe) mute below
+      const now = performance.now();
+      if (this.level >= this.threshold) this._lastLoud = now;
+      want = now - this._lastLoud < HANGOVER_MS;
+    }
+    // keep the track live if transmitting OR just monitoring for the meter,
+    // so the analyser always sees real input when settings are open
+    if (this.track) this.track.enabled = want || !!this.monitor;
+
     this._analyser.getByteTimeDomainData(this._buf);
     let sum = 0;
     for (let i = 0; i < this._buf.length; i++) {
@@ -80,15 +101,6 @@ export class VoiceChat {
     }
     this.level = Math.min(100, Math.round(Math.sqrt(sum / this._buf.length) * 320));
 
-    let want = false;
-    if (this.mode === 'ptt') {
-      want = this.ptt;
-    } else if (this.mode === 'auto') {
-      const now = performance.now();
-      if (this.level >= this.threshold) this._lastLoud = now;
-      want = now - this._lastLoud < HANGOVER_MS;
-    }
-    if (this.track) this.track.enabled = want;
     if (want !== this.transmitting) {
       this.transmitting = want;
       this.onTransmitChange?.(want);

@@ -54,6 +54,14 @@ export function gambleItem(floor) {
 
 // Item power grows with the square root of floor depth (not linearly), so
 // late-act gear is strong but never explodes into free-win territory.
+// Weapons are flavored to the class that finds them — a mage never picks up
+// a sword, a ranger never a staff.
+const CLASS_WEAPONS = {
+  knight: { icon: '⚔️', names: ['Sword', 'Blade', 'Greatsword', 'Cleaver', 'Warblade'] },
+  mage:   { icon: '🪄', names: ['Staff', 'Wand', 'Scepter', 'Rod', 'Focus'] },
+  ranger: { icon: '🏹', names: ['Bow', 'Longbow', 'Recurve', 'Shortbow', 'Warbow'] },
+};
+
 const SLOT_DEFS = {
   weapon: {
     icon: '⚔️',
@@ -91,10 +99,13 @@ export function rollRarity(bonus = 0) {
   return 'common';
 }
 
-export function generateGear(floor, forcedRarity = null) {
+export function generateGear(floor, forcedRarity = null, classId = 'knight') {
   const slot = ['weapon', 'armor', 'trinket'][Math.floor(Math.random() * 3)];
   const rarity = forcedRarity || rollRarity(floor);
-  const def = SLOT_DEFS[slot];
+  // weapons take their names/icon from the finder's class
+  const def = slot === 'weapon'
+    ? { ...SLOT_DEFS.weapon, ...(CLASS_WEAPONS[classId] || CLASS_WEAPONS.knight) }
+    : SLOT_DEFS[slot];
   const power = (Math.sqrt(floor) * 1.7 + Math.random()) * RARITIES[rarity].mult;
 
   const stats = def.stats(power);
@@ -114,7 +125,9 @@ export function generateGear(floor, forcedRarity = null) {
   if (rarity === 'epic') name += ` ${SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)]}`;
 
   const value = Math.round((14 + floor * 6) * RARITIES[rarity].mult);
-  return { id: nextItemId++, slot, rarity, name, icon: def.icon, stats, value };
+  // weapons carry the class that can wield them
+  const forClass = slot === 'weapon' ? classId : null;
+  return { id: nextItemId++, slot, rarity, name, icon: def.icon, stats, value, forClass };
 }
 
 // Gold received when selling (items from old saves may lack a stored value).

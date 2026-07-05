@@ -145,12 +145,7 @@ export function generateDungeon(floor) {
   };
   scuffs.push(...take(14, 2).map((t) => ({ ...t, r: Math.random() * Math.PI * 2, s: 0.5 + Math.random() * 0.8 })));
   rubble.push(...take(8, 3));
-  if (floor >= 2) {
-    for (const t of take(2 + Math.floor(Math.min(floor, 12) / 4), 6)) {
-      pits.push(t);
-      grid[t.y][t.x] = PIT;
-    }
-  }
+  // (pit-fall traps removed — they yanked you to the next floor)
 
   return { grid, size: GRID, rooms, spawn, stairs, torches, chests, doors, enemies, boss: null, scuffs, rubble, pits };
 }

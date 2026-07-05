@@ -138,6 +138,7 @@
 
     <!-- Inventory -->
     <div id="inventory-screen" class="overlay panel">
+      <button class="overlay-close" data-close="inventory" title="Close">✕</button>
       <h2 class="screen-heading">Inventory</h2>
       <div id="equip-slots" class="equip-row"></div>
       <div id="inv-grid" class="inv-grid"></div>
@@ -155,6 +156,7 @@
 
     <!-- Notice board -->
     <div id="notices-screen" class="overlay panel">
+      <button class="overlay-close" data-close="notices" title="Close">✕</button>
       <h2 class="screen-heading">Notice Board</h2>
       <div id="notices-list"></div>
       <div class="menu-buttons"><button id="btn-notices-close" class="menu-btn small">Step back</button></div>
@@ -171,6 +173,7 @@
 
     <!-- Mastery tree -->
     <div id="skills-screen" class="overlay panel">
+      <button class="overlay-close" data-close="skills" title="Close">✕</button>
       <h2 class="screen-heading">Mastery</h2>
       <p id="skills-points" class="skills-points"></p>
       <div id="skills-grid"></div>
@@ -179,6 +182,7 @@
 
     <!-- Quest log -->
     <div id="quest-screen" class="overlay panel">
+      <button class="overlay-close" data-close="quest" title="Close">✕</button>
       <h2 class="screen-heading">Quest Log</h2>
       <div id="quest-list"></div>
       <div id="quest-stats"></div>
@@ -199,6 +203,7 @@
 
     <!-- Settings -->
     <div id="settings-screen" class="overlay panel">
+      <button class="overlay-close" data-close="settings" title="Close">✕</button>
       <h2 class="screen-heading">Settings</h2>
       <div class="settings-rows">
         <label>Master Volume <input type="range" id="set-master" min="0" max="100" value="80"><span id="set-master-val"></span></label>
@@ -218,12 +223,13 @@
         <label>Enemy Taunts (spoken) <input type="checkbox" id="set-taunts" checked></label>
         <label>Character Voices
           <select id="set-voice-engine">
-            <option value="standard" selected>Standard (instant)</option>
-            <option value="neural">Neural — natural (~90 MB, one-time)</option>
+            <option value="neural" selected>Neural — natural (~90 MB, one-time)</option>
+            <option value="standard">Standard (instant)</option>
           </select>
         </label>
         <p id="voice-engine-status" class="hint hidden"></p>
         <div id="voice-engine-bar" class="hidden"><div id="voice-engine-fill"></div></div>
+        <button id="btn-voice-retry" class="menu-btn small hidden" type="button">↻ Retry neural voices</button>
         <label>Voice Chat (multiplayer)
           <select id="set-voice">
             <option value="off">Off</option>

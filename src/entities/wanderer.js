@@ -116,8 +116,6 @@ export class Wanderer {
     options.push(classTips[cls] || `Swing well, hero.`);
     // habits (movement-learning net)
     if (game.fleeTendency > 0.4) options.push(`You run in circles when frightened. The imps have noticed. I have noticed. Everyone has noticed.`);
-    // pits secret
-    if (game.floor >= 2) options.push(`A secret: the pits in the floor skip the seal entirely. Falling is just descending with confidence.`);
 
     return options[Math.floor(Math.random() * options.length)];
   }
