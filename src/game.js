@@ -962,8 +962,14 @@ export class Game {
     });
     net.on('roast', (msg) => {
       if (net.isHost || !this.player) return;
+      // Don't hear dungeon enemies while you're in town/tavern, or when they're
+      // too far away to matter — only taunts near you, in your zone.
+      if (this.inTown || this.localTown || this.myZone() !== 0) return;
       const e = this.enemies.find((en) => en.netId === msg.ei && !en.dead);
-      if (e) this.ui.floaters.spawn(e.pos, `“${msg.txt}”`, 'roast', 6);
+      if (!e) return;
+      const d = Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z);
+      if (d > 18) return;
+      this.ui.floaters.spawn(e.pos, `“${msg.txt}”`, 'roast', 6);
       roaster.speak(msg.txt, msg.ty);
     });
     net.on('state', (msg) => {
