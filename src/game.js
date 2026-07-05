@@ -246,13 +246,23 @@ export class Game {
     this.ui.hideAll();
     this.ui.showHud(true);
     this.touch.setVisible(true);
+    this.ui.showChatBar(net.active);
     audio.resume();
+  }
+
+  broadcastChat(text) {
+    if (!net.active) return;
+    const name = this.playerName();
+    const ts = Date.now();
+    this.ui.addChatMessage(name, text, ts, true);
+    net.send({ t: 'chat', name, txt: text, ts });
   }
 
   quitToTitle() {
     this.requestSave(true);
     voice.disable();
     this.ui.setMicAvailable(false);
+    this.ui.showChatBar(false);
     net.stop();
     this.clearRemotePlayers();
     this.teardownFloor();
@@ -970,6 +980,11 @@ export class Game {
       net.lastRoster = msg.ids;
       voice.syncPeers(msg.ids);
     });
+    net.on('chat', (msg, from) => {
+      // host relays a guest's chat to the OTHER guests (not the sender)
+      if (net.isHost && from !== 'host') net.sendExcept({ t: 'chat', name: msg.name, txt: msg.txt, ts: msg.ts }, from);
+      this.ui.addChatMessage(msg.name, msg.txt, msg.ts, false);
+    });
     net.on('notice', (msg) => {
       if (this.player) this.ui.floaters.spawn(this.player.pos, msg.txt, 'crit');
     });
@@ -1604,10 +1619,11 @@ export class Game {
 
     if (this.state === 'playing') {
       this.updatePlaying(dt);
-    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story', 'notices'].includes(this.state)) {
+    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story', 'notices', 'chatlog'].includes(this.state)) {
       // world is frozen; still render + light flicker for life
       this.updateTorches(dt, true);
       if (net.active) this.netFrozenTick(dt);
+      if (this.state === 'chatlog' && this.input.wasPressed('Escape')) { this.state = 'playing'; this.ui.hideAll(); }
       if (this.state === 'inventory' && (this.input.wasPressed('Tab') || this.input.wasPressed('Escape') || this.input.wasPressed('KeyI'))) {
         this.state = 'playing';
         this.ui.closeInventory();
@@ -1731,6 +1747,8 @@ export class Game {
     }
     if (input.wasPressed('KeyJ')) { this.toggleQuestLog(); return; }
     if (input.wasPressed('KeyK')) { this.toggleSkills(); return; }
+    // Enter opens chat input in multiplayer
+    if (net.active && input.wasPressed('Enter')) { this.ui.openChatInput(); return; }
     if (input.wasPressed('KeyF')) { this.doInteract(); return; }
     if (input.wasPressed('Escape')) { this.togglePause(true); return; }
 
@@ -1795,7 +1813,7 @@ export class Game {
 
     // ---- UI ----
     this.ui.minimap.revealAround(p.pos.x, p.pos.z);
-    this.ui.minimap.draw(p);
+    this.ui.minimap.draw(p, this.camYaw || 0);
     const bossOnFloor = this.boss && !this.boss.dead && this.boss.state !== 'idle' ? this.boss : null;
     this.ui.updateHud(p, this.floor, bossOnFloor);
   }

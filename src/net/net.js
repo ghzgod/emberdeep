@@ -161,6 +161,13 @@ export class Net {
     this.emitLocal('peers', { ids });
   }
 
+  // host: relay to all guests except one id (used for chat, so the sender
+  // doesn't receive an echo of their own message)
+  sendExcept(msg, exceptId) {
+    if (this.mode !== 'host') return;
+    for (const [id, c] of this.conns) if (id !== exceptId) c.send(msg);
+  }
+
   // host: send to all guests (or one guest by id); guest: send to host
   send(msg, toId = null) {
     if (this.mode === 'host') {

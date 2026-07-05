@@ -125,6 +125,21 @@
     <!-- Floating combat text layer -->
     <div id="floaters"></div>
 
+    <!-- Multiplayer text chat -->
+    <div id="chat" class="hidden">
+      <div id="chat-recent"></div>
+      <button id="chat-open" title="Open chat log">💬</button>
+      <div id="chat-input-row" class="hidden">
+        <input id="chat-input" type="text" maxlength="140" placeholder="Say something…" />
+      </div>
+    </div>
+    <div id="chat-log-screen" class="overlay panel">
+      <button class="overlay-close" data-close="chatlog" title="Close">✕</button>
+      <h2 class="screen-heading">Room Chat</h2>
+      <div id="chat-log-list"></div>
+      <div id="chat-log-input-row"><input id="chat-log-input" type="text" maxlength="140" placeholder="Type a message…" /></div>
+    </div>
+
     <!-- Character speech subtitle -->
     <div id="subtitle" class="hidden">
       <span id="subtitle-speaker"></span>

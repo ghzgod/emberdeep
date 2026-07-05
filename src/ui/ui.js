@@ -25,6 +25,7 @@ export class UI {
       skills: $('skills-screen'),
       story: $('story-screen'),
       notices: $('notices-screen'),
+      chatlog: $('chat-log-screen'),
       settings: $('settings-screen'),
       inventory: $('inventory-screen'),
       shop: $('shop-screen'),
@@ -38,6 +39,7 @@ export class UI {
     this.wireActionBar();
     this.wireSettings();
     this.buildClassCards();
+    this.initChat();
     this.addUiSounds();
   }
 
@@ -555,6 +557,68 @@ export class UI {
     $('ab-mic').classList.toggle('live', on);
   }
 
+  // ---------- multiplayer text chat ----------
+  initChat() {
+    this.chatLog = [];
+    const input = $('chat-input');
+    const openLog = () => { this.game.state = 'chatlog'; this.renderChatLog(); this.show('chatlog'); setTimeout(() => $('chat-log-input').focus(), 50); };
+    $('chat-open').onclick = openLog;
+    // Enter opens the quick input; Enter again sends
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { this.sendChat(input.value); input.value=''; $('chat-input-row').classList.add('hidden'); }
+      else if (e.key === 'Escape') { input.value=''; $('chat-input-row').classList.add('hidden'); }
+    });
+    const logInput = $('chat-log-input');
+    logInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { this.sendChat(logInput.value); logInput.value=''; this.renderChatLog(); }
+    });
+  }
+
+  showChatBar(visible) {
+    $('chat').classList.toggle('hidden', !visible);
+  }
+
+  openChatInput() {
+    if ($('chat').classList.contains('hidden')) return;
+    $('chat-input-row').classList.remove('hidden');
+    setTimeout(() => $('chat-input').focus(), 20);
+  }
+
+  sendChat(text) {
+    text = (text || '').trim().slice(0, 140);
+    if (!text) return;
+    this.game.broadcastChat(text);
+  }
+
+  addChatMessage(name, text, ts, mine) {
+    this.chatLog.push({ name, text, ts: ts || Date.now(), mine });
+    if (this.chatLog.length > 200) this.chatLog.shift();
+    // recent bubbles (last 3, auto-fade)
+    const recent = $('chat-recent');
+    const el = document.createElement('div');
+    el.className = 'chat-msg';
+    el.innerHTML = `<b>${this.esc(name)}</b>${this.esc(text)}`;
+    recent.appendChild(el);
+    while (recent.children.length > 3) recent.removeChild(recent.firstChild);
+    setTimeout(() => { el.classList.add('fading'); setTimeout(() => el.remove(), 800); }, 7000);
+    if (!$('chat-log-screen').classList.contains('visible')) return;
+    this.renderChatLog();
+  }
+
+  renderChatLog() {
+    const list = $('chat-log-list');
+    list.innerHTML = this.chatLog.map((m) => {
+      const d = new Date(m.ts);
+      const hh = String(d.getHours()).padStart(2, '0'), mm = String(d.getMinutes()).padStart(2, '0');
+      return `<div class="chat-log-msg"><span class="ts">${hh}:${mm}</span><b>${this.esc(m.name)}</b>${this.esc(m.text)}</div>`;
+    }).join('');
+    list.scrollTop = list.scrollHeight;
+  }
+
+  esc(s) { return String(s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
+
   // Themed subtitle bar for character speech (vendors, NPCs, enemies).
   showSubtitle(speaker, text, durationMs = 4200) {
     const el = $('subtitle');
@@ -710,7 +774,7 @@ export class UI {
     const count = this.game.roomPlayerCount();
     if (count > 0) {
       playersEl.classList.remove('hidden');
-      playersEl.textContent = `${count} 👥`;
+      playersEl.textContent = `Online (${count})`;
       playersEl.title = `${count} heroes in this room`;
     } else {
       playersEl.classList.add('hidden');
