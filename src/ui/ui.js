@@ -555,6 +555,17 @@ export class UI {
     $('ab-mic').classList.toggle('live', on);
   }
 
+  // Themed subtitle bar for character speech (vendors, NPCs, enemies).
+  showSubtitle(speaker, text, durationMs = 4200) {
+    const el = $('subtitle');
+    $('subtitle-speaker').textContent = speaker;
+    $('subtitle-text').textContent = text;
+    el.classList.remove('hidden');
+    el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+    clearTimeout(this._subT);
+    this._subT = setTimeout(() => el.classList.add('hidden'), durationMs);
+  }
+
   // Kick off (or re-show) the neural voice download with live progress + retry.
   async startNeuralVoices() {
     const vStatus = $('voice-engine-status');

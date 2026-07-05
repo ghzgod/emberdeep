@@ -600,7 +600,7 @@ export class Game {
     );
     const line = lines[Math.floor(Math.random() * lines.length)];
     const b = this.dungeonMeshes.barkeepPos;
-    this.ui.floaters.spawn({ x: b.x, y: 1.6, z: b.z - 1.2 }, `“${line}”`, 'roast', 3.4);
+    this.ui.showSubtitle('Barlow the Barkeep', line);
     roaster.speakAs(line, { female: false, vi: 5, pitch: 0.8, rate: 0.95, kokoro: 'am_liam', kSpeed: 0.95 });
   }
 
@@ -617,7 +617,7 @@ export class Game {
     ];
     const bank = pm.drunk ? drunkLines : soberLines;
     const line = bank[Math.floor(Math.random() * bank.length)];
-    this.ui.floaters.spawn({ x: pm.x, y: 1.5, z: pm.z }, `“${line}”`, 'roast', 3.2);
+    this.ui.showSubtitle(pm.drunk ? 'Tipsy Regular' : 'Tavern Patron', line);
     roaster.speakAs(line, pm.drunk
       ? { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82 }
       : { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 });
@@ -698,7 +698,7 @@ export class Game {
     };
     const bank = lines[vendor.type] || lines.gear;
     const line = bank[Math.floor(Math.random() * bank.length)];
-    this.ui.floaters.spawn({ x: vendor.wx, y: 1.4, z: vendor.wz }, `“${line}”`, 'roast', 2.6);
+    this.ui.showSubtitle(vendor.name, line);
     roaster.speakAs(line, casts[vendor.type] || casts.gear);
   }
 
