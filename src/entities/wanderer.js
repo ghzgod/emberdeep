@@ -7,7 +7,9 @@ import { ACT_BOSSES } from './enemies.js';
 // Old Fenwick, the Mad Prophet of Embervale. Wanders the square on his own,
 // and when you come close he reads YOU — your name, class, wounds, wallet,
 // habits (via the movement-learning net) — and hands out quest direction.
-const CAST = { female: false, vi: 4, pitch: 0.95, rate: 0.85, kokoro: 'am_adam', kSpeed: 0.9 };
+// am_fenrir: a deep, characterful male Kokoro voice (higher-graded than am_adam
+// in Kokoro's VOICES table) — fitting for a wandering wizard, and unused elsewhere.
+const CAST = { female: false, vi: 5, pitch: 0.9, rate: 0.9, kokoro: 'am_fenrir', kSpeed: 0.92 };
 
 export class Wanderer {
   constructor(dungeon, scene) {
