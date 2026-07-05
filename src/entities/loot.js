@@ -125,6 +125,8 @@ const AFFINITY_SLOTS = ['helmet', 'chest', 'legs', 'hands', 'trinket'];
 const SUFFIXES = ['of Embers', 'of the Wolf', 'of Vigor', 'of the Depths', 'of Shadows', 'of the Colossus', 'of Swiftness'];
 
 let nextItemId = 1;
+// Shared id source so consumables/elixirs get unique ids too.
+export function newItemId() { return nextItemId++; }
 
 export function rollRarity(bonus = 0) {
   const roll = Math.random() * 100 - bonus;
