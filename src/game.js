@@ -1614,10 +1614,14 @@ export class Game {
     const geo = new THREE.CircleGeometry(opts.radius, 24);
     const mat = new THREE.MeshBasicMaterial({
       color: opts.color, transparent: true, opacity: 0.22, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(opts.x, 0.06, opts.z);
+    // Sit above the tallest walkable surface (chasm bridge planks top out at
+    // ~0.10) and draw on top, so the AoE never sinks under the floor/bridge.
+    mesh.position.set(opts.x, 0.14, opts.z);
+    mesh.renderOrder = 3;
     this.scene.add(mesh);
     this.zones.push({ ...opts, mesh, t: opts.duration, delay: opts.delay || 0, tickT: 0 });
   }
