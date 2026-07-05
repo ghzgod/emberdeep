@@ -78,7 +78,7 @@ export class Wanderer {
     if (this.speakCooldown > 0) return;
     this.speakCooldown = 2.5;
     const line = this.composeLine(game);
-    game.ui.floaters.spawn({ x: this.pos.x, y: 1.6, z: this.pos.z }, `“${line}”`, 'roast', 3.6);
+    game.ui.showSubtitle('Old Fenwick', line, 5000);
     roaster.speakAs(line, CAST);
   }
 

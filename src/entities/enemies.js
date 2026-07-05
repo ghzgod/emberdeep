@@ -386,66 +386,173 @@ function addShadowBlob(g, radius) {
   g.add(shadow);
 }
 
+function limbSeg(radiusTop, radiusBottom, length, color, radialSegs = 5) {
+  return new THREE.Mesh(new THREE.CylinderGeometry(radiusTop, radiusBottom, length, radialSegs), makeMat(color));
+}
+
 export function buildEnemyMesh(typeId, scale = 1) {
   const g = new THREE.Group();
   const def = ENEMY_TYPES[typeId];
 
   if (typeId === 'skeleton') {
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.5, 4, 8), makeMat(def.color));
-    body.position.y = 0.65;
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), makeMat(0xe8e4d8));
-    skull.position.y = 1.25;
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff3030 }));
-    eyeL.position.set(-0.08, 1.28, 0.16);
-    const eyeR = eyeL.clone(); eyeR.position.x = 0.08;
-    const sword = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.6, 0.1), makeMat(0x9a9aa8, 0.4));
-    sword.position.set(0.35, 0.7, 0.1);
-    sword.rotation.z = -0.4;
-    g.add(body, skull, eyeL, eyeR, sword);
+    const bone = def.color;
+    // pelvis + spine
+    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.16), makeMat(bone));
+    pelvis.position.y = 0.62;
+    const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.42, 5), makeMat(bone));
+    spine.position.y = 0.86;
+    // ribcage: a few curved struts via thin torus slices
+    const ribGeo = new THREE.TorusGeometry(0.16, 0.018, 4, 8, Math.PI * 1.1);
+    const rib1 = new THREE.Mesh(ribGeo, makeMat(bone));
+    rib1.position.set(0, 0.98, -0.02); rib1.rotation.set(Math.PI / 2, 0, Math.PI * 0.45);
+    const rib2 = rib1.clone(); rib2.position.y = 0.86;
+    const rib3 = rib1.clone(); rib3.position.y = 0.74; rib3.scale.setScalar(0.9);
+    // skull with jaw + eye sockets
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), makeMat(0xe8e4d8));
+    skull.position.y = 1.18; skull.scale.set(0.9, 1, 1.05);
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.06, 0.14), makeMat(0xd8d4c4));
+    jaw.position.set(0, 1.06, 0.05);
+    const socketMat = new THREE.MeshBasicMaterial({ color: 0x1a1410 });
+    const socketL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), socketMat);
+    socketL.position.set(-0.06, 1.19, 0.13);
+    const socketR = socketL.clone(); socketR.position.x = 0.06;
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.025, 5, 5), new THREE.MeshBasicMaterial({ color: 0xff3020 }));
+    eyeL.position.set(-0.06, 1.19, 0.16);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.06;
+    // arms: shoulder->forearm bone segments, hunched
+    const armLU = limbSeg(0.035, 0.03, 0.28, bone);
+    armLU.position.set(-0.22, 0.9, 0.04); armLU.rotation.set(0.3, 0, 0.5);
+    const armLL = limbSeg(0.028, 0.024, 0.24, bone);
+    armLL.position.set(-0.34, 0.68, 0.14); armLL.rotation.set(0.4, 0, 0.35);
+    const armRU = armLU.clone(); armRU.position.x = 0.22; armRU.rotation.z = -0.5;
+    const armRL = armLL.clone(); armRL.position.x = 0.34; armRL.rotation.z = -0.35;
+    // legs: thigh + shin bones
+    const legLU = limbSeg(0.04, 0.035, 0.3, bone);
+    legLU.position.set(-0.09, 0.44, 0);
+    const legLL = limbSeg(0.032, 0.026, 0.28, bone);
+    legLL.position.set(-0.09, 0.16, 0.02); legLL.rotation.x = 0.1;
+    const legRU = legLU.clone(); legRU.position.x = 0.09;
+    const legRL = legLL.clone(); legRL.position.x = 0.09;
+    // chipped sword + small shield
+    const sword = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.55, 0.08), makeMat(0x9a9aa8, 0.4));
+    sword.position.set(0.42, 0.78, 0.12); sword.rotation.z = -0.35;
+    const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.03, 6), makeMat(0x6a5a3a, 0.6));
+    shield.position.set(-0.4, 0.82, 0.06); shield.rotation.x = Math.PI / 2; shield.rotation.z = 0.2;
+    g.add(pelvis, spine, rib1, rib2, rib3, skull, jaw, socketL, socketR, eyeL, eyeR,
+      armLU, armLL, armRU, armRL, legLU, legLL, legRU, legRL, sword, shield);
     addShadowBlob(g, 0.4);
   } else if (typeId === 'spider') {
-    const abdomen = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 8), makeMat(def.color));
-    abdomen.position.set(0, 0.35, -0.2);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), makeMat(0x2a2a34));
-    head.position.set(0, 0.3, 0.2);
-    g.add(abdomen, head);
-    for (let i = 0; i < 4; i++) {
-      const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.55, 4), makeMat(0x222228));
-      legL.position.set(-0.3, 0.28, -0.25 + i * 0.16);
-      legL.rotation.z = 0.9;
-      const legR = legL.clone(); legR.position.x = 0.3; legR.rotation.z = -0.9;
-      g.add(legL, legR);
+    const chitin = def.color;
+    const cephalothorax = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 7), makeMat(chitin));
+    cephalothorax.position.set(0, 0.28, 0.2); cephalothorax.scale.set(1, 0.85, 1.1);
+    const abdomen = new THREE.Mesh(new THREE.SphereGeometry(0.3, 9, 8), makeMat(chitin));
+    abdomen.position.set(0, 0.32, -0.22); abdomen.scale.set(1, 0.95, 1.25);
+    // marking stripe on abdomen
+    const marking = new THREE.Mesh(new THREE.SphereGeometry(0.31, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.35), makeMat(0x8a2a2a, 0.7));
+    marking.position.copy(abdomen.position); marking.scale.copy(abdomen.scale);
+    marking.rotation.x = Math.PI;
+    // chelicerae/fangs
+    const fangMat = makeMat(0x1a1a1e, 0.5);
+    const fangL = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.14, 5), fangMat);
+    fangL.position.set(-0.06, 0.2, 0.36); fangL.rotation.x = Math.PI * 0.55;
+    const fangR = fangL.clone(); fangR.position.x = 0.06;
+    // eye cluster
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x8aff4a });
+    const eyes = new THREE.Group();
+    for (let i = 0; i < 6; i++) {
+      const e = new THREE.Mesh(new THREE.SphereGeometry(0.028, 5, 5), eyeMat);
+      const a = (i - 2.5) * 0.11;
+      e.position.set(a, 0.34 + (i % 2) * 0.02, 0.38);
+      eyes.add(e);
     }
-    const eyes = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), new THREE.MeshBasicMaterial({ color: 0x8aff4a }));
-    eyes.position.set(0, 0.38, 0.38);
-    g.add(eyes);
-    addShadowBlob(g, 0.42);
+    g.add(cephalothorax, abdomen, marking, fangL, fangR, eyes);
+    // 8 articulated legs: hip -> knee -> tip, two segments each via cylinders
+    const legColor = 0x18181c;
+    for (let i = 0; i < 4; i++) {
+      const side = -0.16 - i * 0.05;
+      const zOff = 0.22 - i * 0.16;
+      for (const dir of [-1, 1]) {
+        const hip = limbSeg(0.028, 0.022, 0.34, legColor);
+        hip.position.set(dir * (0.18 + i * 0.02), 0.3, zOff);
+        hip.rotation.set(0.15, 0, dir * (0.85 + i * 0.05));
+        const shin = limbSeg(0.02, 0.012, 0.32, legColor);
+        shin.position.set(dir * (0.4 + i * 0.05), 0.1, zOff - 0.06);
+        shin.rotation.set(0.5, 0, dir * 0.5);
+        g.add(hip, shin);
+      }
+    }
+    addShadowBlob(g, 0.45);
   } else if (typeId === 'imp') {
-    const body = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.8, 8), makeMat(def.color));
-    body.position.y = 0.5;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), makeMat(0xd86a48));
-    head.position.y = 1.0;
-    const hornL = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.2, 5), makeMat(0x3a2a20));
-    hornL.position.set(-0.12, 1.16, 0);
-    hornL.rotation.z = 0.4;
-    const hornR = hornL.clone(); hornR.position.x = 0.12; hornR.rotation.z = -0.4;
-    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffa03a }));
-    orb.position.set(0.3, 0.75, 0.15);
-    g.add(body, head, hornL, hornR, orb);
+    const skin = def.color;
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.19, 0.42, 4, 7), makeMat(skin));
+    body.position.y = 0.55; body.rotation.x = 0.15; // hunched lean
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), makeMat(0xd86a48));
+    head.position.set(0, 0.98, 0.06);
+    const hornL = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.18, 5), makeMat(0x2a1a14));
+    hornL.position.set(-0.1, 1.12, 0.02); hornL.rotation.z = 0.4;
+    const hornR = hornL.clone(); hornR.position.x = 0.1; hornR.rotation.z = -0.4;
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffa028 });
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.028, 6, 6), eyeMat);
+    eyeL.position.set(-0.06, 1.0, 0.19);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.06;
+    // membranous bat wings: thin cone/plane fans
+    const wingMat = new THREE.MeshStandardMaterial({ color: 0x5a1a2a, roughness: 0.6, side: THREE.DoubleSide, transparent: true, opacity: 0.85 });
+    const wingL = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.06, 4, 1, true), wingMat);
+    wingL.position.set(-0.28, 0.72, -0.14); wingL.rotation.set(0, 0, -1.15); wingL.scale.set(1, 2.2, 0.35);
+    const wingR = wingL.clone(); wingR.position.x = 0.28; wingR.rotation.z = 1.15; wingR.scale.x = 1;
+    // clawed arms
+    const armL = limbSeg(0.03, 0.024, 0.26, skin);
+    armL.position.set(-0.22, 0.6, 0.08); armL.rotation.set(0.2, 0, 0.6);
+    const armR = armL.clone(); armR.position.x = 0.22; armR.rotation.z = -0.6;
+    // whipping tail: two segments curving back
+    const tailA = limbSeg(0.035, 0.024, 0.3, skin);
+    tailA.position.set(0, 0.4, -0.2); tailA.rotation.x = -0.9;
+    const tailB = limbSeg(0.024, 0.012, 0.26, skin);
+    tailB.position.set(0, 0.28, -0.42); tailB.rotation.x = -1.7;
+    // floating fireball
+    const orbMat = new THREE.MeshBasicMaterial({ color: 0xffa03a });
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.08, 7, 7), orbMat);
+    orb.position.set(0.32, 0.7, 0.2);
+    const orbGlow = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.35 }));
+    orbGlow.position.copy(orb.position);
+    g.add(body, head, hornL, hornR, eyeL, eyeR, wingL, wingR, armL, armR, tailA, tailB, orb, orbGlow);
     addShadowBlob(g, 0.35);
   } else { // golem
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.85, 0.6), makeMat(def.color, 0.95));
-    torso.position.y = 0.85;
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.35, 0.4), makeMat(0x6a6a75, 0.95));
-    head.position.y = 1.45;
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffc03a }));
-    eye.position.set(0, 1.45, 0.22);
-    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.9, 0.35), makeMat(0x6f6f7a, 0.95));
-    armL.position.set(-0.62, 0.8, 0);
+    const rock = def.color;
+    // layered stone slabs of varied size for torso
+    const slabLow = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.4, 0.55), makeMat(rock, 0.95));
+    slabLow.position.y = 0.58;
+    const slabMid = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.4, 0.62), makeMat(0x767068, 0.95));
+    slabMid.position.set(0.02, 0.95, -0.02); slabMid.rotation.y = 0.05;
+    const slabUp = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.32, 0.5), makeMat(rock, 0.95));
+    slabUp.position.set(-0.02, 1.28, 0.02); slabUp.rotation.y = -0.04;
+    // shoulders, bulky
+    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.32, 0.5), makeMat(0x6f6a63, 0.95));
+    shoulderL.position.set(-0.58, 1.28, 0);
+    const shoulderR = shoulderL.clone(); shoulderR.position.x = 0.58;
+    // head sunk between shoulders
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.28, 0.34), makeMat(0x5f5b56, 0.95));
+    head.position.y = 1.5;
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffc03a }));
+    eye.position.set(0, 1.5, 0.19);
+    // cracked glowing seams: thin emissive strips
+    const seamMat = new THREE.MeshBasicMaterial({ color: 0xff9a2a });
+    const seam1 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.35, 0.03), seamMat);
+    seam1.position.set(-0.15, 0.85, 0.29); seam1.rotation.z = 0.3;
+    const seam2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.3, 0.03), seamMat);
+    seam2.position.set(0.2, 1.15, 0.32); seam2.rotation.z = -0.25;
+    // heavy fists
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.55, 0.32), makeMat(0x6a655e, 0.95));
+    armL.position.set(-0.62, 0.85, 0.02);
     const armR = armL.clone(); armR.position.x = 0.62;
-    const legs = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.45, 0.5), makeMat(0x5a5a64, 0.95));
-    legs.position.y = 0.22;
-    g.add(torso, head, eye, armL, armR, legs);
+    const fistL = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.36), makeMat(0x545049, 0.95));
+    fistL.position.set(-0.63, 0.52, 0.04);
+    const fistR = fistL.clone(); fistR.position.x = 0.63;
+    // legs
+    const legs = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.42, 0.48), makeMat(0x565248, 0.95));
+    legs.position.y = 0.21;
+    g.add(slabLow, slabMid, slabUp, shoulderL, shoulderR, head, eye, seam1, seam2,
+      armL, armR, fistL, fistR, legs);
     addShadowBlob(g, 0.65);
   }
 
@@ -466,7 +573,14 @@ export function buildEnemyMesh(typeId, scale = 1) {
 export function buildBossMesh(glow = 0xb35eff) {
   const g = new THREE.Group();
   const dark = makeMat(0x2f2438, 0.9);
+  const cloakMat = new THREE.MeshStandardMaterial({ color: 0x1c1526, roughness: 0.85, side: THREE.DoubleSide });
   const glowMat = new THREE.MeshBasicMaterial({ color: glow });
+
+  // tattered cloak silhouette behind torso (wide cone, jagged via low radial segs)
+  const cloak = new THREE.Mesh(new THREE.ConeGeometry(1.15, 2.6, 7, 1, true), cloakMat);
+  cloak.position.set(0, 1.4, -0.35); cloak.rotation.x = Math.PI;
+  const cloak2 = new THREE.Mesh(new THREE.ConeGeometry(0.85, 2.0, 6, 1, true), cloakMat);
+  cloak2.position.set(0, 1.1, -0.5); cloak2.rotation.x = Math.PI;
 
   const torso = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.7, 1.1), dark);
   torso.position.y = 1.6;
@@ -475,18 +589,47 @@ export function buildBossMesh(glow = 0xb35eff) {
   const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), glowMat);
   eyeL.position.set(-0.18, 2.9, 0.38);
   const eyeR = eyeL.clone(); eyeR.position.x = 0.18;
+  // crown of horns: center pair + two smaller flanking horns
   const hornL = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.7, 6), dark);
   hornL.position.set(-0.35, 3.4, 0);
   hornL.rotation.z = 0.35;
   const hornR = hornL.clone(); hornR.position.x = 0.35; hornR.rotation.z = -0.35;
+  const hornCL = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.4, 5), dark);
+  hornCL.position.set(-0.14, 3.25, -0.05); hornCL.rotation.z = 0.15;
+  const hornCR = hornCL.clone(); hornCR.position.x = 0.14; hornCR.rotation.z = -0.15;
+  // big pauldrons
+  const pauldronL = new THREE.Mesh(new THREE.SphereGeometry(0.38, 8, 7, 0, Math.PI * 2, 0, Math.PI * 0.6), dark);
+  pauldronL.position.set(-1.05, 2.35, 0); pauldronL.rotation.z = Math.PI;
+  const pauldronR = pauldronL.clone(); pauldronR.position.x = 1.05;
   const armL = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.7, 0.6), makeMat(0x3a2c48, 0.9));
   armL.position.set(-1.2, 1.5, 0);
   const armR = armL.clone(); armR.position.x = 1.2;
+  // clawed gauntlets
+  const gauntletL = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.3, 0.46), makeMat(0x50405c, 0.9));
+  gauntletL.position.set(-1.2, 0.6, 0.06);
+  const gauntletR = gauntletL.clone(); gauntletR.position.x = 1.2;
+  const clawMat = makeMat(0xd8d0c8, 0.4);
+  const clawGeo = new THREE.ConeGeometry(0.03, 0.16, 4);
+  const clawsL = new THREE.Group();
+  for (let i = -1; i <= 1; i++) {
+    const c = new THREE.Mesh(clawGeo, clawMat);
+    c.position.set(-1.2 + i * 0.1, 0.44, 0.24); c.rotation.x = 1.6;
+    clawsL.add(c);
+  }
+  const clawsR = clawsL.clone(); clawsR.position.x = 2.4;
   const legs = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.9, 0.9), dark);
   legs.position.y = 0.45;
-  const chest = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), glowMat);
-  chest.position.set(0, 1.9, 0.58);
-  g.add(torso, head, eyeL, eyeR, hornL, hornR, armL, armR, legs, chest);
-  addShadowBlob(g, 1.3);
+  // glowing chest core (layered for depth)
+  const chestCore = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), glowMat);
+  chestCore.position.set(0, 1.9, 0.58);
+  const chestRing = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.03, 6, 14), glowMat);
+  chestRing.position.copy(chestCore.position);
+
+  g.add(cloak, cloak2, torso, head, eyeL, eyeR, hornL, hornR, hornCL, hornCR,
+    pauldronL, pauldronR, armL, armR, gauntletL, gauntletR, clawsL, clawsR,
+    legs, chestCore, chestRing);
+  // boss is noticeably larger than a golem — scale whole rig up
+  g.scale.setScalar(1.35);
+  addShadowBlob(g, 1.5);
   return g;
 }

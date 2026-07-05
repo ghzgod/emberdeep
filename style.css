@@ -273,6 +273,25 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 /* collapsed: only the ☰ toggle shows, staying in its corner */
 #action-bar.collapsed button:not(#ab-toggle) { display: none; }
 
+/* ---------- Character speech subtitle ---------- */
+#subtitle {
+  position: absolute; bottom: 108px; left: 50%; transform: translateX(-50%);
+  max-width: min(88vw, 640px); z-index: 16; pointer-events: none;
+  background: linear-gradient(180deg, rgba(24,18,30,0.94), rgba(14,10,20,0.94));
+  border: 1px solid var(--gold); border-radius: 12px;
+  padding: 12px 20px 12px 18px; text-align: left;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.6), 0 0 14px rgba(232,192,90,0.12);
+  animation: sub-in 0.25s ease-out;
+}
+#subtitle.hidden { display: none; }
+#subtitle-speaker {
+  display: block; color: var(--gold); font-size: 13px; letter-spacing: 1.5px;
+  text-transform: uppercase; margin-bottom: 3px;
+}
+#subtitle-text { display: block; color: var(--parchment); font-size: 15px; line-height: 1.5; font-style: italic; }
+@keyframes sub-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (max-width: 620px) { #subtitle { bottom: 96px; padding: 9px 14px; } #subtitle-text { font-size: 13px; } }
+
 /* universal corner close ✕ on panel overlays (works without a keyboard) */
 .overlay-close {
   position: absolute; top: 14px; right: 14px; z-index: 30;

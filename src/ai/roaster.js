@@ -20,23 +20,23 @@ const LINES = {
     'Running already, {name}? The exit is sealed, coward.',
     'Look at those little legs go! Pathetic.',
     'You run like the last {name} I ate.',
-    'Flee all you like — I already know where you are going.',
+    'Flee all you like. I already know where you are going.',
     'Cardio will not save you, {name}.',
   ],
   hide: [
     'I can see you skulking behind the wall, {name}.',
     'Hiding? In MY room? Adorable.',
-    'Come out, come out… the floor already told me where you stand.',
+    'Come out, come out. The floor already told me where you stand.',
     'Is the brave {name} playing hide and seek?',
   ],
   idle: [
-    'Are you… standing still? Bold strategy, {name}.',
+    'Are you standing still? Bold strategy, {name}.',
     'Did you fall asleep, {name}? I can fix that. Permanently.',
     'Statues die too, you know.',
   ],
   chug: [
     'Another potion?! Leave some for the alchemist, {name}.',
-    'Drink up, {name} — you will bleed it right back out.',
+    'Drink up, {name}. You will bleed it right back out.',
     'The bottle will not love you back, {name}.',
   ],
   kite: [
@@ -50,7 +50,7 @@ const LINES = {
     'You are leaking, {name}. Everywhere.',
   ],
   duo: [
-    'TWO of you? Good — I was still hungry.',
+    'TWO of you? Good. I was still hungry.',
     'Bring your whole party. Bring a healer. Bring a priest for the funeral.',
     'Which of you dies first? I am flexible.',
     'A {name} AND a {name2}? The {name2} dies first. Nothing personal.',
@@ -233,7 +233,7 @@ export class Roaster {
   }
 
   deliver(game, elite, line) {
-    game.ui.floaters.spawn(elite.pos, `“${line}”`, 'roast', 3.2);
+    game.ui.showSubtitle(elite.name || 'Elite', line, 3600);
     this.speak(line, elite.typeId);
   }
 }
