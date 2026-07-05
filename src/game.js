@@ -2176,7 +2176,7 @@ export class Game {
       }
       if (!candidate && this.shopCooldown <= 0) {
         for (const v of this.dungeonMeshes.vendorMeshes) {
-          if (near(v.wx, v.wz, 2.4)) { candidate = { label: `Talk to ${v.name.split(' ')[0]}`, icon: '💬', action: () => this.openShop(v) }; break; }
+          if (near(v.wx, v.wz, 2.4)) { candidate = { label: `Talk to ${v.name}`, icon: '💬', action: () => this.openShop(v) }; break; }
         }
       }
       if (!candidate && this.wanderer && near(this.wanderer.pos.x, this.wanderer.pos.z, 2.6)) {
