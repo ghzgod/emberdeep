@@ -52,7 +52,8 @@ export class Game {
     const savedSettings = SaveManager.loadSettings();
     const firstVisit = !savedSettings;
     this.settings = Object.assign(
-      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true, voiceEngine: 'neural', voiceChatVolume: 0.9, speechVolume: 0.9 },
+      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true, voiceEngine: 'neural', voiceChatVolume: 0.9, speechVolume: 0.9,
+        keybinds: { interact: 'KeyF', potion: 'KeyR', talk: 'KeyV', inventory: 'Tab', quests: 'KeyJ', mastery: 'KeyK' } },
       savedSettings || {}
     );
     // first-ever visit: run the dialogue-forward auto-balance so the mix is
@@ -64,6 +65,8 @@ export class Game {
         sfxVolume: +db(-6).toFixed(2), musicVolume: +db(-12).toFixed(2), masterVolume: 0.85,
       });
     }
+    // ensure keybinds exist on older saves
+    this.settings.keybinds = Object.assign({ interact: 'KeyF', potion: 'KeyR', talk: 'KeyV', inventory: 'Tab', quests: 'KeyJ', mastery: 'KeyK' }, this.settings.keybinds || {});
     // one-time migration: settings saved before push-to-talk became the
     // default carried voiceMode:'off' that the user never chose
     if (!this.settings._v2) {
@@ -1640,7 +1643,7 @@ export class Game {
     }
 
     // push-to-talk (V) works in every state while connected
-    if (voice.active && voice.mode === 'ptt') voice.ptt = this.input.isDown('KeyV') || this.touchPtt;
+    if (voice.active && voice.mode === 'ptt') voice.ptt = this.input.isDown(this.settings.keybinds.talk) || this.touchPtt;
 
     // idle touch buttons fade out to free up the screen; they only exist at
     // all during gameplay and the inventory (menus have their own buttons)
@@ -1739,17 +1742,17 @@ export class Game {
     } else if (input.mouse.clicked || input.wasPressed('Digit1')) {
       this.ui.floaters.spawn(p.pos, 'Peace reigns in Embervale.', 'heal');
     }
-    if (input.wasPressed('KeyR')) p.drinkPotion(this);
-    if (input.wasPressed('Tab') || input.wasPressed('KeyI')) {
+    if (input.wasPressed(this.settings.keybinds.potion)) p.drinkPotion(this);
+    if (input.wasPressed(this.settings.keybinds.inventory) || input.wasPressed('KeyI')) {
       this.state = 'inventory';
       this.ui.openInventory();
       return;
     }
-    if (input.wasPressed('KeyJ')) { this.toggleQuestLog(); return; }
-    if (input.wasPressed('KeyK')) { this.toggleSkills(); return; }
+    if (input.wasPressed(this.settings.keybinds.quests)) { this.toggleQuestLog(); return; }
+    if (input.wasPressed(this.settings.keybinds.mastery)) { this.toggleSkills(); return; }
     // Enter opens chat input in multiplayer
     if (net.active && input.wasPressed('Enter')) { this.ui.openChatInput(); return; }
-    if (input.wasPressed('KeyF')) { this.doInteract(); return; }
+    if (input.wasPressed(this.settings.keybinds.interact)) { this.doInteract(); return; }
     if (input.wasPressed('Escape')) { this.togglePause(true); return; }
 
     // ---- systems ----

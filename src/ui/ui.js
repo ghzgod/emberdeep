@@ -428,6 +428,9 @@ export class UI {
     bindPlain('set-vchat', 'set-vchat-val', 'voiceChatVolume');
     bindPlain('set-speech', 'set-speech-val', 'speechVolume');
 
+    // key bindings (desktop): click a row, then press a key to rebind
+    this.renderKeybinds();
+
     // Auto-balance: dialogue-first mixing — speech at reference, voice chat
     // equal (0 dB), SFX −6 dB, music −12 dB, master at 85%.
     $('btn-auto-level').onclick = () => {
@@ -555,6 +558,42 @@ export class UI {
   setMicIndicator(on) {
     $('voice-indicator').classList.toggle('hidden', !on);
     $('ab-mic').classList.toggle('live', on);
+  }
+
+  // ---------- key bindings ----------
+  keyLabel(code) {
+    if (!code) return '—';
+    if (code.startsWith('Key')) return code.slice(3);
+    if (code.startsWith('Digit')) return code.slice(5);
+    if (code === 'Space') return 'Space';
+    return code;
+  }
+
+  renderKeybinds() {
+    const wrap = $('keybinds');
+    if (!wrap) return;
+    const binds = this.game.settings.keybinds;
+    const labels = { interact: 'Interact', potion: 'Drink Potion', talk: 'Push-to-Talk', inventory: 'Inventory', quests: 'Quest Log', mastery: 'Mastery' };
+    wrap.innerHTML = '';
+    for (const [action, label] of Object.entries(labels)) {
+      const row = document.createElement('div');
+      row.className = 'keybind-row';
+      row.innerHTML = `<span>${label}</span><button class="keybind-btn">${this.keyLabel(binds[action])}</button>`;
+      const btn = row.querySelector('.keybind-btn');
+      btn.onclick = () => {
+        btn.textContent = 'Press a key…';
+        btn.classList.add('listening');
+        const onKey = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          window.removeEventListener('keydown', onKey, true);
+          if (e.code !== 'Escape') { binds[action] = e.code; this.game.saveSettings(); }
+          btn.classList.remove('listening');
+          this.renderKeybinds();
+        };
+        window.addEventListener('keydown', onKey, true);
+      };
+      wrap.appendChild(row);
+    }
   }
 
   // ---------- multiplayer text chat ----------
