@@ -58,6 +58,33 @@ export const ENEMY_TYPES = {
     sounds: { hurt: 'skeleton_hurt', death: 'skeleton_death' },
     color: 0x8a9a6a,
   },
+  witch: {
+    name: 'Witch',
+    base: { hp: 28, damage: 11, speed: 4.2, xp: 13, gold: [3, 9] },
+    perFloor: { hp: 9, damage: 3.0, xp: 3.5 },
+    attack: { kind: 'ranged', range: 8.5, keepDistance: 6, cooldown: 1.5, windup: 0.4, projSpeed: 12 },
+    aggroRange: 12, radius: 0.36,
+    sounds: { hurt: 'imp_hurt', death: 'imp_death', shoot: 'imp_shoot' },
+    color: 0x2a4a3a,
+  },
+  warlock: {
+    name: 'Warlock',
+    base: { hp: 34, damage: 12, speed: 3.6, xp: 15, gold: [4, 10] },
+    perFloor: { hp: 11, damage: 3.4, xp: 4 },
+    attack: { kind: 'ranged', range: 9, keepDistance: 6.5, cooldown: 1.7, windup: 0.5, projSpeed: 11 },
+    aggroRange: 12, radius: 0.38,
+    sounds: { hurt: 'imp_hurt', death: 'imp_death', shoot: 'imp_shoot' },
+    color: 0x4a3a6a,
+  },
+  demon: {
+    name: 'Demon',
+    base: { hp: 70, damage: 20, speed: 3.4, xp: 24, gold: [6, 14] },
+    perFloor: { hp: 20, damage: 4.6, xp: 6 },
+    attack: { kind: 'melee', range: 1.8, cooldown: 1.4, windup: 0.4 },
+    aggroRange: 10, radius: 0.5,
+    sounds: { hurt: 'golem_hurt', death: 'golem_death' },
+    color: 0x8a2a2a,
+  },
 };
 
 const MINIBOSS_NAMES = {
@@ -633,6 +660,61 @@ export function buildEnemyMesh(typeId, scale = 1) {
     reg(legL, 'leg', 0, 0.45); reg(legR, 'leg', Math.PI, 0.45);
     reg(armL, 'arm', Math.PI, 0.3); reg(armR, 'arm', 0, 0.3);
     addShadowBlob(g, 0.36);
+  } else if (typeId === 'witch') {
+    // A hag in a pointed hat with a wand; robe hides the feet, so she glides.
+    const robeMat = makeMat(def.color, 0.9);
+    const body = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.85, 8), robeMat); body.position.y = 0.5;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), makeMat(0x9ab080)); head.position.y = 0.98;
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.14, 5), makeMat(0x9ab080)); nose.position.set(0, 0.97, 0.16); nose.rotation.x = Math.PI / 2;
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 0.03, 12), makeMat(0x1a1420)); brim.position.y = 1.1;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 10), makeMat(0x1a1420)); cone.position.y = 1.35; cone.rotation.z = 0.15;
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x8aff6a });
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.022, 6, 6), eyeMat); eyeL.position.set(-0.05, 1.0, 0.13);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.05;
+    const armL = limbSeg(0.04, 0.03, 0.28, def.color); armL.position.set(-0.18, 0.66, 0.08); armL.rotation.z = 0.6;
+    const armR = armL.clone(); armR.position.set(0.22, 0.72, 0.12); armR.rotation.z = -0.8;
+    const wand = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.4, 5), makeMat(0x3a2a1a)); wand.position.set(0.34, 0.9, 0.14); wand.rotation.z = -0.9;
+    g.add(body, head, nose, brim, cone, eyeL, eyeR, armL, armR, wand);
+    reg(armR, 'arm', 0, 0.2); reg(cone, 'tail', 0, 0.05);
+    addShadowBlob(g, 0.38);
+  } else if (typeId === 'warlock') {
+    // Robed dark caster with a hood and a glowing staff orb.
+    const robeMat = makeMat(def.color, 0.9);
+    const body = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.95, 8), robeMat); body.position.y = 0.55;
+    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.35, 8), robeMat); hood.position.y = 1.1;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), makeMat(0x6a5a4a)); head.position.set(0, 1.0, 0.08);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xb060ff });
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 6), eyeMat); eyeL.position.set(-0.05, 1.02, 0.16);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.05;
+    const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.1, 6), makeMat(0x3a2a1a)); staff.position.set(0.3, 0.7, 0.1);
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), new THREE.MeshBasicMaterial({ color: 0xb060ff })); orb.position.set(0.3, 1.28, 0.1);
+    const orbGlow = new THREE.Mesh(new THREE.SphereGeometry(0.14, 6, 6), new THREE.MeshBasicMaterial({ color: 0xb060ff, transparent: true, opacity: 0.3 })); orbGlow.position.copy(orb.position);
+    const armL = limbSeg(0.05, 0.04, 0.3, def.color); armL.position.set(-0.2, 0.7, 0.08); armL.rotation.z = 0.6;
+    const armR = armL.clone(); armR.position.set(0.24, 0.78, 0.1); armR.rotation.z = -0.7;
+    g.add(body, hood, head, eyeL, eyeR, staff, orb, orbGlow, armL, armR);
+    reg(armL, 'arm', 0, 0.18); reg(armR, 'arm', Math.PI, 0.15);
+    addShadowBlob(g, 0.4);
+  } else if (typeId === 'demon') {
+    // A horned, muscular bruiser with a lashing tail.
+    const skin = def.color;
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.5, 5, 8), makeMat(skin, 0.85)); body.position.y = 0.78;
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.35), makeMat(0x9a3030, 0.85)); chest.position.set(0, 0.95, 0.05);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 9, 8), makeMat(0x7a2020)); head.position.y = 1.4;
+    const hornL = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.28, 6), makeMat(0x2a1010)); hornL.position.set(-0.12, 1.55, 0); hornL.rotation.z = 0.5;
+    const hornR = hornL.clone(); hornR.position.x = 0.12; hornR.rotation.z = -0.5;
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffd020 });
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat); eyeL.position.set(-0.07, 1.42, 0.17);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.07;
+    const armL = limbSeg(0.07, 0.05, 0.42, skin); armL.position.set(-0.34, 0.85, 0.05); armL.rotation.z = 0.4;
+    const armR = armL.clone(); armR.position.x = 0.34; armR.rotation.z = -0.4;
+    const legL = limbSeg(0.09, 0.06, 0.4, skin); legL.position.set(-0.14, 0.3, 0);
+    const legR = legL.clone(); legR.position.x = 0.14;
+    const tail = limbSeg(0.05, 0.02, 0.5, skin); tail.position.set(0, 0.5, -0.28); tail.rotation.x = -0.8;
+    g.add(body, chest, head, hornL, hornR, eyeL, eyeR, armL, armR, legL, legR, tail);
+    reg(legL, 'leg', 0, 0.4); reg(legR, 'leg', Math.PI, 0.4);
+    reg(armL, 'arm', Math.PI, 0.35); reg(armR, 'arm', 0, 0.35);
+    reg(tail, 'tail', 0, 0.3);
+    addShadowBlob(g, 0.5);
   } else { // golem
     const rock = def.color;
     // layered stone slabs of varied size for torso

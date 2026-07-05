@@ -307,6 +307,9 @@ function pickEnemyType(floor) {
     { type: 'golem', w: af >= 5 ? 2 : 0 },
     { type: 'ghost', w: floor >= 25 ? 3 : 0 }, // wraiths haunt the deeper acts
     { type: 'ghoul', w: floor >= 12 ? 3 : 0 }, // ghouls prowl from act 2 on
+    { type: 'witch', w: floor >= 15 ? 2 : 0 },
+    { type: 'warlock', w: floor >= 22 ? 2 : 0 },
+    { type: 'demon', w: floor >= 30 ? 2 : 0 },
   ];
   const total = pools.reduce((s, p) => s + p.w, 0);
   let roll = Math.random() * total;
