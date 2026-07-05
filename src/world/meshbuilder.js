@@ -91,7 +91,8 @@ export function buildDungeonMeshes(dungeon, theme) {
   }
 
   // --- Town: trees, plants, well, tavern ---
-  if (town) buildTownDecor(group, dungeon);
+  const smokePuffs = [];
+  if (town) buildTownDecor(group, dungeon, smokePuffs);
 
   // --- Doors ---
   const doorMeshes = new Map();
@@ -213,6 +214,9 @@ export function buildDungeonMeshes(dungeon, theme) {
   // --- Town features: vendor stalls + dungeon portal ---
   const vendorMeshes = [];
   if (dungeon.town) {
+    // shared skin tone material reused across all three keepers
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xd8ab88, roughness: 0.8 });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1a1410 });
     for (const v of dungeon.vendors) {
       const w = tileToWorld(v.x, v.y);
       const stall = new THREE.Group();
@@ -224,22 +228,127 @@ export function buildDungeonMeshes(dungeon, theme) {
       const canopyColor = v.type === 'potions' ? 0xb03a4a : v.type === 'mystery' ? 0x6a2a9a : 0x3a5ab0;
       const canopy = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.08, 1.0), new THREE.MeshStandardMaterial({ color: canopyColor, roughness: 0.7 }));
       canopy.position.set(0, 2.2, -0.1);
-      // shopkeeper (simple)
+      stall.add(counter, poleL, poleR, canopy);
+
+      // --- shopkeeper with face, arms, and per-type character ---
       const keeper = new THREE.Group();
-      const kBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.5, 4, 8), new THREE.MeshStandardMaterial({ color: v.type === 'potions' ? 0x8a4a5a : 0x4a5a8a, roughness: 0.8 }));
-      kBody.position.y = 0.7;
-      const kHead = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), new THREE.MeshStandardMaterial({ color: 0xd8ab88 }));
-      kHead.position.y = 1.32;
-      keeper.add(kBody, kHead);
+      const bodyColor = v.type === 'potions' ? 0x7a4a5a : v.type === 'gear' ? 0x3a3a40 : 0x2a2038;
+      const kBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.5, 4, 8), new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.85 }));
+      kBody.position.y = 0.72;
+      const kHead = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 10), skinMat);
+      kHead.position.y = 1.34;
+      // face: two eyes + nose nub (reused geo/mat across keepers, orientation varies little so cheap clones are fine)
+      const eyeGeo = new THREE.SphereGeometry(0.028, 6, 6);
+      const eyeL = new THREE.Mesh(eyeGeo, eyeMat); eyeL.position.set(-0.08, 1.36, 0.17);
+      const eyeR = new THREE.Mesh(eyeGeo, eyeMat); eyeR.position.set(0.08, 1.36, 0.17);
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.09, 6), skinMat);
+      nose.position.set(0, 1.3, 0.2);
+      nose.rotation.x = Math.PI / 2;
+      keeper.add(kBody, kHead, eyeL, eyeR, nose);
+
+      // arms (shared capsule geo, tinted per body color)
+      const armMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.85 });
+      const armGeo = new THREE.CapsuleGeometry(0.07, 0.32, 3, 6);
+      const armL = new THREE.Mesh(armGeo, armMat); armL.position.set(-0.28, 0.78, 0.05); armL.rotation.z = 0.5;
+      const armR = new THREE.Mesh(armGeo, armMat); armR.position.set(0.28, 0.78, 0.05); armR.rotation.z = -0.5;
+      keeper.add(armL, armR);
+
+      if (v.type === 'potions') {
+        // Maribel: wide-brim herbalist hat + apron, warm colors
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.4, 0.05, 12), new THREE.MeshStandardMaterial({ color: 0x6b3a2a, roughness: 0.9 }));
+        brim.position.y = 1.48;
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.32, 10), new THREE.MeshStandardMaterial({ color: 0x8a4a2e, roughness: 0.9 }));
+        cone.position.y = 1.68;
+        const apron = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.42, 0.06), new THREE.MeshStandardMaterial({ color: 0xc99a4a, roughness: 0.9 }));
+        apron.position.set(0, 0.62, 0.2);
+        keeper.add(brim, cone, apron);
+      } else if (v.type === 'gear') {
+        // Torvald: blacksmith — bandana, thick arms (scaled up), dark leather apron
+        armL.scale.set(1.5, 1.2, 1.5); armR.scale.set(1.5, 1.2, 1.5);
+        const bandana = new THREE.Mesh(new THREE.SphereGeometry(0.205, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55), new THREE.MeshStandardMaterial({ color: 0xa8342a, roughness: 0.9 }));
+        bandana.position.y = 1.36;
+        const apron = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.5, 0.07), new THREE.MeshStandardMaterial({ color: 0x2a221c, roughness: 0.95 }));
+        apron.position.set(0, 0.58, 0.2);
+        keeper.add(bandana, apron);
+      } else {
+        // Zoltan: deep hood with glowing eyes, star-speckled robe, floating orb
+        kHead.material = new THREE.MeshStandardMaterial({ color: 0x1a1622, roughness: 0.9 }); // face lost in shadow
+        eyeL.material = new THREE.MeshBasicMaterial({ color: 0x9a5eff });
+        eyeR.material = new THREE.MeshBasicMaterial({ color: 0x9a5eff });
+        eyeL.scale.setScalar(1.6); eyeR.scale.setScalar(1.6);
+        const hood = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.42, 10), new THREE.MeshStandardMaterial({ color: 0x2a2038, roughness: 0.85 }));
+        hood.position.y = 1.5;
+        const robe = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.9, 8), new THREE.MeshStandardMaterial({ color: 0x241c34, roughness: 0.85, emissive: 0x3a1a55, emissiveIntensity: 0.15 }));
+        robe.position.y = 0.5;
+        keeper.add(hood, robe);
+        // floating glowing orb beside Zoltan
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), new THREE.MeshBasicMaterial({ color: 0xb35eff, transparent: true, opacity: 0.85 }));
+        orb.position.set(0.42, 1.15, -0.15);
+        keeper.add(orb);
+        smokePuffs.push({ mesh: orb, baseY: orb.position.y, phase: Math.random() * Math.PI * 2, speed: 0.8 + Math.random() * 0.3, kind: 'firefly' });
+      }
       keeper.position.z = -0.7;
+      stall.add(keeper);
+
       // wares on the counter
-      const ware = v.type === 'potions'
-        ? new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshStandardMaterial({ color: 0xd93a3a, roughness: 0.3 }))
-        : v.type === 'mystery'
-          ? new THREE.Mesh(new THREE.OctahedronGeometry(0.16), new THREE.MeshStandardMaterial({ color: 0xff8c1a, emissive: 0xff8c1a, emissiveIntensity: 0.6 }))
-          : new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), new THREE.MeshStandardMaterial({ color: 0xc8ccd8, metalness: 0.7, roughness: 0.3 }));
-      ware.position.set(0.3, 0.95, 0);
-      stall.add(counter, poleL, poleR, canopy, keeper, ware);
+      let ware;
+      if (v.type === 'potions') {
+        // row of potion bottles
+        ware = new THREE.Group();
+        const bottleColors = [0xd93a3a, 0x3a8ad9, 0x5ad93a];
+        for (let i = 0; i < 3; i++) {
+          const bottle = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshStandardMaterial({ color: bottleColors[i], roughness: 0.3, transparent: true, opacity: 0.85 }));
+          bottle.position.set(-0.3 + i * 0.3, 0.95, 0);
+          bottle.scale.y = 1.3;
+          const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.05, 6), new THREE.MeshStandardMaterial({ color: 0x8a6a4a }));
+          cork.position.set(-0.3 + i * 0.3, 1.08, 0);
+          ware.add(bottle, cork);
+        }
+      } else if (v.type === 'gear') {
+        // sword rack
+        ware = new THREE.Group();
+        for (let i = 0; i < 3; i++) {
+          const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.55, 0.05), new THREE.MeshStandardMaterial({ color: 0xc8ccd8, metalness: 0.7, roughness: 0.3 }));
+          blade.position.set(-0.4 + i * 0.35, 1.05, 0);
+          blade.rotation.z = -0.15 + i * 0.15;
+          ware.add(blade);
+        }
+      } else {
+        // rune cards fanned on the counter
+        ware = new THREE.Group();
+        for (let i = 0; i < 4; i++) {
+          const card = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.24), new THREE.MeshStandardMaterial({ color: 0x2a2038, emissive: 0xb35eff, emissiveIntensity: 0.4, side: THREE.DoubleSide }));
+          card.position.set(-0.3 + i * 0.2, 0.86, 0.05);
+          card.rotation.x = -Math.PI / 2 + 0.3;
+          card.rotation.z = (i - 1.5) * 0.15;
+          ware.add(card);
+        }
+      }
+      stall.add(ware);
+
+      // crates/barrels beside the stall for extra detail
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 }));
+      crate.position.set(-1.05, 0.2, 0.35);
+      crate.rotation.y = 0.3;
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.5, 10), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 }));
+      barrel.position.set(1.05, 0.25, 0.35);
+      stall.add(crate, barrel);
+
+      // Torvald's small anvil beside the stall
+      if (v.type === 'gear') {
+        const anvil = new THREE.Group();
+        const anvilBody = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.18), new THREE.MeshStandardMaterial({ color: 0x2a2a2e, metalness: 0.6, roughness: 0.4 }));
+        anvilBody.position.y = 0.34;
+        const anvilBase = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.28, 8), new THREE.MeshStandardMaterial({ color: 0x1e1e22, metalness: 0.5, roughness: 0.5 }));
+        anvilBase.position.y = 0.14;
+        const anvilHorn = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 8), new THREE.MeshStandardMaterial({ color: 0x2a2a2e, metalness: 0.6, roughness: 0.4 }));
+        anvilHorn.position.set(-0.26, 0.34, 0);
+        anvilHorn.rotation.z = Math.PI / 2;
+        anvil.add(anvilBody, anvilBase, anvilHorn);
+        anvil.position.set(-1.05, 0, -0.4);
+        stall.add(anvil);
+      }
+
       stall.position.set(w.x, 0, w.z);
       group.add(stall);
       vendorMeshes.push({ ...v, wx: w.x, wz: w.z, mesh: stall });
@@ -310,11 +419,11 @@ export function buildDungeonMeshes(dungeon, theme) {
     group.add(stairsMesh);
   }
 
-  return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh };
+  return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh, smokePuffs };
 }
 
 // ---------------- Embervale decor ----------------
-function buildTownDecor(group, dungeon) {
+function buildTownDecor(group, dungeon, smokePuffs) {
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 1 });
   const greens = [0x3f6b34, 0x4a7a3c, 0x57883f, 0x35592c];
 
@@ -413,6 +522,94 @@ function buildTownDecor(group, dungeon) {
     group.add(well);
   }
 
+  // notice board near the square
+  if (dungeon.noticeBoard) {
+    const w = tileToWorld(dungeon.noticeBoard.x, dungeon.noticeBoard.y);
+    const board = new THREE.Group();
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.95 });
+    const postL = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 1.3, 6), postMat);
+    postL.position.set(-0.45, 0.65, 0);
+    const postR = postL.clone(); postR.position.x = 0.45;
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.75, 0.06), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 }));
+    panel.position.y = 1.15;
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.08, 0.3), postMat);
+    roof.position.y = 1.58;
+    roof.rotation.x = -0.15;
+    // scraps of "paper" notices
+    const paperMat = new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: 0.9 });
+    for (let i = 0; i < 3; i++) {
+      const paper = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.32), paperMat);
+      paper.position.set(-0.32 + i * 0.32, 1.15 + (i % 2) * 0.05, 0.04);
+      paper.rotation.z = (i - 1) * 0.08;
+      board.add(paper);
+    }
+    board.add(postL, postR, panel, roof);
+    board.position.set(w.x, 0, w.z);
+    group.add(board);
+  }
+
+  // market crates + sacks scattered near the square
+  if (dungeon.crates?.length) {
+    const crateGeo = new THREE.BoxGeometry(0.42, 0.42, 0.42);
+    const sackMat = new THREE.MeshStandardMaterial({ color: 0xa89468, roughness: 1 });
+    const crateMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 });
+    for (const c of dungeon.crates) {
+      const w = tileToWorld(c.x, c.y);
+      let mesh;
+      if (c.kind === 'crate') {
+        mesh = new THREE.Mesh(crateGeo, crateMat);
+        mesh.position.y = 0.21;
+      } else {
+        mesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), sackMat);
+        mesh.scale.y = 0.85;
+        mesh.position.y = 0.22;
+      }
+      mesh.rotation.y = c.r;
+      mesh.position.x = w.x;
+      mesh.position.z = w.z;
+      group.add(mesh);
+    }
+  }
+
+  // small market cart with wheels
+  if (dungeon.cart) {
+    const w = tileToWorld(dungeon.cart.x, dungeon.cart.y);
+    const cart = new THREE.Group();
+    const bedMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 });
+    const bed = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.3, 0.6), bedMat);
+    bed.position.y = 0.45;
+    cart.add(bed);
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.9 });
+    const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.08, 10);
+    for (const wx of [-0.42, 0.42]) {
+      for (const wz of [-0.35, 0.35]) {
+        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(wx, 0.24, wz);
+        cart.add(wheel);
+      }
+    }
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.9, 6), wheelMat);
+    handle.rotation.z = Math.PI / 2;
+    handle.position.set(0.75, 0.42, 0);
+    cart.add(handle);
+    cart.rotation.y = dungeon.cart.r;
+    cart.position.set(w.x, 0, w.z);
+    group.add(cart);
+  }
+
+  // low hedge segments ringing garden corners
+  if (dungeon.hedges?.length) {
+    const hedgeMat = new THREE.MeshStandardMaterial({ color: 0x3a5a30, roughness: 1 });
+    const hedgeGeo = new THREE.BoxGeometry(1.8, 0.5, 0.5);
+    for (const h of dungeon.hedges) {
+      const w = tileToWorld(h.x, h.y);
+      const hedge = new THREE.Mesh(hedgeGeo, hedgeMat);
+      hedge.position.set(w.x, 0.25, w.z);
+      group.add(hedge);
+    }
+  }
+
   // The Sleeping Golem tavern
   if (dungeon.tavern) {
     const t = dungeon.tavern;
@@ -443,36 +640,74 @@ function buildTownDecor(group, dungeon) {
     slabR.position.z = D * 0.24;
     slabR.rotation.x = -0.62;
     tavern.add(slabL, slabR);
-    // chimney + smoke puffs
+    // ridge beam along the roof peak for a cleaner silhouette from above
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(W - 0.1, 0.1, 0.1), timber);
+    ridge.position.set(0, 3.42, 0);
+    tavern.add(ridge);
+    // chimney + animated smoke puffs (data returned via smokePuffs for the game loop to drift/fade)
     const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.1, 0.35), new THREE.MeshStandardMaterial({ color: 0x6a665f, roughness: 1 }));
     chimney.position.set(W * 0.28, 3.5, 0);
     tavern.add(chimney);
-    for (let i = 0; i < 3; i++) {
+    const puffGeo = new THREE.SphereGeometry(1, 6, 5); // unit sphere, scaled per-puff below
+    for (let i = 0; i < 5; i++) {
+      const s = 0.14 + i * 0.05;
       const puff = new THREE.Mesh(
-        new THREE.SphereGeometry(0.14 + i * 0.07, 6, 5),
-        new THREE.MeshBasicMaterial({ color: 0x9a95a0, transparent: true, opacity: 0.35 - i * 0.09 })
+        puffGeo,
+        new THREE.MeshBasicMaterial({ color: 0x9a95a0, transparent: true, opacity: 0.34 - i * 0.05 })
       );
-      puff.position.set(W * 0.28 + i * 0.12, 4.15 + i * 0.4, 0);
+      puff.scale.setScalar(s);
+      const baseY = 4.05 + i * 0.3;
+      puff.position.set(W * 0.28 + (Math.random() - 0.5) * 0.1, baseY, 0);
       tavern.add(puff);
+      if (smokePuffs) {
+        smokePuffs.push({ mesh: puff, baseY, phase: (i / 5) * Math.PI * 2, speed: 0.35 + i * 0.05, kind: 'smoke' });
+      }
     }
     // warm windows + door on the square-facing side
     const glow = new THREE.MeshBasicMaterial({ color: 0xffb45e });
-    for (const wx of [-W * 0.28, W * 0.28]) {
-      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.6), glow);
-      win.position.set(wx, 1.5, D / 2 - 0.07);
-      tavern.add(win);
-    }
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.6), glow);
+    win.position.set(-W * 0.28, 1.5, D / 2 - 0.07);
+    tavern.add(win);
+    // side window (extra detail requested — breaks up the blank side wall)
+    const sideWin = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.55), glow);
+    sideWin.position.set(-W / 2 + 0.02, 1.5, 0);
+    sideWin.rotation.y = Math.PI / 2;
+    tavern.add(sideWin);
+    // door frame + door + step
+    const frameMat = timber;
+    const frameTop = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.14), frameMat);
+    frameTop.position.set(W * 0.28, 1.58, D / 2 - 0.1);
+    const frameL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.6, 0.14), frameMat);
+    frameL.position.set(W * 0.28 - 0.4, 0.78, D / 2 - 0.1);
+    const frameR = frameL.clone();
+    frameR.position.x = W * 0.28 + 0.4;
+    tavern.add(frameTop, frameL, frameR);
     const door = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.5, 0.1), timber);
-    door.position.set(0, 0.75, D / 2 - 0.12);
+    door.position.set(W * 0.28, 0.75, D / 2 - 0.12);
     tavern.add(door);
+    const step = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.14, 0.4), new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.95 }));
+    step.position.set(W * 0.28, 0.07, D / 2 + 0.25);
+    tavern.add(step);
     // hanging sign with a golden mug
     const signArm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.06), timber);
-    signArm.position.set(0.85, 2.2, D / 2 + 0.15);
+    signArm.position.set(W * 0.28 + 0.85, 2.2, D / 2 + 0.15);
     const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.05), new THREE.MeshStandardMaterial({ color: 0x5a4028 }));
-    signBoard.position.set(1.05, 1.9, D / 2 + 0.15);
+    signBoard.position.set(W * 0.28 + 1.05, 1.9, D / 2 + 0.15);
     const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.12, 8), new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.4 }));
-    mug.position.set(1.05, 1.9, D / 2 + 0.2);
+    mug.position.set(W * 0.28 + 1.05, 1.9, D / 2 + 0.2);
     tavern.add(signArm, signBoard, mug);
+    // barrel + bench outside, near the door
+    const barrelMat = new THREE.MeshStandardMaterial({ color: 0x6b4c30, roughness: 0.85 });
+    const outsideBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.55, 10), barrelMat);
+    outsideBarrel.position.set(-W * 0.4, 0.28, D / 2 + 0.35);
+    tavern.add(outsideBarrel);
+    const benchMat = new THREE.MeshStandardMaterial({ color: 0x5a4028, roughness: 0.9 });
+    const benchSeat = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.3), benchMat);
+    benchSeat.position.set(-W * 0.05, 0.32, D / 2 + 0.5);
+    const benchLegGeo = new THREE.BoxGeometry(0.08, 0.32, 0.08);
+    const legA = new THREE.Mesh(benchLegGeo, benchMat); legA.position.set(-W * 0.05 - 0.38, 0.16, D / 2 + 0.4);
+    const legB = new THREE.Mesh(benchLegGeo, benchMat); legB.position.set(-W * 0.05 + 0.38, 0.16, D / 2 + 0.4);
+    tavern.add(benchSeat, legA, legB);
 
     tavern.position.set(cw.x, 0, cw.z);
     group.add(tavern);

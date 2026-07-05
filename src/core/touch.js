@@ -11,6 +11,7 @@ export class TouchControls {
     this.joyActive = false;
     this.attacking = false;
     this.rotDir = 0; // -1 / +1 while a rotate button is held
+    this.fadeTimer = 4; // touch buttons dim after a few idle seconds
     this._joyId = null;
     this._aimId = null;
 
@@ -19,6 +20,9 @@ export class TouchControls {
 
     const canvas = game.canvas;
     canvas.style.touchAction = 'none';
+
+    // any touch anywhere wakes the button drawer back to full opacity
+    window.addEventListener('pointerdown', () => this.wake(), { capture: true });
 
     canvas.addEventListener('pointerdown', (e) => this.onDown(e));
     canvas.addEventListener('pointermove', (e) => this.onMove(e));
@@ -119,5 +123,22 @@ export class TouchControls {
   setVisible(v) {
     if (!this.enabled) return;
     document.getElementById('touch-ui').classList.toggle('hidden', !v);
+    if (v) this.wake();
+  }
+
+  wake() {
+    this.fadeTimer = 4;
+    document.getElementById('touch-ui')?.classList.remove('ui-faded');
+  }
+
+  // called from the game loop: dim the drawer after idle time
+  update(dt) {
+    if (!this.enabled) return;
+    if (this.fadeTimer > 0) {
+      this.fadeTimer -= dt;
+      if (this.fadeTimer <= 0) {
+        document.getElementById('touch-ui')?.classList.add('ui-faded');
+      }
+    }
   }
 }

@@ -1,4 +1,5 @@
 import { CLASSES } from '../entities/classes.js';
+import { SKILLS } from '../entities/skills.js';
 import { RARITIES, statLabel, sellValue, buyPrice } from '../entities/loot.js';
 import { SaveManager } from '../core/save.js';
 import { Floaters } from './floaters.js';
@@ -21,6 +22,8 @@ export class UI {
       charselect: $('charselect-screen'),
       pause: $('pause-screen'),
       quest: $('quest-screen'),
+      skills: $('skills-screen'),
+      story: $('story-screen'),
       settings: $('settings-screen'),
       inventory: $('inventory-screen'),
       shop: $('shop-screen'),
@@ -67,6 +70,11 @@ export class UI {
       $('mp-name').value = localStorage.getItem('emberdeep-name-v1') || '';
       this.show('mp');
     };
+    // persist the name as it's typed, not only on Enter — survives any reload
+    $('mp-name').addEventListener('input', () => {
+      const v = $('mp-name').value.trim().slice(0, 14);
+      if (v) localStorage.setItem('emberdeep-name-v1', v);
+    });
     $('btn-mp-enter').onclick = async () => {
       const name = $('mp-name').value.trim().slice(0, 14);
       if (name) localStorage.setItem('emberdeep-name-v1', name);
@@ -108,6 +116,9 @@ export class UI {
     $('btn-resume').onclick = () => this.game.togglePause(false);
     $('btn-pause-quests').onclick = () => { this.game.state = 'quest'; this.openQuestLog(); };
     $('btn-quest-close').onclick = () => { this.game.state = 'playing'; this.hideAll(); };
+    $('btn-pause-skills').onclick = () => { this.game.state = 'skills'; this.openSkills(); };
+    $('btn-skills-close').onclick = () => { this.game.state = 'playing'; this.hideAll(); };
+    $('btn-story-continue').onclick = () => { this.game.state = 'playing'; this.hideAll(); };
     $('btn-quit-title').onclick = () => this.game.quitToTitle();
     $('btn-respawn').onclick = () => this.game.respawn();
     $('btn-gameover-title').onclick = () => this.game.quitToTitle();
@@ -224,6 +235,49 @@ export class UI {
       };
       wrap.appendChild(row);
     }
+  }
+
+  // ---------- story cards ----------
+  showStory(story) {
+    $('story-title').textContent = story.title;
+    $('story-text').textContent = story.text;
+    this.show('story');
+    audio.play('ui_open');
+  }
+
+  // ---------- mastery tree ----------
+  openSkills() {
+    const p = this.game.player;
+    const pts = p.skillPoints();
+    $('skills-points').innerHTML = pts > 0
+      ? `<b>${pts}</b> point${pts === 1 ? '' : 's'} to spend — one earned per level`
+      : 'No points to spend — level up to earn more';
+    const grid = $('skills-grid');
+    grid.innerHTML = '';
+    let branch = '';
+    for (const sk of SKILLS) {
+      if (sk.branch !== branch) {
+        branch = sk.branch;
+        const h = document.createElement('div');
+        h.className = 'skills-branch';
+        h.textContent = branch;
+        grid.appendChild(h);
+      }
+      const rank = p.skillRank(sk.id);
+      const row = document.createElement('div');
+      row.className = `skill-row ${rank >= sk.max ? 'maxed' : ''}`;
+      row.innerHTML = `
+        <span class="skill-icon">${sk.icon}</span>
+        <span class="skill-main">
+          <div class="skill-name">${sk.name} <span class="skill-rank">${rank}/${sk.max}</span></div>
+          <div class="skill-desc">${sk.per} per rank</div>
+        </span>
+        <button class="skill-buy menu-btn small" ${pts <= 0 || rank >= sk.max ? 'disabled' : ''}>+</button>
+      `;
+      row.querySelector('.skill-buy').onclick = () => this.game.buySkill(sk.id);
+      grid.appendChild(row);
+    }
+    this.show('skills');
   }
 
   // ---------- quest log ----------
@@ -443,7 +497,8 @@ export class UI {
     const need = xpForLevel(player.level);
     $('xp-bar').style.width = `${(player.xp / need) * 100}%`;
     $('xp-text').textContent = '';
-    $('hud-level').textContent = `Lv ${player.level}`;
+    const pts = player.skillPoints();
+    $('hud-level').textContent = pts > 0 ? `Lv ${player.level} ✦${pts}` : `Lv ${player.level}`;
     $('hud-gold').textContent = `${player.gold} 🪙`;
     $('hud-potions').textContent = `${player.potions} 🧪`;
     // multiplayer: show how many heroes share the room (works in both orientations)
@@ -500,7 +555,7 @@ export class UI {
   showLevelUp(level) {
     const toast = $('levelup-toast');
     toast.classList.remove('hidden');
-    toast.innerHTML = `LEVEL ${level}!<div class="toast-sub">You feel stronger. Fully restored.</div>`;
+    toast.innerHTML = `LEVEL ${level}!<div class="toast-sub">+1 mastery point (K) · fully restored</div>`;
     toast.style.animation = 'none';
     void toast.offsetWidth; // restart animation
     toast.style.animation = '';

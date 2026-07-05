@@ -11,6 +11,7 @@ export default defineConfig({
   base: './',
   define: {
     __BUILD_ID__: JSON.stringify(buildId),
+    __BUILD_DATE__: JSON.stringify(new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })),
   },
   plugins: [
     {
