@@ -40,6 +40,15 @@ export const ENEMY_TYPES = {
     sounds: { hurt: 'golem_hurt', death: 'golem_death', special: 'golem_slam' },
     color: 0x7a7a85,
   },
+  ghost: {
+    name: 'Wraith',
+    base: { hp: 30, damage: 13, speed: 4.5, xp: 11, gold: [2, 7] },
+    perFloor: { hp: 10, damage: 3.2, xp: 3.5 },
+    attack: { kind: 'melee', range: 1.6, cooldown: 1.3, windup: 0.3 },
+    aggroRange: 12, radius: 0.4,
+    sounds: { hurt: 'imp_hurt', death: 'imp_death' },
+    color: 0xbcd0e8,
+  },
 };
 
 const MINIBOSS_NAMES = {
@@ -153,6 +162,15 @@ export class Enemy {
     this.attackCd = Math.max(0, this.attackCd - dt);
     this.hitFlash = Math.max(0, this.hitFlash - dt);
     this._animateGait(dt);
+    // Wraiths leave a wispy stream behind them as they drift (self-fading, so
+    // it's RAM-bounded via the particle system's own lifetimes).
+    if (this.typeId === 'ghost' && this.state === 'chase') {
+      this._trailT = (this._trailT || 0) - dt;
+      if (this._trailT <= 0) {
+        this._trailT = 0.1;
+        game.particles.burst(this.pos.x, 0.7 + Math.random() * 0.4, this.pos.z, 2, 0x9ec8f0, { speed: 0.4, life: 0.75, size: 0.18, up: 0.4 });
+      }
+    }
 
     // DoT statuses
     for (const st of this.statuses) {
@@ -566,6 +584,26 @@ export function buildEnemyMesh(typeId, scale = 1) {
     reg(tailA, 'tail', 0, 0.25); reg(tailB, 'tail', 0.6, 0.32);
     g.add(body, head, hornL, hornR, eyeL, eyeR, wingL, wingR, armL, armR, tailA, tailB, orb, orbGlow);
     addShadowBlob(g, 0.35);
+  } else if (typeId === 'ghost') {
+    // A floating wraith — translucent hooded body over a tattered shroud, with
+    // glowing eyes and wispy arms. No ground shadow (it hovers).
+    const ghostMat = new THREE.MeshStandardMaterial({ color: def.color, transparent: true, opacity: 0.5, roughness: 1, emissive: 0x3a5a8a, emissiveIntensity: 0.35, depthWrite: false });
+    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.5, 8), ghostMat);
+    hood.position.y = 1.18;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 9, 8), ghostMat);
+    head.position.y = 1.06;
+    const shroud = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.95, 8, 1, true), ghostMat);
+    shroud.position.y = 0.62;
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x8ad0ff });
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.032, 6, 6), eyeMat);
+    eyeL.position.set(-0.06, 1.08, 0.14);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.06;
+    const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.01, 0.36, 5), ghostMat);
+    armL.position.set(-0.24, 0.92, 0.05); armL.rotation.z = 0.7;
+    const armR = armL.clone(); armR.position.x = 0.24; armR.rotation.z = -0.7;
+    g.add(hood, head, shroud, eyeL, eyeR, armL, armR);
+    reg(armL, 'arm', 0, 0.32); reg(armR, 'arm', Math.PI, 0.32);
+    reg(shroud, 'tail', 0, 0.12);
   } else { // golem
     const rock = def.color;
     // layered stone slabs of varied size for torso
