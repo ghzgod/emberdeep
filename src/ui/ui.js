@@ -108,6 +108,7 @@ export class UI {
     };
     $('btn-charselect-back').onclick = () => { this.renderSaves(); this.show('saves'); };
     $('btn-shop-close').onclick = () => this.game.closeShop();
+    $('btn-relic-take').onclick = () => { $('relic-reveal').classList.add('hidden'); this.renderShop?.(this.game.activeVendor); };
     $('btn-shop-restock').onclick = () => {
       if (this.game.activeVendor) this.game.restockVendor(this.game.activeVendor);
     };
@@ -892,6 +893,21 @@ export class UI {
     } else {
       bossWrap.classList.add('hidden');
     }
+  }
+
+  // Zoltan's mystery relic: reveal what fate handed over, click to keep.
+  showRelicReveal(item) {
+    const R = RARITIES[item.rarity];
+    $('relic-icon').textContent = item.icon;
+    const name = $('relic-name');
+    name.textContent = item.name;
+    name.className = `tt-${item.rarity}`;
+    $('relic-rarity').textContent = `${R.name}${item.consumable ? ' elixir' : ' ' + item.slot}`;
+    $('relic-stats').innerHTML = item.consumable
+      ? `<span class="tt-stat">${item.effectLabel || ''}</span>`
+      : Object.entries(item.stats || {}).map(([k, v]) => `<span class="tt-stat">${statLabel(k, v)}</span>`).join(' · ');
+    $('relic-card').style.setProperty('--relic-glow', `#${R.color.toString(16).padStart(6, '0')}`);
+    $('relic-reveal').classList.remove('hidden');
   }
 
   // ---------- toasts/banners ----------

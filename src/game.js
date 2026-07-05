@@ -544,12 +544,10 @@ export class Game {
       audio.play('gear_pickup');
       if (item.rarity === 'epic') { // best gamble outcome — a Super Rare (purple)
         audio.play('level_up');
-        this.ui.floaters.spawn(p.pos, `✨ SUPER RARE: ${item.name}!`, 'crit');
         this.particles.burst(p.pos.x, 1.2, p.pos.z, 40, 0xa03bd9, { speed: 5, life: 1 });
         this.shake(0.4);
-      } else {
-        this.ui.floaters.spawn(p.pos, `${item.icon} ${item.name}`, item.rarity === 'common' ? '' : 'crit');
       }
+      this.ui.showRelicReveal(item); // pop up what fate handed over
     }
     this.requestSave();
   }
