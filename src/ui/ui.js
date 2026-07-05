@@ -869,14 +869,19 @@ export class UI {
       const slot = this.hotbarSlots[i];
       if (!slot) return;
       const cd = player.abilityCds[i];
+      const max = player.abilityCdMax?.[i] || ab.cd;
       const sweep = slot.querySelector('.cd-sweep');
-      if (cd > 0) {
-        sweep.style.transform = `scaleY(${cd / ab.cd})`;
-        slot.classList.remove('ready');
-      } else {
-        sweep.style.transform = 'scaleY(0)';
-        slot.classList.toggle('ready', player.resource >= ab.cost);
-      }
+      const onCd = cd > 0;
+      // radial clock wheel: dark wedge = remaining cooldown, driven by the
+      // ACTUAL cooldown duration so it empties exactly when the ability is usable
+      const frac = onCd ? Math.max(0, Math.min(1, cd / max)) : 0;
+      sweep.style.setProperty('--cd-ang', `${frac * 360}deg`);
+      const canAfford = player.resource >= ab.cost;
+      slot.classList.toggle('cooling', onCd);
+      slot.classList.toggle('ready', !onCd && canAfford);
+      // off cooldown but not enough resource → stays visibly gated, so a
+      // full-colour button is never secretly uncastable
+      slot.classList.toggle('no-resource', !onCd && !canAfford);
     });
 
     const bossWrap = $('boss-bar-wrap');
