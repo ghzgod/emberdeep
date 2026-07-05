@@ -468,6 +468,23 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 .inv-slot.rarity-legendary { border-color: #ff8c1a; box-shadow: 0 0 14px rgba(255,140,26,0.6); }
 /* equipped gear attuned to another class: dimmed to signal reduced value */
 .inv-slot.equip.off-class { opacity: 0.55; }
+/* items marked for destruction */
+.inv-slot.marked { border-color: #e04444 !important; box-shadow: 0 0 10px rgba(224,68,68,0.6); }
+.inv-slot.marked::after { content: '🗑'; position: absolute; top: -2px; right: 1px; font-size: 12px; }
+.menu-btn.danger { border-color: #7a3030; color: #e88; }
+.menu-btn.danger:hover { border-color: #e04444; color: #fff; box-shadow: 0 0 12px rgba(224,68,68,0.4); }
+
+/* destroy-items confirmation modal */
+#destroy-modal { position: fixed; inset: 0; z-index: 62; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
+#destroy-modal.hidden { display: none; }
+#destroy-card {
+  min-width: 280px; max-width: 86vw; max-height: 70vh; overflow: auto; padding: 22px 26px; text-align: center;
+  background: linear-gradient(180deg, rgba(30,18,18,0.98), rgba(18,12,12,0.98));
+  border: 2px solid #7a3030; border-radius: 16px; box-shadow: 0 0 30px rgba(224,68,68,0.35);
+}
+#destroy-card h2 { font-size: 20px; margin: 0 0 8px; }
+#destroy-card #destroy-count { font-size: 13px; opacity: 0.85; margin-bottom: 10px; }
+#destroy-card #destroy-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 16px; font-size: 13px; }
 #item-tooltip {
   position: absolute; z-index: 40; background: var(--panel); border: 1px solid var(--panel-border);
   border-radius: 6px; padding: 10px 14px; font-size: 13px; text-align: left; pointer-events: none; max-width: 240px;

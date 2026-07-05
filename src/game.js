@@ -1731,6 +1731,16 @@ export class Game {
     this.requestSave();
   }
 
+  // Permanently destroy a batch of inventory items (no ground drop).
+  destroyItems(items) {
+    const p = this.player;
+    const set = new Set(items);
+    if (!set.size) return;
+    p.inventory = p.inventory.filter((it) => !set.has(it));
+    audio.play('ui_close', { volume: 0.6 });
+    this.requestSave();
+  }
+
   // Quick declutter: drop every common-rarity item at once. Returns the count.
   dropAllCommons() {
     const p = this.player;
