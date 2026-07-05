@@ -22,6 +22,12 @@ try {
 // cache harder still. version.json is fetched cache-bypassing; if its build id
 // differs from the one baked into this bundle, reload with a fresh query so
 // the phone picks up the new deploy immediately.
+// Runs ONCE at startup only. It must never force a reload mid-session: on
+// mobile the app regains focus constantly (audio start, overlays, glancing
+// away), and if a stale cached bundle keeps mismatching a fresh version.json
+// (common right after a deploy) a visibilitychange re-check would reload the
+// player on every foreground — the "loading loop after talking to a vendor".
+// Players pick up new deploys on their next manual refresh instead.
 async function checkForUpdate() {
   try {
     const res = await fetch(import.meta.env.BASE_URL + 'version.json', { cache: 'no-store' });
@@ -29,7 +35,7 @@ async function checkForUpdate() {
     const { id } = await res.json();
     if (id && typeof __BUILD_ID__ !== 'undefined' && id !== __BUILD_ID__) {
       const url = new URL(location.href);
-      if (url.searchParams.get('u') !== id) { // guard against reload loops
+      if (url.searchParams.get('u') !== id) { // one-shot, loop-guarded
         url.searchParams.set('u', id);
         location.replace(url.toString());
       }
@@ -37,6 +43,3 @@ async function checkForUpdate() {
   } catch { /* offline or dev server — ignore */ }
 }
 checkForUpdate();
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) checkForUpdate();
-});
