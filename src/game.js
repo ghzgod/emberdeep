@@ -329,6 +329,11 @@ export class Game {
   onPlayerDeath() {
     this.deaths++;
     roaster.onPlayerDeath(this, this.player.classDef.name);
+    // leave a skeleton where you fell, and tell the room so co-op sees it too
+    if (!this.inTown) {
+      this.spawnDeathSkeleton(this.player.pos.x, this.player.pos.z);
+      if (net.active) net.send({ t: 'death', x: +this.player.pos.x.toFixed(1), z: +this.player.pos.z.toFixed(1) });
+    }
     this.player.gold = Math.floor(this.player.gold * 0.8);
     this.requestSave(true);
     setTimeout(() => {
@@ -337,6 +342,31 @@ export class Game {
         this.ui.showGameOver(this.floor);
       }
     }, 900);
+  }
+
+  // A slain-hero skeleton at a death spot. Spaced (never within 20m of another)
+  // and capped so the browser's RAM stays bounded; cleared with the floor.
+  spawnDeathSkeleton(x, z) {
+    if (!this.deathMarkers) this.deathMarkers = [];
+    if (this.deathMarkers.length >= 20) return;
+    for (const d of this.deathMarkers) if (Math.hypot(d.x - x, d.z - z) < 20) return;
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 1 });
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), mat);
+    skull.position.set(0.22, 0.12, 0.08); skull.scale.set(1, 0.9, 1.05);
+    g.add(skull);
+    for (let i = 0; i < 5; i++) {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.4 + Math.random() * 0.2, 5), mat);
+      b.rotation.set(Math.PI / 2, 0, Math.random() * Math.PI);
+      b.position.set((Math.random() - 0.5) * 0.6, 0.05, (Math.random() - 0.5) * 0.6);
+      g.add(b);
+    }
+    const rib = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.02, 4, 8, Math.PI), mat);
+    rib.rotation.x = Math.PI / 2; rib.position.set(-0.1, 0.06, 0);
+    g.add(rib);
+    g.position.set(x, 0, z);
+    this.scene.add(g);
+    this.deathMarkers.push({ mesh: g, x, z });
   }
 
   // Death sends you home to Embervale; your dungeon checkpoint is kept.
@@ -409,6 +439,7 @@ export class Game {
     }
     for (const e of this.enemies) this.scene.remove(e.mesh);
     this.enemies = [];
+    if (this.deathMarkers) { for (const d of this.deathMarkers) this.scene.remove(d.mesh); this.deathMarkers = []; }
     if (this.boss) { this.scene.remove(this.boss.mesh); this.boss = null; }
     for (const z of this.zones) if (z.mesh) this.scene.remove(z.mesh);
     this.zones = [];
@@ -1126,6 +1157,11 @@ export class Game {
     net.on('notice', (msg, from) => {
       if (from !== 'host') return; // only the host issues notices; ignore guest-crafted spam
       if (this.player) this.ui.floaters.spawn(this.player.pos, msg.txt, 'crit', 5);
+    });
+    net.on('death', (msg, from) => {
+      // a hero fell somewhere in the shared dungeon — mark it for everyone
+      if (!this.inTown) this.spawnDeathSkeleton(msg.x, msg.z);
+      if (net.isHost && from !== 'host') net.sendExcept({ t: 'death', x: msg.x, z: msg.z }, from);
     });
     net.on('room_full', () => {
       net.stop();
