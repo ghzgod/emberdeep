@@ -49,6 +49,8 @@ export function dropLegendary(floor) {
 // but the pinnacle EPIC can never be bought or gambled.
 export function gambleItem(floor) {
   const roll = Math.random();
+  // Fate alone (never a fixed-price purchase) can rarely grant the pinnacle EPIC.
+  if (roll < 0.015) return makeLegendary(EPIC_UNIQUES[Math.floor(Math.random() * EPIC_UNIQUES.length)], floor);
   if (roll < 0.12) return generateGear(floor + 2, 'epic'); // Super Rare (purple)
   if (roll < 0.45) return generateGear(floor, 'rare');
   return generateGear(floor, 'common');

@@ -519,6 +519,11 @@ export class Game {
     const p = this.player;
     const remaining = entry.qty != null ? entry.qty : (entry.sold ? 0 : 1);
     if (remaining <= 0 || p.gold < entry.price) return;
+    // Zoltan's gamble has a short cooldown so it can't be spammed.
+    if (entry.kind === 'gamble') {
+      const left = Math.ceil(((this._gambleReadyAt || 0) - performance.now()) / 1000);
+      if (left > 0) { this.ui.floaters.spawn(p.pos, `Fate must rest — ${left}s`, 'player-dmg'); return; }
+    }
     // items that land in the pack need a free slot first
     if ((entry.kind === 'gear' || entry.kind === 'gamble' || entry.kind === 'elixir') && p.inventory.length >= p.invSize) {
       this.ui.floaters.spawn(p.pos, 'Inventory full!', 'player-dmg');
@@ -542,11 +547,19 @@ export class Game {
       const item = gambleItem(this.floor);
       p.inventory.push(item);
       audio.play('gear_pickup');
-      if (item.rarity === 'epic') { // best gamble outcome — a Super Rare (purple)
+      if (item.rarity === 'legendary') { // the pinnacle EPIC — fate's rarest gift
+        audio.play('level_up');
+        this.particles.burst(p.pos.x, 1.2, p.pos.z, 60, 0xff8c1a, { speed: 6, life: 1.2 });
+        this.shake(0.6);
+        // Zoltan marvels at it aloud, by name (his own Kokoro voice)
+        roaster.speakAs(`By fate's own hand… a ${item.name}! In all my years I have never drawn its like. Wow. Take it — quickly, before the cards change their minds.`,
+          { female: false, vi: 3, pitch: 0.85, rate: 0.88, kokoro: 'bm_george', kSpeed: 0.88 });
+      } else if (item.rarity === 'epic') { // Super Rare (purple)
         audio.play('level_up');
         this.particles.burst(p.pos.x, 1.2, p.pos.z, 40, 0xa03bd9, { speed: 5, life: 1 });
         this.shake(0.4);
       }
+      this._gambleReadyAt = performance.now() + 6000; // fate must rest
       this.ui.showRelicReveal(item); // pop up what fate handed over
     }
     this.requestSave();
