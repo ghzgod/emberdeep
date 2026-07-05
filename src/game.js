@@ -347,6 +347,13 @@ export class Game {
     // change to this client only.
     if (net.active) this.localTown = true;
     this.loadTown();
+    // Respawn facing north (−Z) with the camera settled directly behind the
+    // hero — otherwise we keep whatever orbit/facing we died with and spawn
+    // looking backwards.
+    this.player.aimAngle = -Math.PI / 2;
+    this.player.visualAngle = -Math.PI / 2;
+    this.player.faceAimTimer = 0;
+    this.camYaw = 0;
     this.enterPlaying();
   }
 
