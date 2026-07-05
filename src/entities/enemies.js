@@ -89,11 +89,23 @@ export class Enemy {
     this.hitFlash = 0;
     this.knockback = null;
 
-    this.mesh = buildEnemyMesh(typeId, this.miniboss ? 1.5 : this.elite ? 1.25 : 1);
+    this.mesh = buildEnemyMesh(typeId, this.miniboss ? 1.5 : this.elite ? 1.3 : 1);
     if (this.elite) {
-      // silver elite crown
+      // The floor's one guaranteed elite is GILDED so it's unmistakable — every
+      // material tinted toward gold with a warm glow, plus a golden crown.
+      const gold = new THREE.Color(0xffd24a);
+      this.mesh.traverse((o) => {
+        if (o.isMesh && o.material && o.material.color) {
+          o.material = o.material.clone();
+          o.material.color.lerp(gold, 0.55);
+          if ('emissive' in o.material) {
+            o.material.emissive = new THREE.Color(0xffa51e);
+            o.material.emissiveIntensity = 0.35;
+          }
+        }
+      });
       const crown = this.mesh.children.find((c) => c.geometry?.type === 'TorusGeometry');
-      if (crown) crown.material = new THREE.MeshBasicMaterial({ color: 0xc8d8e8 });
+      if (crown) crown.material = new THREE.MeshBasicMaterial({ color: 0xffe680 });
     }
   }
 
