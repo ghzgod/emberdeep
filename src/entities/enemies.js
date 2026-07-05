@@ -715,44 +715,46 @@ export function buildEnemyMesh(typeId, scale = 1) {
     reg(armL, 'arm', Math.PI, 0.35); reg(armR, 'arm', 0, 0.35);
     reg(tail, 'tail', 0, 0.3);
     addShadowBlob(g, 0.5);
-  } else { // golem
+  } else { // golem — a craggy stone brute, not a stack of boxes
+    const rockMat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1, flatShading: true });
     const rock = def.color;
-    // layered stone slabs of varied size for torso
-    const slabLow = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.4, 0.55), makeMat(rock, 0.95));
-    slabLow.position.y = 0.58;
-    const slabMid = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.4, 0.62), makeMat(0x767068, 0.95));
-    slabMid.position.set(0.02, 0.95, -0.02); slabMid.rotation.y = 0.05;
-    const slabUp = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.32, 0.5), makeMat(rock, 0.95));
-    slabUp.position.set(-0.02, 1.28, 0.02); slabUp.rotation.y = -0.04;
-    // shoulders, bulky
-    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.32, 0.5), makeMat(0x6f6a63, 0.95));
-    shoulderL.position.set(-0.58, 1.28, 0);
-    const shoulderR = shoulderL.clone(); shoulderR.position.x = 0.58;
-    // head sunk between shoulders
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.28, 0.34), makeMat(0x5f5b56, 0.95));
-    head.position.y = 1.5;
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffc03a }));
-    eye.position.set(0, 1.5, 0.19);
-    // cracked glowing seams: thin emissive strips
+    // boulder torso: two overlapping craggy masses
+    const torso = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 0), rockMat(rock));
+    torso.position.y = 0.98; torso.scale.set(1.05, 1.15, 0.9); torso.rotation.y = 0.4;
+    const belly = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 0), rockMat(0x6f6a63));
+    belly.position.set(0.03, 0.58, 0.02); belly.scale.set(1.1, 0.9, 0.95); belly.rotation.y = 0.9;
+    // hunched craggy shoulders
+    const shoulderL = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 0), rockMat(0x6f6a63));
+    shoulderL.position.set(-0.55, 1.26, 0); shoulderL.rotation.set(0.3, 0.4, 0);
+    const shoulderR = shoulderL.clone(); shoulderR.position.x = 0.55; shoulderR.rotation.y = -0.4;
+    // rounded head with a heavy brow + glowing eye
+    const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), rockMat(0x5f5b56));
+    head.position.set(0, 1.5, 0.04); head.scale.set(1, 0.85, 1);
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.08, 0.12), rockMat(0x4f4b47));
+    brow.position.set(0, 1.56, 0.16); brow.rotation.x = 0.25;
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffc03a }));
+    eye.position.set(0, 1.46, 0.18);
+    // molten core glowing between the chest slabs
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff7a1a }));
+    core.position.set(0, 0.92, 0.24);
+    const coreGlow = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff5a1a, transparent: true, opacity: 0.3 }));
+    coreGlow.position.copy(core.position);
     const seamMat = new THREE.MeshBasicMaterial({ color: 0xff9a2a });
-    const seam1 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.35, 0.03), seamMat);
-    seam1.position.set(-0.15, 0.85, 0.29); seam1.rotation.z = 0.3;
-    const seam2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.3, 0.03), seamMat);
-    seam2.position.set(0.2, 1.15, 0.32); seam2.rotation.z = -0.25;
-    // heavy fists
-    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.55, 0.32), makeMat(0x6a655e, 0.95));
-    armL.position.set(-0.62, 0.85, 0.02);
-    const armR = armL.clone(); armR.position.x = 0.62;
-    const fistL = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.36), makeMat(0x545049, 0.95));
-    fistL.position.set(-0.63, 0.52, 0.04);
+    const seam1 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.32, 0.03), seamMat); seam1.position.set(-0.18, 0.9, 0.34); seam1.rotation.z = 0.4;
+    const seam2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.26, 0.03), seamMat); seam2.position.set(0.22, 1.12, 0.32); seam2.rotation.z = -0.3;
+    // thick tapered arms ending in boulder fists
+    const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.6, 6), rockMat(0x6a655e));
+    armL.position.set(-0.6, 0.9, 0.03); armL.rotation.z = 0.12;
+    const armR = armL.clone(); armR.position.x = 0.6; armR.rotation.z = -0.12;
+    const fistL = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), rockMat(0x545049)); fistL.position.set(-0.63, 0.5, 0.04);
     const fistR = fistL.clone(); fistR.position.x = 0.63;
-    // legs
-    const legs = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.42, 0.48), makeMat(0x565248, 0.95));
-    legs.position.y = 0.21;
-    reg(armL, 'arm', 0, 0.2); reg(armR, 'arm', Math.PI, 0.2);
-    reg(fistL, 'arm', 0, 0.16); reg(fistR, 'arm', Math.PI, 0.16);
-    g.add(slabLow, slabMid, slabUp, shoulderL, shoulderR, head, eye, seam1, seam2,
-      armL, armR, fistL, fistR, legs);
+    // stout stone legs (now a proper walk cycle)
+    const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.19, 0.44, 6), rockMat(0x565248)); legL.position.set(-0.2, 0.22, 0);
+    const legR = legL.clone(); legR.position.x = 0.2;
+    reg(legL, 'leg', 0, 0.28); reg(legR, 'leg', Math.PI, 0.28);
+    reg(armL, 'arm', 0, 0.22); reg(armR, 'arm', Math.PI, 0.22);
+    reg(fistL, 'arm', 0, 0.18); reg(fistR, 'arm', Math.PI, 0.18);
+    g.add(torso, belly, shoulderL, shoulderR, head, brow, eye, core, coreGlow, seam1, seam2, armL, armR, fistL, fistR, legL, legR);
     addShadowBlob(g, 0.65);
   }
 
