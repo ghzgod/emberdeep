@@ -10,7 +10,7 @@ export function xpForLevel(level) {
 export const LEVEL_CAP = 100;
 // Gear stat keys recompute() actually understands; anything else on a loaded
 // item is ignored so a hand-edited save can't inject bogus stats.
-const ALLOWED_ITEM_STATS = ['damagePct', 'maxHp', 'armor', 'crit', 'speed', 'regen'];
+const ALLOWED_ITEM_STATS = ['damagePct', 'maxHp', 'armor', 'crit', 'speed', 'regen', 'cdr4'];
 
 export class Player {
   constructor(classId) {
@@ -81,7 +81,7 @@ export class Player {
     // diminishing returns — no stat can stack into an auto-win:
     //   damage: full value to +100%, half value beyond
     //   move speed: capped at +30% · crit: capped 50% total · armor: 60%
-    let dmgPct = 0, speedPct = 0, critPct = 0, armorPct = 0, regenFlat = 0;
+    let dmgPct = 0, speedPct = 0, critPct = 0, armorPct = 0, regenFlat = 0, cdr4 = 0;
     for (const item of Object.values(this.equipped)) {
       if (!item) continue;
       // Off-class gear (attuned to another class) yields HALF its stats, so
@@ -95,8 +95,11 @@ export class Player {
         else if (stat === 'crit') critPct += v;
         else if (stat === 'speed') speedPct += v;
         else if (stat === 'regen') regenFlat += v;
+        else if (stat === 'cdr4') cdr4 += v; // ultimate (slot-4) cooldown reduction %
       }
     }
+    // Weapon-borne reduction to the slot-4 (ultimate/AoE) ability cooldown, capped.
+    this.ult4Cdr = Math.min(0.5, cdr4 / 100);
     const effDmg = dmgPct <= 100 ? dmgPct : 100 + (dmgPct - 100) * 0.5;
     damage *= 1 + effDmg / 100;
     speed *= 1 + Math.min(30, speedPct) / 100;
@@ -261,7 +264,9 @@ export class Player {
       return;
     }
     this.resource -= ab.cost;
-    this.abilityCds[index] = ab.cd * (1 - 0.03 * this.skillRank('celerity'));
+    let cd = ab.cd * (1 - 0.03 * this.skillRank('celerity'));
+    if (index === 3) cd *= 1 - (this.ult4Cdr || 0); // weapon ultimate-CDR affects slot 4
+    this.abilityCds[index] = cd;
     this.attackAnim = 0.25;
     this.faceAimTimer = 0.8;
     if (this.anim) this.anim.playAttack();
