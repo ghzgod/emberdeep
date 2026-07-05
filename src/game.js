@@ -542,10 +542,10 @@ export class Game {
       const item = gambleItem(this.floor);
       p.inventory.push(item);
       audio.play('gear_pickup');
-      if (item.rarity === 'legendary') {
+      if (item.rarity === 'epic') { // best gamble outcome — a Super Rare (purple)
         audio.play('level_up');
-        this.ui.floaters.spawn(p.pos, `🌟 LEGENDARY: ${item.name}!`, 'crit');
-        this.particles.burst(p.pos.x, 1.2, p.pos.z, 40, 0xff8c1a, { speed: 5, life: 1 });
+        this.ui.floaters.spawn(p.pos, `✨ SUPER RARE: ${item.name}!`, 'crit');
+        this.particles.burst(p.pos.x, 1.2, p.pos.z, 40, 0xa03bd9, { speed: 5, life: 1 });
         this.shake(0.4);
       } else {
         this.ui.floaters.spawn(p.pos, `${item.icon} ${item.name}`, item.rarity === 'common' ? '' : 'crit');
@@ -1561,8 +1561,11 @@ export class Game {
       const rarity = opts.isBoss || opts.miniboss ? 'epic' : null;
       this.loot.dropGear(x, z + 0.5, generateGear(this.floor, rarity, this.player.classId));
     }
-    // fight-only legendaries: the Dungeon Lord and minibosses alone drop these
+    // The pinnacle EPIC is earned in a fight: the Dungeon Lord and minibosses
+    // drop it meaningfully, and ANY kill has a ~0.001% shot at one.
     if ((opts.isBoss && Math.random() < 0.35) || (opts.miniboss && Math.random() < 0.05)) {
+      this.loot.dropGear(x + 0.8, z - 0.5, dropLegendary(this.floor));
+    } else if (!opts.isBoss && !opts.miniboss && Math.random() < 0.00001) {
       this.loot.dropGear(x + 0.8, z - 0.5, dropLegendary(this.floor));
     }
     // very rare bag drop: +3 inventory slots

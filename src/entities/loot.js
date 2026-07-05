@@ -3,11 +3,14 @@ import { audio } from '../core/audio.js';
 
 // Gear generation with rarity tiers + world drop entities.
 
+// Tiers (internal keys are stable; display names/colours below):
+//   common (grey) < rare (blue) < 'epic' key = Super Rare (purple) <
+//   'legendary' key = EPIC (orange) — the pinnacle: ~0.001% drop, never bought.
 export const RARITIES = {
   common:    { name: 'Common', mult: 1.0, color: 0x9a9a9a, css: 'common', weight: 65 },
   rare:      { name: 'Rare', mult: 1.6, color: 0x4f8bd9, css: 'rare', weight: 27 },
-  epic:      { name: 'Epic', mult: 2.4, color: 0xa03bd9, css: 'epic', weight: 8 },
-  legendary: { name: 'Legendary', mult: 4.0, color: 0xff8c1a, css: 'legendary', weight: 0 }, // gamble-only
+  epic:      { name: 'Super Rare', mult: 2.4, color: 0xa03bd9, css: 'epic', weight: 8 },
+  legendary: { name: 'Epic', mult: 4.0, color: 0xff8c1a, css: 'legendary', weight: 0 }, // pinnacle: earned only
 };
 
 // Legendary uniques come in two pools:
@@ -36,19 +39,18 @@ function makeLegendary(def, floor) {
   };
 }
 
-// Boss/miniboss-only legendaries. Never sold, never gambled.
+// The pinnacle EPIC uniques — earned in a fight only, never sold or gambled.
+const EPIC_UNIQUES = [...GAMBLE_LEGENDARIES, ...DROP_LEGENDARIES];
 export function dropLegendary(floor) {
-  return makeLegendary(DROP_LEGENDARIES[Math.floor(Math.random() * DROP_LEGENDARIES.length)], floor);
+  return makeLegendary(EPIC_UNIQUES[Math.floor(Math.random() * EPIC_UNIQUES.length)], floor);
 }
 
-// Zoltan's gamble: pricey, usually junk, sometimes glory (his own uniques only).
+// Zoltan's gamble: pricey, usually junk — fate can grant up to a Super Rare,
+// but the pinnacle EPIC can never be bought or gambled.
 export function gambleItem(floor) {
   const roll = Math.random();
-  if (roll < 0.05) {
-    return makeLegendary(GAMBLE_LEGENDARIES[Math.floor(Math.random() * GAMBLE_LEGENDARIES.length)], floor);
-  }
-  if (roll < 0.20) return generateGear(floor + 1, 'epic');
-  if (roll < 0.50) return generateGear(floor, 'rare');
+  if (roll < 0.12) return generateGear(floor + 2, 'epic'); // Super Rare (purple)
+  if (roll < 0.45) return generateGear(floor, 'rare');
   return generateGear(floor, 'common');
 }
 
