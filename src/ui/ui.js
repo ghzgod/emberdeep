@@ -109,6 +109,8 @@ export class UI {
     $('btn-charselect-back').onclick = () => { this.renderSaves(); this.show('saves'); };
     $('btn-shop-close').onclick = () => this.game.closeShop();
     $('btn-relic-take').onclick = () => { $('relic-reveal').classList.add('hidden'); this.renderShop?.(this.game.activeVendor); };
+    $('btn-buy-confirm').onclick = () => this.confirmBuy();
+    $('btn-buy-cancel').onclick = () => { $('buy-confirm').classList.add('hidden'); this._pendingBuy = null; };
     $('btn-shop-restock').onclick = () => {
       if (this.game.activeVendor) this.game.restockVendor(this.game.activeVendor);
     };
@@ -392,8 +394,9 @@ export class UI {
         <span class="shop-item-name">${entry.label}<small>${soldOut ? 'Sold out' : subFor(entry) + qtyTag}</small></span>
         <span class="shop-item-price">${entry.price}g</span>
       `;
-      if (afford) {
-        el.onclick = () => { this.game.buyFromVendor(vendor, entry); this.renderShop(vendor); };
+      // click opens a detail + Buy confirm rather than purchasing instantly
+      if (!soldOut) {
+        el.onclick = () => this.showBuyConfirm(vendor, entry);
       }
       buyWrap.appendChild(el);
     }
@@ -893,6 +896,43 @@ export class UI {
     } else {
       bossWrap.classList.add('hidden');
     }
+  }
+
+  // Clicking a shop ware opens this detail + Buy confirm (no instant purchase).
+  showBuyConfirm(vendor, entry) {
+    const p = this.game.player;
+    this._pendingBuy = { vendor, entry };
+    const item = entry.item;
+    const rarity = item ? item.rarity : (entry.kind === 'elixir' ? entry.elixir.rarity : 'common');
+    const R = RARITIES[rarity] || RARITIES.common;
+    $('buy-icon').textContent = entry.icon;
+    const name = $('buy-name'); name.textContent = entry.label; name.className = `tt-${rarity}`;
+    $('buy-rarity').textContent = item ? `${R.name} ${item.slot}` : (entry.kind === 'elixir' ? `${R.name} elixir` : '');
+    let detail = '';
+    if (item) detail = Object.entries(item.stats || {}).map(([k, v]) => `<span class="tt-stat">${statLabel(k, v)}</span>`).join(' · ');
+    else if (entry.kind === 'elixir') detail = `<span class="tt-stat">${entry.elixir.label}</span>`;
+    else if (entry.kind === 'potion') detail = 'Restores 45% health';
+    else if (entry.kind === 'bag') detail = '+3 inventory slots, forever';
+    else if (entry.kind === 'gamble') detail = 'Common… or Super Rare. Fate decides.';
+    $('buy-stats').innerHTML = detail;
+    // for gear, show how it compares to what's worn
+    $('buy-compare').innerHTML = item ? (this.affinityNote(item) + this.compareNote(item)) : '';
+    $('buy-price').innerHTML = `<span class="coin-stack">🪙<span class="c2">🪙</span></span> ${entry.price}g`;
+    $('buy-card').style.setProperty('--relic-glow', `#${R.color.toString(16).padStart(6, '0')}`);
+    const buyBtn = $('btn-buy-confirm');
+    const broke = p.gold < entry.price;
+    buyBtn.disabled = broke;
+    buyBtn.textContent = broke ? 'Not enough gold' : 'Buy';
+    $('buy-confirm').classList.remove('hidden');
+  }
+
+  confirmBuy() {
+    const pend = this._pendingBuy;
+    $('buy-confirm').classList.add('hidden');
+    if (!pend) return;
+    this.game.buyFromVendor(pend.vendor, pend.entry);
+    this.renderShop(pend.vendor);
+    this._pendingBuy = null;
   }
 
   // Zoltan's mystery relic: reveal what fate handed over, click to keep.
