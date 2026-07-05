@@ -1393,9 +1393,42 @@ export class Game {
     mesh.userData.auraGroup = grp;
   }
 
+  // Show equipped gear on a hero: a rarity-tinted helmet, shoulder pauldrons and
+  // chest plate that only rebuild when the loadout's rarities change. Works for
+  // the local hero (full items) and remotes (compact synced loadout) alike.
+  updateHeroGear(mesh, equipped) {
+    if (!mesh || !equipped) return;
+    const slots = ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket'];
+    const sig = slots.map((s) => (equipped[s]?.rarity || '-')).join('');
+    if (mesh.userData.gearSig === sig) return;
+    mesh.userData.gearSig = sig;
+    if (mesh.userData.gearVisual) { mesh.remove(mesh.userData.gearVisual); mesh.userData.gearVisual = null; }
+    const grp = new THREE.Group();
+    const mat = (rarity) => {
+      const c = RARITIES[rarity]?.color ?? 0x8a8a8a;
+      const hot = rarity === 'legendary' || rarity === 'epic';
+      return new THREE.MeshStandardMaterial({ color: c, metalness: 0.5, roughness: 0.45, emissive: hot ? c : 0x000000, emissiveIntensity: rarity === 'legendary' ? 0.4 : rarity === 'epic' ? 0.22 : 0 });
+    };
+    if (equipped.helmet) {
+      const helm = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), mat(equipped.helmet.rarity));
+      helm.position.y = 1.5;
+      grp.add(helm);
+    }
+    if (equipped.chest) {
+      const m = mat(equipped.chest.rarity);
+      const pL = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), m); pL.position.set(-0.34, 1.02, 0); pL.scale.y = 0.7;
+      const pR = pL.clone(); pR.position.x = 0.34;
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 0.14), m); plate.position.set(0, 0.92, 0.24);
+      grp.add(pL, pR, plate);
+    }
+    mesh.add(grp);
+    mesh.userData.gearVisual = grp;
+  }
+
   // Keep the local hero's aura in sync, spin sparkles, and fly the companion.
   animateAuras(dt) {
-    if (this.player?.mesh) this.setHeroAura(this.player.mesh, this.heroAuraTier());
+    if (this.player?.mesh) { this.setHeroAura(this.player.mesh, this.heroAuraTier()); this.updateHeroGear(this.player.mesh, this.player.equipped); }
+    for (const [, rp] of this.remotePlayers) if (rp.loadout) this.updateHeroGear(rp.mesh, rp.loadout);
     this._auraT = (this._auraT || 0) + dt;
     const t = this._auraT;
     const anim = (mesh) => {
