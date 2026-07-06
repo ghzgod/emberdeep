@@ -1767,11 +1767,6 @@ export class Game {
     }
     // a swing also smashes any container it sweeps through
     this.breakNear(hitX, hitZ, 1.0);
-    // a miss that reaches into a wall chips it: small stone-fleck puff + mark
-    if (!hitAny && !this.isWalkable(hitX, hitZ, 0.15)) {
-      this.particles.burst(hitX, 0.9, hitZ, 4, 0x8a8590, { speed: 2.2, life: 0.35, size: 0.09, up: 0.8 });
-      this.addWallMark(hitX, hitZ, { color: 0x241f1c, size: 0.16 + Math.random() * 0.08, opacity: 0.28 });
-    }
   }
 
   // Smash any breakable container (barrel/crate/pot) within radius of an impact.
