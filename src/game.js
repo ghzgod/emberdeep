@@ -1586,8 +1586,10 @@ export class Game {
       if (name && rp.name !== name) { rp.name = name; this.updateNametag(rp, false); }
       return rp;
     }
-    const anim = buildAnimatedHero(cls);
-    const mesh = anim ? anim.mesh : buildHeroMesh(CLASSES[cls] || CLASSES.knight);
+    // thread the peer's name so their seeded cosmetics (cape/trim/scar) match
+    // what they see on their own screen
+    const anim = buildAnimatedHero(cls, name || 'Hero');
+    const mesh = anim ? anim.mesh : buildHeroMesh(CLASSES[cls] || CLASSES.knight, name || 'Hero');
     this.scene.add(mesh);
     rp = { mesh, anim, cls, name: name || 'Hero', target: new THREE.Vector3(), aim: 0, moving: false, dead: false, away: false, level: 1, hp: 0, maxHp: 0 };
     this.updateNametag(rp, false);

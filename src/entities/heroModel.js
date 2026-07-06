@@ -47,6 +47,88 @@ function findClip(animations, patterns) {
   return null;
 }
 
+// ---- deterministic per-name cosmetics ----
+// Same hero name always hashes to the same seed, so a multiplayer peer's look
+// is consistent for everyone who sees them (and reloading doesn't reshuffle
+// your own look either). Exported so classes.js's primitive fallback mesh can
+// reuse the same seeding instead of rolling its own.
+export function hashSeed(str) {
+  let h = 2166136261 >>> 0; // FNV-1a
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+export function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function rng() {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Shifts a material's color by a small per-channel amount so the result reads
+// as "a variant of the same color" rather than a random new one. This is a
+// multiplicative RGB jitter rather than an HSL hue rotation: several of these
+// materials carry a plain white color factor (all the actual color comes from
+// the baked texture), and rotating hue on a saturation-0 white is a no-op -
+// per-channel jitter still shows up as a visible tint either way.
+export function jitterColor(mat, rng, amount = 0.12) {
+  const c = mat.color;
+  c.r = Math.min(1, Math.max(0.3, c.r * (1 + (rng() - 0.5) * 2 * amount)));
+  c.g = Math.min(1, Math.max(0.3, c.g * (1 + (rng() - 0.5) * 2 * amount)));
+  c.b = Math.min(1, Math.max(0.3, c.b * (1 + (rng() - 0.5) * 2 * amount)));
+}
+
+// Small, cheap per-hero variation seeded from the player's name: a cloth/cape
+// tint (always), then a couple of independent rolls for a trim (helmet/hat)
+// tint, a subtle skin-tone shift and a scar decal, so most heroes end up with
+// 2-3 distinguishing touches. The KayKit rigs fully cover the head with a
+// helmet/hood in normal play, so the skin tint and scar are mostly a "looks
+// right up close" detail; the cape/trim tints are the visible ones at the
+// game's overhead camera distance.
+function applyCosmetics(mesh, name) {
+  const rng = mulberry32(hashSeed(name || 'Hero'));
+  let headMesh = null, capeMesh = null, trimMesh = null;
+  mesh.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    if (/Head/i.test(o.name)) headMesh = o;
+    else if (/Cape/i.test(o.name)) capeMesh = o;
+    else if (/Helmet|Hat/i.test(o.name)) trimMesh = o;
+  });
+
+  if (capeMesh) {
+    capeMesh.material = capeMesh.material.clone();
+    jitterColor(capeMesh.material, rng, 0.22);
+  }
+  if (trimMesh && rng() < 0.7) {
+    trimMesh.material = trimMesh.material.clone();
+    jitterColor(trimMesh.material, rng, 0.16);
+  }
+  if (headMesh && rng() < 0.6) {
+    headMesh.material = headMesh.material.clone();
+    jitterColor(headMesh.material, rng, 0.08);
+  }
+  if (headMesh && rng() < 0.5) {
+    headMesh.geometry.computeBoundingBox();
+    const size = new THREE.Vector3();
+    headMesh.geometry.boundingBox.getSize(size);
+    const center = new THREE.Vector3();
+    headMesh.geometry.boundingBox.getCenter(center);
+    const scar = new THREE.Mesh(
+      new THREE.BoxGeometry(size.x * 0.35, size.y * 0.06, size.z * 0.08),
+      new THREE.MeshStandardMaterial({ color: 0x3a1c18, roughness: 0.9 })
+    );
+    scar.position.set(center.x + size.x * 0.18, center.y, center.z + size.z * 0.4);
+    scar.rotation.z = 0.5;
+    headMesh.add(scar);
+  }
+}
+
 const CLIP_PATTERNS = {
   idle: [/^idle$/i, /idle_?a/i, /idle/i],
   run: [/^running_a$/i, /run/i, /walk/i],
@@ -57,7 +139,10 @@ const CLIP_PATTERNS = {
 };
 
 // Returns { mesh, mixer, actions, playing } or null if the model isn't loaded.
-export function buildAnimatedHero(classId) {
+// `name` seeds the small deterministic cosmetic variations (see applyCosmetics
+// above) so the same hero name always looks the same, for the local player
+// and for every peer who sees them in co-op.
+export function buildAnimatedHero(classId, name = '') {
   const data = loaded.get(classId);
   if (!data) return null;
 
@@ -66,6 +151,7 @@ export function buildAnimatedHero(classId) {
   mesh.traverse((o) => {
     if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; }
   });
+  applyCosmetics(mesh, name);
 
   // fake blob shadow
   const shadow = new THREE.Mesh(
@@ -86,14 +172,14 @@ export function buildAnimatedHero(classId) {
     death: findClip(anims, CLIP_PATTERNS.death),
   };
   const actions = {};
-  for (const [name, clip] of Object.entries(clips)) {
+  for (const [key, clip] of Object.entries(clips)) {
     if (!clip) continue;
     const action = mixer.clipAction(clip);
-    if (name === 'attack' || name === 'death') {
+    if (key === 'attack' || key === 'death') {
       action.setLoop(THREE.LoopOnce);
       action.clampWhenFinished = true;
     }
-    actions[name] = action;
+    actions[key] = action;
   }
   if (actions.idle) actions.idle.play();
 
@@ -102,15 +188,39 @@ export function buildAnimatedHero(classId) {
     mixer,
     actions,
     current: 'idle',
-    // Crossfade helper driven from Player.update
-    setLocomotion(moving) {
+    _idleT: Math.random() * 10, // desyncs idle sway across multiple heroes on screen
+    // Crossfade helper driven from Player.update (and from remote-peer sync in
+    // game.js). `speed` is either a 0-1 fraction of full sprint/dash speed, or
+    // (for older/remote callers) a plain boolean. `dt` drives the idle
+    // breathing sway below and is optional - omit it to just crossfade like
+    // before. `attacking` gates the idle sway off so it never fights playAttack.
+    setLocomotion(speed, dt, attacking = false) {
+      const speed01 = typeof speed === 'number' ? Math.min(1, Math.max(0, speed)) : (speed ? 1 : 0);
+      const moving = speed01 > 0.02;
       const want = moving ? 'run' : 'idle';
-      if (want === this.current || !this.actions[want]) return;
-      const from = this.actions[this.current];
-      const to = this.actions[want];
-      to.reset().play();
-      if (from) from.crossFadeTo(to, 0.18, false);
-      this.current = want;
+      if (want !== this.current && this.actions[want]) {
+        const from = this.actions[this.current];
+        const to = this.actions[want];
+        to.reset().play();
+        if (from) from.crossFadeTo(to, 0.18, false);
+        this.current = want;
+      }
+      // Frequency (not amplitude, since these are baked clips) scales with
+      // actual speed so a walk and a dash/sprint read as different strides.
+      if (this.actions.run) this.actions.run.setEffectiveTimeScale(0.75 + speed01 * 0.9);
+
+      if (!dt) return;
+      // Idle breathing sway + occasional weight shift, applied to the rig's
+      // root transform rather than individual bones so it never fights the
+      // baked idle/run/attack clips. Skipped while moving or mid-attack.
+      if (!moving && !attacking) {
+        this._idleT += dt;
+        this.mesh.position.y = Math.sin(this._idleT * 1.6) * 0.012;
+        this.mesh.rotation.z = Math.sin(this._idleT * 0.35) * 0.05;
+      } else {
+        this.mesh.position.y += (0 - this.mesh.position.y) * Math.min(1, 10 * dt);
+        this.mesh.rotation.z += (0 - this.mesh.rotation.z) * Math.min(1, 10 * dt);
+      }
     },
     playAttack() {
       const a = this.actions.attack;
@@ -133,6 +243,7 @@ export function buildAnimatedHero(classId) {
       if (this.actions.idle) this.actions.idle.reset().play();
       this.mesh.rotation.x = 0;
       this.mesh.rotation.z = 0;
+      this.mesh.position.y = 0;
     },
   };
 }

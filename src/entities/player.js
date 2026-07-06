@@ -50,9 +50,14 @@ export class Player {
     this.hp = this.maxHp;
     this.resource = this.maxResource;
 
+    // Seed small per-hero cosmetic variation (scar/tint) from the player's
+    // chosen name, reusing the same key game.js's playerName() reads so a
+    // reload or a remote peer sees the identical look for the same name.
+    const heroName = (typeof localStorage !== 'undefined' && localStorage.getItem('emberdeep-name-v1')) || 'Hero';
+
     // Prefer the animated KayKit model; fall back to primitives if it failed to load.
-    this.anim = buildAnimatedHero(classId);
-    this.mesh = this.anim ? this.anim.mesh : buildHeroMesh(this.classDef);
+    this.anim = buildAnimatedHero(classId, heroName);
+    this.mesh = this.anim ? this.anim.mesh : buildHeroMesh(this.classDef, heroName);
   }
 
   // ---- mastery tree ----
@@ -369,13 +374,17 @@ export class Player {
     } else {
       this.mesh.rotation.y = -this.visualAngle + Math.PI / 2;
     }
+    // Normalize actual speed (walk vs a dash/sprint) into 0-1 so the gait
+    // reads faster when moving faster, instead of one fixed-speed loop.
+    const curSpeed = this.dash ? this.dash.speed : (movingNow ? this.moveSpeed : 0);
+    const speed01 = curSpeed > 0 ? Math.min(1, curSpeed / (this.speed * 1.8)) : 0;
     if (this.anim) {
-      const moving = !!(this.moveDir.x || this.moveDir.z) || !!this.dash;
-      this.anim.setLocomotion(moving);
+      this.anim.setLocomotion(speed01, dt, this.attackAnim > 0);
     } else {
-      // primitive fallback: weapon bob
+      // primitive fallback: weapon bob + basic leg/idle gait
       const w = this.mesh.userData.weapon;
       if (w) w.rotation.x = -this.attackAnim * 5;
+      if (this.mesh.userData.updateGait) this.mesh.userData.updateGait(dt, speed01, this.attackAnim > 0);
     }
   }
 
