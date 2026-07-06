@@ -872,14 +872,15 @@ export class UI {
 
   // ---------- HUD update ----------
   updateHud(player, floor, boss) {
+    // Bars carry their NAME, not numbers - the fill level tells the story.
     $('hp-bar').style.width = `${(player.hp / player.maxHp) * 100}%`;
-    $('hp-text').textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
+    $('hp-text').textContent = 'Health';
     $('resource-bar').style.width = `${(player.resource / player.maxResource) * 100}%`;
-    $('resource-text').textContent = `${Math.floor(player.resource)} ${player.classDef.resource.name}`;
+    $('resource-text').textContent = player.classDef.resource.name;
     const { xpForLevel } = this.game.playerModule;
     const need = xpForLevel(player.level);
     $('xp-bar').style.width = `${(player.xp / need) * 100}%`;
-    $('xp-text').textContent = '';
+    $('xp-text').textContent = 'XP';
     const pts = player.skillPoints();
     $('hud-level').textContent = pts > 0 ? `Lv ${player.level} ✦${pts}` : `Lv ${player.level}`;
     $('hud-gold').innerHTML = `${player.gold} <span class="coin-stack"><span class="coin"></span><span class="coin c2"></span></span>`;
