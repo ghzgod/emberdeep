@@ -74,6 +74,10 @@ const MUSIC = {
 
 const AUDIBLE_RANGE = 26; // world units; beyond this SFX are silent
 
+// Ghost ambient one-shots (see ghostMoan() below) -- an assortment so wraiths
+// don't repeat the same clip every time.
+const GHOST_MOAN_VARIANTS = ['moan', 'wail', 'keen', 'rattle'];
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
@@ -204,6 +208,121 @@ export class AudioEngine {
     src.connect(gain);
     gain.connect(this.sfxGain);
     src.start();
+  }
+
+  // ---------- Ghost ambience one-shots (procedural, no assets) ----------
+  // An assortment of eerie moans so wraiths don't loop the same clip. Kept
+  // LOW volume with long attack/release so nothing startles the player --
+  // these are atmosphere, not combat stingers. Routed through sfxGain so the
+  // SFX slider/mute applies. `variant` picks one of GHOST_MOAN_VARIANTS; an
+  // unrecognized/omitted variant rolls a random one. opts: { pos, volume }.
+  ghostMoan(variant, opts = {}) {
+    if (!this.ctx || this.ctx.state !== 'running') return null;
+    const v = GHOST_MOAN_VARIANTS.includes(variant) ? variant : GHOST_MOAN_VARIANTS[Math.floor(Math.random() * GHOST_MOAN_VARIANTS.length)];
+
+    let vol = opts.volume ?? 1;
+    if (opts.pos) {
+      const dx = opts.pos.x - this.listener.x;
+      const dz = opts.pos.z - this.listener.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > AUDIBLE_RANGE) return null;
+      vol *= Math.max(0, 1 - dist / AUDIBLE_RANGE) ** 1.5;
+    }
+    if (vol <= 0.01) return null;
+
+    if (v === 'moan') this._ghostMoanLow(vol);
+    else if (v === 'wail') this._ghostWhisperWail(vol);
+    else if (v === 'keen') this._ghostKeen(vol);
+    else if (v === 'rattle') this._ghostRattle(vol);
+    return v;
+  }
+
+  // (a) low hollow moan: sine/triangle sweeping slowly down ~180->90Hz with a
+  // slow tremolo riding on the gain. ~2.2-2.8s, soft attack/release.
+  _ghostMoanLow(vol) {
+    const t = this.ctx.currentTime;
+    const dur = 2.2 + Math.random() * 0.6;
+    const osc = this.ctx.createOscillator();
+    osc.type = Math.random() < 0.5 ? 'sine' : 'triangle';
+    osc.frequency.setValueAtTime(170 + Math.random() * 20, t);
+    osc.frequency.exponentialRampToValueAtTime(85 + Math.random() * 15, t + dur);
+    const g = this.ctx.createGain();
+    const peak = 0.07 * vol;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    // slow tremolo: a quiet LFO summed into the same gain param
+    const lfo = this.ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 3.5 + Math.random();
+    const lfoGain = this.ctx.createGain(); lfoGain.gain.value = peak * 0.35;
+    lfo.connect(lfoGain); lfoGain.connect(g.gain);
+    osc.connect(g); g.connect(this.sfxGain);
+    osc.start(t); lfo.start(t);
+    osc.stop(t + dur + 0.1); lfo.stop(t + dur + 0.1);
+  }
+
+  // (b) breathy whisper-wail: bandpassed noise swelling and fading, with the
+  // filter drifting slowly upward. ~1.8-2.7s.
+  _ghostWhisperWail(vol) {
+    const t = this.ctx.currentTime;
+    const dur = 1.8 + Math.random() * 0.9;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._noise();
+    src.loop = true;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass'; filt.Q.value = 0.9;
+    const f0 = 350 + Math.random() * 150, f1 = f0 + 250 + Math.random() * 200;
+    filt.frequency.setValueAtTime(f0, t);
+    filt.frequency.linearRampToValueAtTime(f1, t + dur);
+    const g = this.ctx.createGain();
+    const peak = 0.05 * vol;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + dur * 0.45);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filt); filt.connect(g); g.connect(this.sfxGain);
+    src.start(t, Math.random() * 1.5);
+    src.stop(t + dur + 0.1);
+  }
+
+  // (c) faint keening: high soft sine ~600-900Hz with vibrato, quick fade.
+  // ~1.3-1.7s.
+  _ghostKeen(vol) {
+    const t = this.ctx.currentTime;
+    const dur = 1.3 + Math.random() * 0.4;
+    const osc = this.ctx.createOscillator(); osc.type = 'sine';
+    const f0 = 620 + Math.random() * 120;
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.linearRampToValueAtTime(f0 + 180 + Math.random() * 100, t + dur * 0.7);
+    const vib = this.ctx.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.5 + Math.random() * 1.5;
+    const vibGain = this.ctx.createGain(); vibGain.gain.value = 12;
+    vib.connect(vibGain); vibGain.connect(osc.frequency);
+    const g = this.ctx.createGain();
+    const peak = 0.04 * vol;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(this.sfxGain);
+    osc.start(t); vib.start(t);
+    osc.stop(t + dur + 0.1); vib.stop(t + dur + 0.1);
+  }
+
+  // (d) faint chains/rattle: a handful of short bandpassed noise clinks
+  // scattered across ~1.6-2.2s.
+  _ghostRattle(vol) {
+    const t = this.ctx.currentTime;
+    const clinks = 4 + Math.floor(Math.random() * 4);
+    const dur = 1.6 + Math.random() * 0.6;
+    const peak = 0.045 * vol;
+    for (let i = 0; i < clinks; i++) {
+      const tt = t + Math.random() * dur;
+      const src = this.ctx.createBufferSource(); src.buffer = this._noise();
+      const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800 + Math.random() * 2000; f.Q.value = 3;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, tt);
+      g.gain.exponentialRampToValueAtTime(peak * (0.6 + Math.random() * 0.4), tt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.12);
+      src.connect(f); f.connect(g); g.connect(this.sfxGain);
+      src.start(tt, Math.random() * 2, 0.14);
+    }
   }
 
   playMusic(name, fadeSec = 1.5) {
