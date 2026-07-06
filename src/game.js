@@ -1577,6 +1577,26 @@ export class Game {
       }
     }
     if (hitAny) audio.play(basic.hitSound);
+    // a swing also smashes any container it sweeps through
+    this.breakNear(player.pos.x + (player.aimDir?.x || 0) * basic.range, player.pos.z + (player.aimDir?.z || 0) * basic.range, 1.0);
+  }
+
+  // Smash any breakable container (barrel/crate/pot) within radius of an impact.
+  breakNear(x, z, radius = 1.3) {
+    const list = this.dungeonMeshes?.breakables;
+    if (!list || !list.length) return;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const b = list[i];
+      if (Math.hypot(b.x - x, b.z - z) > radius) continue;
+      b.mesh.removeFromParent();
+      b.mesh.traverse?.((o) => o.geometry?.dispose?.());
+      const col = b.kind === 'pot' ? 0x8a4b33 : 0x54402c;
+      this.particles.burst(b.x, 0.45, b.z, 12, col, { speed: 3.5, life: 0.5, size: 0.12, up: 1 });
+      this.addWallMark(b.x, b.z, { color: 0x1c150e, size: 0.42, opacity: 0.3 });
+      audio.play('chest_open', { pos: { x: b.x, z: b.z }, volume: 0.45, rate: 1.35 });
+      if (Math.random() < 0.4) this.loot.dropGold(b.x, b.z, 2 + Math.floor(Math.random() * 6));
+      list.splice(i, 1);
+    }
   }
 
   // Rebuild a guest-supplied status into a clean, clamped object. A tampered
@@ -1753,6 +1773,7 @@ export class Game {
     if (opts.source === 'player') {
       // scorch the ground where a power lands (darker for fire/burn)
       this.addWallMark(x, z, { color: opts.status?.burn ? 0x1a0f08 : 0x201a16, size: Math.min(radius * 0.7, 1.2), opacity: 0.3 });
+      this.breakNear(x, z, radius); // powers shatter nearby containers
       for (const e of this.enemies) {
         if (e.dead) continue;
         const d = Math.hypot(e.pos.x - x, e.pos.z - z);
@@ -2424,6 +2445,7 @@ export class Game {
     this.particles.burst(x, 1.0, z, 7, 0x8a8590, { speed: 3, life: 0.4, size: 0.11, up: 0.9 });
     this.particles.burst(x, 1.0, z, 3, 0x5a5560, { speed: 1.6, life: 0.55, size: 0.18, up: 1.2 });
     this.addWallMark(x, z, { color: 0x241f1c, size: 0.22 + Math.random() * 0.14 });
+    this.breakNear(x, z, 0.9); // a stray shot can smash a container too
   }
 
   // A persistent ground decal at an impact point (chip, scuff or scorch). The
