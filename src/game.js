@@ -718,12 +718,12 @@ export class Game {
     const p = this.player;
     const n = this.playerName();
     const lines = [];
-    if (p.hp < p.maxHp * 0.6) lines.push(`Rough night, ${n}? Sit by the fire. The hearth mends what potions can't.`);
+    if (p.hp < p.maxHp * 0.6) lines.push(`${n}, rough night? Sit by the fire, the hearth mends what potions can't.`);
     if (this.deaths >= 3) lines.push('Heard the floor\'s been winning. It always brags. Ignore it.');
     if (this.actsCleared >= 1) lines.push(`Word travels — ${['', 'Malruk', 'Sszarra', 'Vexmal', 'the Colossus'][this.actsCleared] || 'the lords'} fell to you. First round's full price anyway.`);
     lines.push(
       'Welcome to the Sleeping Golem. He\'s out back. Still sleeping.',
-      `Zoltan's dice are loaded, ${n}. Course they are. Doesn't mean they won't love you.`,
+      `${n}, Zoltan's dice are loaded. Course they are. Doesn't mean they won't love you.`,
       'The bard quit. Said the dungeon "hummed in the wrong key". So it\'s just the fire and me.',
     );
     const line = lines[Math.floor(Math.random() * lines.length)];
@@ -805,19 +805,19 @@ export class Game {
 
     // Maribel — health/potion aware
     if (hurt) lines.potions.push(`Oh dear, ${n}, you're hurt. Sit, drink, live.`);
-    else if (p.potions === 0) lines.potions.push(`Empty satchel, ${n}? Never descend without a red bottle.`);
-    else lines.potions.push('Potions, fresh from the still.', `Welcome back, ${n}. Drink responsibly, dear.`, 'You look well! Let’s keep it that way.');
+    else if (p.potions === 0) lines.potions.push(`${n}, an empty satchel? Never descend without a red bottle.`);
+    else lines.potions.push('Potions, fresh from the still.', `Welcome back, ${n}, drink responsibly, dear.`, 'You look well! Let’s keep it that way.');
 
     // Torvald — gear aware
     const weapon = p.equipped.weapon;
-    if (!weapon) lines.gear.push(`Bare-handed, ${n}?! By the forge, take a blade before the deep takes you.`);
+    if (!weapon) lines.gear.push(`${n}, bare-handed?! By the forge, take a blade before the deep takes you.`);
     else if (weapon.rarity === 'common') lines.gear.push('That old iron of yours has seen better days. Browse a while.');
-    else lines.gear.push(`Ah, ${n}! Steel for the worthy.`, 'The forge burned all night for this.');
+    else lines.gear.push(`${n}, steel for the worthy. Pick a blade.`, 'The forge burned all night for this.');
 
     // Zoltan — gold aware
     if (rich) lines.mystery.push(`${n}, that's ${p.gold} gold — fate can hear it jingling from here.`);
     else if (p.gold < 100) lines.mystery.push('Light pockets today… fate does not work on credit, friend.');
-    else lines.mystery.push(`Ah, ${n}. Fate has been expecting you.`, 'Care to tempt destiny?');
+    else lines.mystery.push(`${n}, fate has been expecting you.`, 'Care to tempt destiny?');
     // unique voices: no vendor shares a voice with any enemy or each other
     const casts = {
       potions: { female: true, vi: 2, pitch: 1.2, rate: 1.02, kokoro: 'af_bella', kSpeed: 1.0 },
