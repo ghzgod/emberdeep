@@ -138,6 +138,50 @@ function shadeColor(hex, amount) {
   return `rgb(${c(r)},${c(g)},${c(b)})`;
 }
 
+// Soft radial glow: bright core fading to transparent. Shared by projectiles
+// and every dungeon flame (torches/braziers/candelabra) so a flame reads as a
+// glowing orb instead of a flat lit blob, without any postfx.
+export function makeGlowTexture() {
+  const [c, x] = makeCanvas(64);
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.4, 'rgba(255,255,255,0.5)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
+// A small glowing rune glyph (ring + crossing shards) in the act's accent,
+// transparent elsewhere, drawn on an unlit sprite so an occasional floor tile
+// reads as a faintly magical inlay rather than a painted symbol.
+export function makeRuneTexture(theme) {
+  const size = 128;
+  const [c, x] = makeCanvas(size);
+  x.clearRect(0, 0, size, size);
+  const accentHex = '#' + theme.accent.toString(16).padStart(6, '0');
+  const cx = size / 2, cy = size / 2, r = size * 0.34;
+  const haze = x.createRadialGradient(cx, cy, 0, cx, cy, r * 1.4);
+  haze.addColorStop(0, accentHex);
+  haze.addColorStop(1, 'rgba(0,0,0,0)');
+  x.globalAlpha = 0.5;
+  x.fillStyle = haze;
+  x.beginPath(); x.arc(cx, cy, r * 1.4, 0, Math.PI * 2); x.fill();
+  x.globalAlpha = 1;
+  x.strokeStyle = accentHex;
+  x.lineWidth = 3;
+  x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.stroke();
+  const spokes = 3 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < spokes; i++) {
+    const a = (i / spokes) * Math.PI * 2 + Math.random() * 0.4;
+    x.beginPath();
+    x.moveTo(cx + Math.cos(a) * r * 0.3, cy + Math.sin(a) * r * 0.3);
+    x.lineTo(cx + Math.cos(a) * r * 1.05, cy + Math.sin(a) * r * 1.05);
+    x.stroke();
+  }
+  return new THREE.CanvasTexture(c);
+}
+
 function speckle(ctx, size, count, alpha) {
   for (let i = 0; i < count; i++) {
     ctx.fillStyle = `rgba(0,0,0,${Math.random() * alpha})`;
@@ -154,10 +198,15 @@ export function makeFloorTexture(theme, floorSeed = 0.5) {
   const floorBase = seededTint(theme.floor, floorSeed, 10); // per-floor lightness within the act
   ctx.fillStyle = theme.mortar;
   ctx.fillRect(0, 0, size, size);
+  const checkered = theme.name === 'The Sunless Court'; // dark checkered stone, cursed act only
   for (let y = 0; y < tiles; y++) {
     for (let x = 0; x < tiles; x++) {
       ctx.fillStyle = shadeColor(floorBase, 10); // brightness only — keeps stone hue
       ctx.fillRect(x * ts + 2, y * ts + 2, ts - 4, ts - 4);
+      if (checkered && (x + y) % 2 === 0) {
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.fillRect(x * ts + 2, y * ts + 2, ts - 4, ts - 4);
+      }
       // cracked corner detail
       if (Math.random() < 0.3) {
         ctx.strokeStyle = theme.mortar;
@@ -168,9 +217,49 @@ export function makeFloorTexture(theme, floorSeed = 0.5) {
         ctx.lineTo(cx + (Math.random() - 0.5) * 24, cy + (Math.random() - 0.5) * 24);
         ctx.stroke();
       }
+      // chipped/worn corner: a small notch cut from a tile edge
+      if (Math.random() < 0.22) {
+        const cornerX = x * ts + (Math.random() < 0.5 ? 3 : ts - 3);
+        const cornerY = y * ts + (Math.random() < 0.5 ? 3 : ts - 3);
+        ctx.fillStyle = theme.mortar;
+        ctx.beginPath();
+        ctx.moveTo(cornerX, cornerY);
+        ctx.lineTo(cornerX + (Math.random() - 0.5) * 14, cornerY);
+        ctx.lineTo(cornerX, cornerY + (Math.random() - 0.5) * 14);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
   }
   speckle(ctx, size, 600, 0.16);
+  // per-act staining so the gothic stone reads distinctly per act
+  if (theme.name === 'The Rotting Depths') {
+    // moss staining: irregular green-tinted blotches creeping across the stone
+    for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = `rgba(70,110,50,${0.12 + Math.random() * 0.1})`;
+      ctx.beginPath();
+      ctx.ellipse(Math.random() * size, Math.random() * size, 20 + Math.random() * 30, 14 + Math.random() * 20, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (theme.name === 'The Ember Vaults') {
+    // ember scorch: dark charred patches with tiny warm flecks
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = `rgba(20,8,4,${0.25 + Math.random() * 0.15})`;
+      ctx.beginPath();
+      ctx.ellipse(Math.random() * size, Math.random() * size, 16 + Math.random() * 22, 12 + Math.random() * 16, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,150,60,0.5)';
+      ctx.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+    }
+  } else if (theme.name === 'The Abyssal Throne') {
+    // abyssal sheen: a cool diagonal glossy streak
+    const grad = ctx.createLinearGradient(0, 0, size, size);
+    grad.addColorStop(0, 'rgba(120,200,220,0)');
+    grad.addColorStop(0.5, 'rgba(120,200,220,0.08)');
+    grad.addColorStop(1, 'rgba(120,200,220,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+  }
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -320,7 +409,10 @@ export function makeWoodTexture() {
   ctx.fillStyle = '#5a4028';
   ctx.fillRect(0, 0, size, size);
   for (let i = 0; i < 6; i++) {
-    ctx.fillStyle = jitterColor('#6b4c30', 16);
+    // brightness-only jitter (not independent-channel) so planks stay brown
+    // instead of tiling into the rainbow-striped look independent RGB jitter
+    // produces on a mid-tone base.
+    ctx.fillStyle = shadeColor('#6b4c30', 16);
     ctx.fillRect(i * (size / 6) + 1, 0, size / 6 - 2, size);
   }
   speckle(ctx, size, 200, 0.2);

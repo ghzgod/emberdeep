@@ -4,7 +4,7 @@ import { SaveManager } from './core/save.js';
 import { audio } from './core/audio.js';
 import { generateDungeon, generateTown, FLOOR, WALL, DOOR, BRIDGE } from './world/dungeon.js';
 import { buildDungeonMeshes, TILE, tileToWorld } from './world/meshbuilder.js';
-import { themeForFloor, actOfFloor, actFloorOf } from './world/textures.js';
+import { themeForFloor, actOfFloor, actFloorOf, makeGlowTexture } from './world/textures.js';
 import { Player, xpForLevel } from './entities/player.js';
 import { Enemy, Boss, ENEMY_TYPES, ACT_BOSSES, buildEnemyMesh, buildBossMesh } from './entities/enemies.js';
 import { buildAnimatedHero } from './entities/heroModel.js';
@@ -92,6 +92,7 @@ export class Game {
     roaster.enabled = this.settings.taunts !== false;
     this.applyAudioSettings();
     this.particles = new ParticleSystem(this.scene);
+    this._glowTex = makeGlowTexture(); // shared additive glow sprite (impact flashes, flames)
     this.projectiles = new ProjectileSystem(this.scene);
     this.loot = new LootSystem(this.scene);
     this.ui = new UI(this);
@@ -454,7 +455,8 @@ export class Game {
     for (const e of this.enemies) this.scene.remove(e.mesh);
     this.enemies = [];
     if (this.deathMarkers) { for (const d of this.deathMarkers) this.scene.remove(d.mesh); this.deathMarkers = []; }
-    if (this.wallMarks) { for (const d of this.wallMarks) { this.scene.remove(d.mesh); d.mesh.geometry.dispose(); d.mesh.material.dispose(); } this.wallMarks = []; }
+    if (this.wallMarks) { for (const d of this.wallMarks) this.disposeMarkEntry(d); this.wallMarks = []; }
+    if (this.impactFlashes) { for (const f of this.impactFlashes) this.scene.remove(f.sprite); this.impactFlashes = []; }
     if (this.boss) { this.scene.remove(this.boss.mesh); this.boss = null; }
     for (const z of this.zones) if (z.mesh) this.scene.remove(z.mesh);
     this.zones = [];
@@ -1761,7 +1763,7 @@ export class Game {
     if (hitAny) audio.play(basic.hitSound);
     else if (!this.isWalkable(hitX, hitZ, 0.1)) {
       // a whiffed swing that lands on stone strikes sparks and chips the wall
-      this.wallDebris(hitX, hitZ);
+      this.wallDebris(hitX, hitZ, { dirX: player.aimDir?.x, dirZ: player.aimDir?.z, tint: 0xffd27a });
       this.particles.burst(hitX, 1.0, hitZ, 5, 0xffd27a, { speed: 3.2, life: 0.24, size: 0.07 });
       audio.play('shield_block', { pos: { x: hitX, z: hitZ }, volume: 0.32, rate: 1.4 });
     }
@@ -2410,6 +2412,7 @@ export class Game {
     this.updateStairs(dt);
     this.updatePits();
     this.updateWallMarks(dt);
+    this.updateImpactFlashes(dt);
     this.updateTownInteractions(dt);
     this.updateTorches(dt);
     roaster.update(dt, this);
@@ -2654,25 +2657,25 @@ export class Game {
   // Pit holes: fall through to the next floor (solo) — it hurts.
   updatePits() { /* pit-fall traps removed */ }
 
-  // Bricks and dust burst off walls when projectiles strike them, and a
-  // lasting chip/scuff is left behind.
-  wallDebris(x, z) {
-    this.particles.burst(x, 1.0, z, 7, 0x8a8590, { speed: 3, life: 0.4, size: 0.11, up: 0.9 });
-    this.particles.burst(x, 1.0, z, 3, 0x5a5560, { speed: 1.6, life: 0.55, size: 0.18, up: 1.2 });
-    this.addWallMark(x, z, { color: 0x241f1c, size: 0.22 + Math.random() * 0.14 });
+  // Bricks and dust burst off a WALL when a projectile or melee swing strikes
+  // it, plus a scorch decal on the wall face itself. `opts.dirX/dirZ` is the
+  // impact's travel direction (so the decal can face back the way it came);
+  // `opts.tint` lets the caller's own colour (a bolt, a blade flash) bleed
+  // into the scorch instead of every impact looking identically sooty.
+  wallDebris(x, z, opts = {}) {
+    const y = opts.y ?? 1.0;
+    this.particles.burst(x, y, z, 10, 0x8a8590, { speed: 3.4, life: 0.4, size: 0.12, up: 0.9 });
+    this.particles.burst(x, y, z, 4, 0x5a5560, { speed: 1.7, life: 0.55, size: 0.19, up: 1.2 });
+    if (opts.tint) this.particles.burst(x, y, z, 4, opts.tint, { speed: 2.6, life: 0.3, size: 0.08 });
+    this.spawnImpactFlash(x, y, z, opts.tint ?? 0xfff0d0);
+    this.addWallImpactMark(x, z, { dirX: opts.dirX, dirZ: opts.dirZ, tint: opts.tint, y });
     this.breakNear(x, z, 0.9); // a stray shot can smash a container too
   }
 
-  // A persistent ground decal at an impact point (chip, scuff or scorch). The
-  // pool is capped (oldest removed first) so it can't leak RAM or draw calls,
-  // and each mark fades out over ~20s via updateWallMarks(); cleared with the
-  // floor.
+  // A persistent GROUND decal (chip/scuff/scorch) for things that happen at
+  // floor level: a smashed container, an AoE scorching the ground it landed
+  // on. Shares the same capped, fading pool as wall-impact marks.
   addWallMark(x, z, opts = {}) {
-    if (!this.wallMarks) this.wallMarks = [];
-    if (this.wallMarks.length >= 40) {
-      const old = this.wallMarks.shift();
-      this.scene.remove(old.mesh); old.mesh.geometry.dispose(); old.mesh.material.dispose();
-    }
     const size = opts.size ?? (0.3 + Math.random() * 0.25);
     const opacity = opts.opacity ?? 0.4;
     const mesh = new THREE.Mesh(
@@ -2682,13 +2685,72 @@ export class Game {
     mesh.rotation.x = -Math.PI / 2;
     mesh.rotation.z = Math.random() * Math.PI;
     mesh.position.set(x, 0.03, z);
-    this.scene.add(mesh);
-    this.wallMarks.push({ mesh, age: 0, baseOpacity: opacity, fadeAfter: opts.fadeAfter ?? 20 });
+    this.pushMarkEntry([mesh], [opacity], opts.fadeAfter ?? 20);
+  }
+
+  // A WALL-FACE decal: a vertical scorch plane at impact height facing back
+  // along the travel direction, plus a few small chipped-stone flecks stuck
+  // to the wall beside it. This is what makes a projectile/melee miss into a
+  // wall actually readable from the overhead game camera (a flat circle on
+  // the floor below the wall was invisible in practice).
+  addWallImpactMark(x, z, opts = {}) {
+    const y = opts.y ?? 1.0;
+    // face back the way the impact travelled; a 0 component (e.g. straight
+    // along an axis) is a legitimate direction, so use ?? not || here
+    const dx = opts.dirX ?? 0, dz = opts.dirZ ?? 0;
+    const dlen = Math.hypot(dx, dz) || 1e-6;
+    const nx = dx / dlen, nz = dz / dlen;
+    const rotY = Math.atan2(-nx, -nz);
+    // nudge the decal back toward the attacker so it sits proud of the wall
+    // face instead of z-fighting with it
+    const px = x - nx * 0.05, pz = z - nz * 0.05;
+    const baseColor = new THREE.Color(0x201a16);
+    if (opts.tint) baseColor.lerp(new THREE.Color(opts.tint), 0.35);
+    const size = 0.4 + Math.random() * 0.15;
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(size, size * 1.15),
+      new THREE.MeshBasicMaterial({ color: baseColor, transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide })
+    );
+    plane.position.set(px, y, pz);
+    plane.rotation.y = rotY;
+    this.scene.add(plane);
+    const meshes = [plane];
+    const opacities = [0.75];
+    // a couple of small dark stone-chip flecks scattered around the impact
+    const chipCount = 2 + Math.floor(Math.random() * 2);
+    const chipMat = new THREE.MeshBasicMaterial({ color: 0x18120f, transparent: true, opacity: 0.85 });
+    for (let i = 0; i < chipCount; i++) {
+      const s = 0.05 + Math.random() * 0.05;
+      const chip = new THREE.Mesh(new THREE.BoxGeometry(s, s, s * 0.6), chipMat.clone());
+      chip.position.set(
+        px + (Math.random() - 0.5) * 0.3 - nx * 0.02,
+        y + (Math.random() - 0.5) * 0.3,
+        pz + (Math.random() - 0.5) * 0.3 - nz * 0.02,
+      );
+      chip.rotation.set(Math.random(), Math.random(), Math.random());
+      this.scene.add(chip);
+      meshes.push(chip);
+      opacities.push(0.85);
+    }
+    this.pushMarkEntry(meshes, opacities, opts.fadeAfter ?? 20);
+  }
+
+  // Shared pool bookkeeping for both ground decals and wall-impact marks:
+  // capped (oldest removed first) so it can't leak RAM or draw calls, and
+  // each entry fades out over ~fadeAfter seconds via updateWallMarks().
+  pushMarkEntry(meshes, baseOpacities, fadeAfter) {
+    if (!this.wallMarks) this.wallMarks = [];
+    if (this.wallMarks.length >= 40) this.disposeMarkEntry(this.wallMarks.shift());
+    this.wallMarks.push({ meshes, baseOpacities, age: 0, fadeAfter });
+  }
+
+  disposeMarkEntry(d) {
+    for (const mesh of d.meshes) { this.scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); }
   }
 
   // Ages out wall marks over their fadeAfter window (last third of life fades
-  // to 0) so old scars don't linger forever; the cap in addWallMark keeps the
-  // pool itself bounded independently of this.
+  // to 0) so old scars don't linger forever; the cap in pushMarkEntry keeps
+  // the pool itself bounded independently of this.
   updateWallMarks(dt) {
     if (!this.wallMarks?.length) return;
     for (let i = this.wallMarks.length - 1; i >= 0; i--) {
@@ -2696,11 +2758,41 @@ export class Game {
       d.age += dt;
       const t = d.age / d.fadeAfter;
       if (t >= 1) {
-        this.scene.remove(d.mesh); d.mesh.geometry.dispose(); d.mesh.material.dispose();
+        this.disposeMarkEntry(d);
         this.wallMarks.splice(i, 1);
         continue;
       }
-      d.mesh.material.opacity = d.baseOpacity * Math.min(1, (1 - t) / 0.34);
+      const fade = Math.min(1, (1 - t) / 0.34);
+      for (let m = 0; m < d.meshes.length; m++) d.meshes[m].material.opacity = d.baseOpacities[m] * fade;
+    }
+  }
+
+  // A brief additive glow-sprite flash at an impact point, on top of the
+  // particle burst, so the hit reads as a punchy flash and not just sparks.
+  spawnImpactFlash(x, y, z, color = 0xfff0d0) {
+    if (!this.impactFlashes) this.impactFlashes = [];
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: this._glowTex, color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.9,
+    }));
+    sprite.position.set(x, y, z);
+    sprite.scale.setScalar(0.5);
+    this.scene.add(sprite);
+    this.impactFlashes.push({ sprite, life: 0.18, maxLife: 0.18 });
+  }
+
+  updateImpactFlashes(dt) {
+    if (!this.impactFlashes?.length) return;
+    for (let i = this.impactFlashes.length - 1; i >= 0; i--) {
+      const f = this.impactFlashes[i];
+      f.life -= dt;
+      if (f.life <= 0) {
+        this.scene.remove(f.sprite); f.sprite.material.dispose();
+        this.impactFlashes.splice(i, 1);
+        continue;
+      }
+      const t = 1 - f.life / f.maxLife;
+      f.sprite.scale.setScalar(0.5 + t * 0.9);
+      f.sprite.material.opacity = 0.9 * (1 - t);
     }
   }
 
@@ -2957,9 +3049,18 @@ export class Game {
     });
     for (let i = 0; i < torches.length; i++) {
       const f = torches[i].flame;
-      if (!f) continue;
-      const s = 1 + Math.sin(now * 11 + i * 2.3) * 0.18;
-      f.scale.set(s, 1 + Math.sin(now * 13 + i) * 0.25, s);
+      if (f) {
+        const s = 1 + Math.sin(now * 11 + i * 2.3) * 0.18;
+        f.scale.set(s, 1 + Math.sin(now * 13 + i) * 0.25, s);
+      }
+      // the glow-orb bloom pulses in sync with the flame core so it reads as
+      // one living flame instead of two independently animated pieces
+      const gl = torches[i].glow;
+      if (gl) {
+        const gs = 0.85 + Math.sin(now * 9 + i * 1.9) * 0.15;
+        gl.scale.setScalar((gl.userData.baseScale ??= gl.scale.x) * gs);
+        gl.material.opacity = 0.55 + Math.sin(now * 15 + i * 2.1) * 0.15;
+      }
     }
   }
 }

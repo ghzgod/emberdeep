@@ -1,25 +1,11 @@
 import * as THREE from 'three';
 import { audio } from '../core/audio.js';
+import { makeGlowTexture } from '../world/textures.js';
 
 // Pooled projectiles for player bolts/arrows and enemy shots. Each projectile
 // is a bright core + an additive glow sprite (so it reads as a glowing mote,
 // not a flat ball) and leaves a sparkle trail in its own colour.
 const POOL_SIZE = 80;
-
-// Soft radial glow: white center fading to transparent, drawn once and reused
-// as an additive sprite. Gives every projectile a cheap bloom without postfx.
-function makeGlowTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const x = c.getContext('2d');
-  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.4, 'rgba(255,255,255,0.5)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  x.fillStyle = g;
-  x.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(c);
-}
 
 // Lighten a hex colour toward white for the glow halo / default trail, so the
 // halo reads as a hotter version of the core rather than the same flat tone.
@@ -122,7 +108,7 @@ export class ProjectileSystem {
       // wall collision — knock chips off the masonry + a coloured spark splash
       if (!game.isWalkable(p.x, p.z, 0.1)) {
         hit = true;
-        game.wallDebris(p.x, p.z);
+        game.wallDebris(p.x, p.z, { dirX: p.dirX, dirZ: p.dirZ, tint: core.material.color.getHex(), y: p.trailY });
         game.particles.burst(p.x, p.trailY, p.z, 8, lighten(core.material.color.getHex(), 0.3), { speed: 3.2, life: 0.3, size: 0.08 });
       }
 
