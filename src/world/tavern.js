@@ -59,13 +59,6 @@ export function buildTavernInterior() {
   mkWall(5 * TILE, TILE, 2.5 * TILE + TILE / 2, H * TILE - TILE / 2);
   mkWall(4.5 * TILE, TILE, W * TILE - 2.25 * TILE, H * TILE - TILE / 2);
 
-  // ceiling beams
-  for (let i = 1; i < 4; i++) {
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(W * TILE - 2, 0.18, 0.24), darkWood);
-    beam.position.set((W * TILE) / 2, wallH - 0.1, i * (H * TILE) / 4);
-    group.add(beam);
-  }
-
   // framed procedural paintings on the side walls (each is a unique dusk scene)
   const mkPainting = (x, z, roty) => {
     const p = new THREE.Group();
@@ -96,38 +89,65 @@ export function buildTavernInterior() {
     group.add(mug);
   }
 
-  // ---- Barlow the barkeep: face, mustache, apron, towel ----
+  // ---- Barlow the barkeep: a jolly, ruddy, big-bearded innkeeper, built to
+  // READ from the overhead camera — he faces the customer (+z) and his head
+  // tips up so the face catches the top-down view (the old one faced the wall). ----
   const keeper = new THREE.Group();
-  const kBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.5, 4, 8),
-    new THREE.MeshStandardMaterial({ color: 0x6a4a30, roughness: 0.85 }));
-  kBody.position.y = 0.74;
-  const kApron = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.62, 0.1),
-    new THREE.MeshStandardMaterial({ color: 0xe8e0d0, roughness: 1 }));
-  kApron.position.set(0, 0.72, 0.3);
-  const kHead = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), skinMat);
-  kHead.position.y = 1.4;
-  const kNose = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), skinMat);
-  kNose.position.set(0, 1.38, 0.21);
-  const kEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), new THREE.MeshBasicMaterial({ color: 0x2a1e14 }));
-  kEyeL.position.set(-0.08, 1.44, 0.19);
-  const kEyeR = kEyeL.clone(); kEyeR.position.x = 0.08;
-  const kBrowMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1 });
-  const kMust = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.045, 0.04), kBrowMat);
-  kMust.position.set(0, 1.31, 0.2);
-  const kSideL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.1), kBrowMat);
-  kSideL.position.set(-0.2, 1.36, 0.05);
-  const kSideR = kSideL.clone(); kSideR.position.x = 0.2;
-  const kArmL = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.34, 3, 6), skinMat);
-  kArmL.position.set(-0.34, 0.98, 0.12);
-  kArmL.rotation.z = 0.7;
-  const kArmR = kArmL.clone(); kArmR.position.x = 0.34; kArmR.rotation.z = -0.7;
-  const towel = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.3, 0.03),
-    new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 1 }));
-  towel.position.set(-0.45, 0.85, 0.16);
-  keeper.add(kBody, kApron, kHead, kNose, kEyeL, kEyeR, kMust, kSideL, kSideR, kArmL, kArmR, towel);
-  const keeperPos = tileToWorld(5.5, 0.6);
+  const shirtMat = new THREE.MeshStandardMaterial({ color: 0x9a5a38, roughness: 0.85 });
+  const ruddyMat = new THREE.MeshStandardMaterial({ color: 0xe6a476, roughness: 0.78 }); // warm skin
+  const hairMat = new THREE.MeshStandardMaterial({ color: 0xa89c8e, roughness: 1 });      // greying
+  const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf2ede2, roughness: 0.95 });
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x171009 });
+  // barrel-chested body + white shirt + belly + apron
+  const kBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 0.44, 5, 10), shirtMat);
+  kBody.position.y = 0.74; kBody.scale.set(1, 1, 0.92);
+  const kBelly = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 10), shirtMat);
+  kBelly.position.set(0, 0.7, 0.16); kBelly.scale.set(1, 0.88, 0.7);
+  const kApron = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.66, 0.12), whiteMat);
+  kApron.position.set(0, 0.64, 0.32);
+  const kApronBib = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.1), whiteMat);
+  kApronBib.position.set(0, 1.0, 0.34);
+  // head on a pivot tilted slightly back so the face aims up at the camera
+  const head = new THREE.Group();
+  head.position.y = 1.4; head.rotation.x = -0.22;
+  const kHead = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 14), ruddyMat);
+  kHead.scale.set(1, 0.98, 1);
+  // bald pate ringed by a horseshoe of hair (so the top isn't a blank dome)
+  const kHair = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.09, 8, 18), hairMat);
+  kHair.rotation.x = Math.PI / 2; kHair.position.set(0, 0.04, -0.03);
+  // bushy brows
+  const browL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.055, 0.07), hairMat);
+  browL.position.set(-0.11, 0.09, 0.24); browL.rotation.z = 0.18;
+  const browR = browL.clone(); browR.position.x = 0.11; browR.rotation.z = -0.18;
+  // eyes (white + dark pupil) — big enough to read from above
+  const eyeWL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 10), whiteMat); eyeWL.position.set(-0.11, 0.02, 0.23);
+  const eyeWR = eyeWL.clone(); eyeWR.position.x = 0.11;
+  const pupL = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), eyeMat); pupL.position.set(-0.11, 0.02, 0.28);
+  const pupR = pupL.clone(); pupR.position.x = 0.11;
+  // bulbous ruddy nose + rosy cheeks
+  const kNose = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 10), new THREE.MeshStandardMaterial({ color: 0xcf7150, roughness: 0.8 }));
+  kNose.position.set(0, -0.05, 0.29);
+  const cheekMat = new THREE.MeshStandardMaterial({ color: 0xd97e5e, roughness: 0.85 });
+  const cheekL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), cheekMat); cheekL.position.set(-0.17, -0.07, 0.19); cheekL.scale.set(1, 0.8, 0.7);
+  const cheekR = cheekL.clone(); cheekR.position.x = 0.17;
+  // big handlebar mustache + full beard
+  const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.075, 0.09, 3, 1, 1), hairMat);
+  mustache.position.set(0, -0.11, 0.25);
+  const beard = new THREE.Mesh(new THREE.SphereGeometry(0.24, 14, 12, 0, Math.PI * 2, Math.PI * 0.42, Math.PI * 0.58), hairMat);
+  beard.position.set(0, -0.14, 0.1); beard.scale.set(1, 1.35, 0.95);
+  head.add(kHead, kHair, browL, browR, eyeWL, eyeWR, pupL, pupR, kNose, cheekL, cheekR, mustache, beard);
+  // arms: one resting on the bar, one holding a mug he's polishing
+  const kArmL = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.38, 4, 8), shirtMat);
+  kArmL.position.set(-0.44, 0.9, 0.2); kArmL.rotation.set(0.55, 0, 0.6);
+  const kArmR = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.38, 4, 8), shirtMat);
+  kArmR.position.set(0.46, 0.92, 0.22); kArmR.rotation.set(0.7, 0, -0.5);
+  const heldMug = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.16, 10),
+    new THREE.MeshStandardMaterial({ color: 0xdcb24e, metalness: 0.55, roughness: 0.45 }));
+  heldMug.position.set(0.6, 1.08, 0.36);
+  keeper.add(kBody, kBelly, kApron, kApronBib, head, kArmL, kArmR, heldMug);
+  const keeperPos = tileToWorld(5.5, 0.55);
   keeper.position.set(keeperPos.x + TILE / 2, 0, keeperPos.z);
-  keeper.rotation.y = Math.PI;
+  keeper.rotation.y = 0; // face the customer side (+z), not the back wall
   group.add(keeper);
 
   // ---- back-bar: two shelves stocked with bottles, spirits, wine + glasses ----
@@ -193,6 +213,33 @@ export function buildTavernInterior() {
   }
   chand.position.set((W * TILE) / 2, 2.3, (H * TILE) / 2);
   group.add(chand);
+
+  // ---- warm interior lighting: the room should glow, not sit in shadow ----
+  const warmLight = (color, intensity, dist, x, y, z) => {
+    const l = new THREE.PointLight(color, intensity, dist, 2);
+    l.position.set(x, y, z);
+    group.add(l);
+  };
+  warmLight(0xffb464, 26, 14, (W * TILE) / 2, 2.1, (H * TILE) / 2);          // under the chandelier
+  warmLight(0xffc884, 22, 9, barCenter.x + TILE / 2, 1.9, shelfZ + 0.45);    // behind the bar (lights Barlow + shelves)
+  warmLight(0xffa860, 16, 8, 3.5 * TILE, 1.9, 6 * TILE);                     // near the entrance
+
+  // ---- glowing back-bar panel so the bottles silhouette and read ----
+  const backPanel = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 1.3, 0.08),
+    new THREE.MeshStandardMaterial({ color: 0x5a3820, roughness: 0.7, emissive: 0x3a1c0a, emissiveIntensity: 0.5 }));
+  backPanel.position.set(barCenter.x + TILE / 2, 1.85, shelfZ - 0.28);
+  group.add(backPanel);
+  // a carved stone golem head mounted over the bar — the tavern's namesake
+  const trophy = new THREE.Group();
+  const gHead = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.52, 0.42), new THREE.MeshStandardMaterial({ color: 0x6b6660, roughness: 1 }));
+  const gBrow = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.1, 0.12), new THREE.MeshStandardMaterial({ color: 0x565049, roughness: 1 }));
+  gBrow.position.set(0, 0.12, 0.2);
+  const gEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffb24a })); gEyeL.position.set(-0.13, 0.02, 0.22);
+  const gEyeR = gEyeL.clone(); gEyeR.position.x = 0.13;
+  const gJaw = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.36), new THREE.MeshStandardMaterial({ color: 0x565049, roughness: 1 })); gJaw.position.set(0, -0.24, 0.02);
+  trophy.add(gHead, gBrow, gEyeL, gEyeR, gJaw);
+  trophy.position.set(barCenter.x + TILE / 2, 2.5, shelfZ - 0.2);
+  group.add(trophy);
 
   // ---- tables (on TABLE_TILES) with stools, mugs, candles ----
   const patronMeshes = [];
@@ -286,6 +333,9 @@ export function buildTavernInterior() {
   const hw = tileToWorld(HEARTH_TILES[0][0], HEARTH_TILES[0][1]);
   hearth.position.set(hw.x + 0.5, 0, hw.z);
   group.add(hearth);
+  const hearthLight = new THREE.PointLight(0xff7a38, 22, 10, 2);
+  hearthLight.position.set(hw.x - 0.1, 0.9, hw.z);
+  group.add(hearthLight);
 
   // rug + exit doormat
   const rug = new THREE.Mesh(new THREE.CircleGeometry(1.4, 16),
