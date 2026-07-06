@@ -865,6 +865,7 @@ export class Game {
     this.inTown = false;
     this.inTavern = false;
     this.setTownAtmosphere(false);
+    this._floorLoadedAt = performance.now(); // for anti-cheat clear-speed checks
     this.floor = floor;
     const theme = themeForFloor(floor);
     this.dungeon = generateDungeon(floor);
@@ -1163,6 +1164,10 @@ export class Game {
       // a hero fell somewhere in the shared dungeon — mark it for everyone
       if (!this.inTown) this.spawnDeathSkeleton(msg.x, msg.z);
       if (net.isHost && from !== 'host') net.sendExcept({ t: 'death', x: msg.x, z: msg.z }, from);
+    });
+    net.on('cheatlock', (msg, from) => {
+      if (this.player) this.ui.floaters.spawn(this.player.pos, '⛔ A cheater was caught and frozen', 'crit', 4);
+      if (net.isHost && from !== 'host') net.sendExcept({ t: 'cheatlock' }, from);
     });
     net.on('room_full', () => {
       net.stop();
@@ -1963,6 +1968,8 @@ export class Game {
     const cy = Math.cos(this.camYaw), sy = Math.sin(this.camYaw);
     p.moveDir.x = mx * cy + mz * sy;
     p.moveDir.z = -mx * sy + mz * cy;
+    // anti-cheat penalty: frozen in place until the lockout expires
+    if (this.cheatLockUntil && performance.now() < this.cheatLockUntil) { p.moveDir.x = 0; p.moveDir.z = 0; }
 
     // ---- input: aim via mouse raycast to ground ----
     this._mouseNdc.set(
@@ -2026,6 +2033,15 @@ export class Game {
 
     // ---- systems ----
     p.update(dt, this);
+    // anti-cheat: impossible leveling (10+ levels within 5s can't come from kills)
+    if (this._lastSeenLevel === undefined) this._lastSeenLevel = p.level;
+    if (p.level > this._lastSeenLevel) {
+      const now = performance.now();
+      this._levelStamps = (this._levelStamps || []).filter((t) => now - t < 5000);
+      for (let l = this._lastSeenLevel; l < p.level; l++) this._levelStamps.push(now);
+      this._lastSeenLevel = p.level;
+      if (this._levelStamps.length >= 10 && now > (this.cheatLockUntil || 0)) this.applyCheatLockout('impossible leveling');
+    }
     if (net.active && !net.isHost) {
       this.updateGuestMirrors(dt);   // host runs the real enemy AI
     } else {
@@ -2248,12 +2264,32 @@ export class Game {
       audio.play('shield_block', { volume: 0.5, rate: 0.7 });
       return;
     }
+    // Anti-cheat: the stairs only unlock after culling 70% of the floor AND the
+    // elite, so unlocking within a few seconds of arriving is impossible legit.
+    const onFloorMs = performance.now() - (this._floorLoadedAt || 0);
+    if (onFloorMs < 4000 && this.floor > 1) {
+      this._suspicion = (this._suspicion || 0) + 1;
+      if (this._suspicion >= 2) { this.applyCheatLockout('impossible clear speed'); return; }
+    }
     if (net.active && !net.isHost) {
       this.stairsCooldown = 2;
       net.send({ t: 'portal' });
     } else {
       this.loadFloor(this.floor + 1);
     }
+  }
+
+  // Punish detected cheating (console-injected progression): yank the offender
+  // to town and freeze them for 5 minutes with a visible countdown. Also used
+  // by the rapid-leveling check in update().
+  applyCheatLockout(reason) {
+    this.cheatLockUntil = performance.now() + 300000; // 5 minutes
+    this._suspicion = 0;
+    if (net.active) net.send({ t: 'cheatlock' }); // let the room see the offender is frozen
+    if (!this.inTown) { this.localTown = net.active ? true : this.localTown; this.loadTown(); }
+    this.player.aimAngle = -Math.PI / 2; this.player.visualAngle = -Math.PI / 2; this.camYaw = 0;
+    this.enterPlaying();
+    this.ui.floaters.spawn(this.player.pos, `⛔ Cheating detected — ${reason}`, 'player-dmg');
   }
 
   setStairsRingColor(hex) {
