@@ -126,6 +126,7 @@ export class UI {
     $('act-select').addEventListener('click', (e) => { if (e.target.id === 'act-select') $('act-select').classList.add('hidden'); });
     $('btn-inspect-close').onclick = () => $('inspect-panel').classList.add('hidden');
     $('inspect-panel').addEventListener('click', (e) => { if (e.target.id === 'inspect-panel') $('inspect-panel').classList.add('hidden'); });
+    $('item-actions').addEventListener('click', (e) => { if (e.target.id === 'item-actions') this.closeItemActions(); });
     $('btn-shop-restock').onclick = () => {
       if (this.game.activeVendor) this.game.restockVendor(this.game.activeVendor);
     };
@@ -1104,9 +1105,10 @@ export class UI {
       el.className = `inv-slot equip ${item ? 'rarity-' + item.rarity : ''} ${offClass ? 'off-class' : ''}`;
       el.innerHTML = `${item ? item.icon : '·'}<span class="slot-label">${slotName}</span>`;
       if (item) {
-        el.onmouseenter = (e) => this.showTooltip(item, e);
+        el.onmouseenter = (e) => this.showTooltip(item, e, true);
         el.onmouseleave = () => this.hideTooltip();
-        el.onclick = () => { this.game.unequip(slotName); this.renderInventory(); };
+        // stats panel first; unequipping is a button on that panel
+        el.onclick = () => this.selectItem(item, slotName);
       }
       equipWrap.appendChild(el);
     }
@@ -1136,7 +1138,9 @@ export class UI {
       }
       grid.appendChild(el);
     }
-    if (!this.selectedItem || !p.inventory.includes(this.selectedItem)) {
+    const stillHeld = this.selectedItem &&
+      (p.inventory.includes(this.selectedItem) || Object.values(p.equipped).includes(this.selectedItem));
+    if (!stillHeld) {
       this.selectedItem = null;
       $('item-actions').classList.add('hidden');
     }
@@ -1242,37 +1246,56 @@ export class UI {
   }
 
   // Tap/click an item -> action panel (works on mobile where right-click doesn't exist).
-  selectItem(item) {
+  // Show an item's stats in the detail panel. Equipping/unequipping happens
+  // via the button at the bottom, never directly from the grid click.
+  selectItem(item, equippedSlot = null) {
     this.selectedItem = item;
     const panel = $('item-actions');
     panel.classList.remove('hidden');
     const stats = item.consumable
       ? `<span class="tt-stat">${item.effectLabel || 'Temporary boon'}</span>`
       : Object.entries(item.stats).map(([k, v]) => `<span class="tt-stat">${statLabel(k, v)}</span>`).join(' · ');
+    // comparing an equipped item against itself is noise; only compare pack items
+    const compare = equippedSlot ? '' : this.compareNote(item);
     $('item-actions-info').innerHTML =
-      `<h4 class="tt-${item.rarity}" style="display:inline">${item.icon} ${item.name}</h4><br>${stats}${this.affinityNote(item)}${this.compareNote(item)}`;
+      `<h4 class="tt-${item.rarity}" style="display:inline">${item.icon} ${item.name}</h4><br>${stats}${this.affinityNote(item)}${compare}`;
     const equipBtn = $('btn-item-equip');
-    equipBtn.textContent = item.consumable ? 'Drink' : 'Equip';
-    equipBtn.onclick = () => { this.game.equip(item); this.renderInventory(); };
+    equipBtn.textContent = item.consumable ? 'Drink' : equippedSlot ? 'Unequip' : 'Equip';
+    equipBtn.onclick = equippedSlot
+      ? () => { this.game.unequip(equippedSlot); this.closeItemActions(); this.renderInventory(); }
+      : () => { this.game.equip(item); this.closeItemActions(); this.renderInventory(); };
     // Selling is done only at an NPC vendor's menu, never from the inventory.
     const sellBtn = $('btn-item-sell');
     if (sellBtn) sellBtn.style.display = 'none';
-    $('btn-item-drop').onclick = () => { this.game.dropItem(item); this.renderInventory(); };
+    const dropBtn = $('btn-item-drop');
+    dropBtn.style.display = equippedSlot ? 'none' : '';
+    dropBtn.onclick = () => { this.game.dropItem(item); this.closeItemActions(); this.renderInventory(); };
   }
 
-  showTooltip(item, e) {
+  closeItemActions() {
+    this.selectedItem = null;
+    $('item-actions').classList.add('hidden');
+  }
+
+  closeItemActions() {
+    this.selectedItem = null;
+    $('item-actions').classList.add('hidden');
+  }
+
+  showTooltip(item, e, equipped = false) {
     const tt = $('item-tooltip');
     tt.classList.remove('hidden');
     const stats = item.consumable
       ? `<div class="tt-stat">${item.effectLabel || 'Temporary boon'}</div>`
       : Object.entries(item.stats).map(([k, v]) => `<div class="tt-stat">${statLabel(k, v)}</div>`).join('');
+    const hint = equipped ? 'Click for details' : 'Click for details · Right-click to drop';
     tt.innerHTML = `
       <h4 class="tt-${item.rarity}">${item.icon} ${item.name}</h4>
       <div style="opacity:0.6;font-size:11px;">${RARITIES[item.rarity].name} ${item.consumable ? 'elixir' : item.slot}</div>
       ${stats}
       ${this.affinityNote(item)}
-      ${this.compareNote(item)}
-      <div style="opacity:0.5;font-size:11px;margin-top:6px;">${item.consumable ? 'Click to drink' : 'Click to equip'} · Right-click to drop</div>
+      ${equipped ? '' : this.compareNote(item)}
+      <div style="opacity:0.5;font-size:11px;margin-top:6px;">${hint}</div>
     `;
     tt.style.left = `${Math.min(e.clientX + 16, window.innerWidth - 260)}px`;
     tt.style.top = `${Math.min(e.clientY + 8, window.innerHeight - 180)}px`;
