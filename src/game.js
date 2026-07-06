@@ -139,7 +139,7 @@ export class Game {
     this.applyQuality();
 
     this.clock = new THREE.Clock();
-    this.renderer.setAnimationLoop(() => this.frame());
+    this.renderer.setAnimationLoop((t) => this.frame(t));
   }
 
   // ---------------- multiplayer session ----------------
@@ -2115,7 +2115,13 @@ export class Game {
   }
 
   // ---------------- per-frame ----------------
-  frame() {
+  frame(now = 0) {
+    // Cap to ~60fps. setAnimationLoop renders at the display refresh rate, so on
+    // a 120Hz/ProMotion display it would draw 120fps — double the GPU load for no
+    // visible benefit. Skipping the extra vsyncs halves GPU use on those panels.
+    // (clock.getDelta() below isn't consumed on skipped frames, so dt stays ~16ms.)
+    if (this._lastFrameT !== undefined && now - this._lastFrameT < 15) return;
+    this._lastFrameT = now;
     const dt = Math.min(0.05, this.clock.getDelta());
 
     // Tab backgrounded: browsers keep firing rAF at ~1fps, which would let
