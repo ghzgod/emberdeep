@@ -274,11 +274,16 @@ export class Player {
     if (this.dead) return;
     const ab = this.classDef.abilities[index];
     if (!ab || this.abilityCds[index] > 0) return;
-    if (this.resource < ab.cost) {
+    // Cost scales with the pool (maxResource grows +6/level) so casts-per-full-bar
+    // stays constant at every level. With flat costs, regen growth alone crossed
+    // the ability-only drain rate around level 18 (knight) / 10 (ranger) and the
+    // bar stopped mattering again.
+    const cost = Math.round(ab.cost * (this.maxResource / this.classDef.resource.max));
+    if (this.resource < cost) {
       game.ui.flashNoResource(index);
       return;
     }
-    this.resource -= ab.cost;
+    this.resource -= cost;
     let cd = ab.cd * (1 - 0.03 * this.skillRank('celerity'));
     if (index === 3) cd *= 1 - (this.ult4Cdr || 0); // weapon ultimate-CDR affects slot 4
     this.abilityCds[index] = cd;
