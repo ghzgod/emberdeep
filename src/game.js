@@ -1169,6 +1169,15 @@ export class Game {
       if (this.player) this.ui.floaters.spawn(this.player.pos, '⛔ A cheater was caught and frozen', 'crit', 4);
       if (net.isHost && from !== 'host') net.sendExcept({ t: 'cheatlock' }, from);
     });
+    net.on('drop', (msg, from) => {
+      // another hero dropped an item — show it on the ground for everyone
+      if (msg.item && !this.inTown) this.loot.dropGear(msg.x, msg.z, msg.item, msg.did);
+      if (net.isHost && from !== 'host') net.sendExcept(msg, from);
+    });
+    net.on('pickup', (msg, from) => {
+      this.loot.removeByDid(msg.did); // someone took it — clear it from my ground
+      if (net.isHost && from !== 'host') net.sendExcept(msg, from);
+    });
     net.on('room_full', () => {
       net.stop();
       alert('That room already has 4 heroes.');
@@ -1804,8 +1813,18 @@ export class Game {
     const idx = p.inventory.indexOf(item);
     if (idx === -1) return;
     p.inventory.splice(idx, 1);
-    this.loot.dropGear(p.pos.x + 1, p.pos.z, item);
+    const x = p.pos.x + 1, z = p.pos.z;
+    // networked drop: tag it so the whole room sees it and its pickup syncs
+    this._didSeq = (this._didSeq || 0) + 1;
+    const did = net.active ? `${net.peer?.id || 'h'}:${this._didSeq}` : null;
+    this.loot.dropGear(x, z, item, did);
+    if (net.active) net.send({ t: 'drop', did, x: +x.toFixed(1), z: +z.toFixed(1), item });
     this.requestSave();
+  }
+
+  // A networked ground drop was picked up here — tell the room to remove it.
+  onDropPickedUp(did) {
+    if (net.active) net.send({ t: 'pickup', did });
   }
 
   // Permanently destroy a batch of inventory items (no ground drop).
