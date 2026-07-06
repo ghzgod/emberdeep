@@ -80,7 +80,11 @@ export class Player {
     let armor = s.armor;
     let crit = s.crit;
     let maxResource = this.classDef.resource.max + lvl * 6;
-    let regen = this.classDef.resource.regen + lvl * 0.6;
+    // Regen scales gently: at 0.6/level a level-50 mage out-regenned every
+    // possible drain and the bar never moved. 0.15/level keeps sustained
+    // spam net-negative at all levels (see the drain math in classes.js)
+    // while high level still buys a noticeably faster refill.
+    let regen = this.classDef.resource.regen + lvl * 0.15;
 
     // Gear percentages pool ADDITIVELY across items, then hit hard caps and
     // diminishing returns — no stat can stack into an auto-win:
@@ -243,6 +247,12 @@ export class Player {
   tryBasicAttack(game) {
     if (this.attackCd > 0 || this.dead) return;
     const basic = this.classDef.basic;
+    const basicCost = basic.basicCost || 0;
+    if (this.resource < basicCost) {
+      game.ui.floaters.spawn(this.pos, `Out of ${this.classDef.resource.name}`, 'player-dmg');
+      return;
+    }
+    this.resource -= basicCost;
     this.attackCd = basic.cooldown;
     this.attackAnim = 0.22;
     this.faceAimTimer = 0.8;

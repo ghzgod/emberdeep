@@ -3,7 +3,16 @@ import { audio } from '../core/audio.js';
 
 // Class definitions: stats, basic attack, four abilities each.
 // Ability exec() receives (game, player) and uses the game's combat API.
-
+//
+// Resource economy: basic.basicCost makes even the free-spam basic attack
+// drain the resource bar faster than passive regen, so sustained fighting
+// forces pacing (waiting for regen or leaning on abilities). Verified drain
+// rate (basicCost / cooldown) minus resource.regen, and time to empty a full
+// bar assuming continuous basic-attack spam with no ability casts:
+//   knight: 9 / 0.45s = 20/s - 12 regen = -8/s  -> 100 stamina / 8  ≈ 12.5s
+//   mage:   10 / 0.42s = 23.8/s - 11 regen = -12.8/s -> 120 mana / 12.8 ≈ 9.4s
+//   ranger: 8 / 0.34s = 23.5/s - 15 regen = -8.5/s -> 100 energy / 8.5 ≈ 11.8s
+// All three land in the targeted ~9-13s full-bar-drain window.
 export const CLASSES = {
   knight: {
     id: 'knight',
@@ -12,8 +21,8 @@ export const CLASSES = {
     desc: 'A steel-clad warrior who wades into the horde with sword and shield.',
     color: 0xb9c4d8, uiColor: '#b9c4d8',
     stats: { maxHp: 135, damage: 15, speed: 6.3, armor: 0.15, crit: 0.08 },
-    resource: { name: 'Stamina', max: 100, regen: 16 },
-    basic: { kind: 'melee', range: 2.3, arc: Math.PI * 0.65, cooldown: 0.45, sound: 'sword_swing', hitSound: 'sword_hit' },
+    resource: { name: 'Stamina', max: 100, regen: 12 },
+    basic: { kind: 'melee', range: 2.3, arc: Math.PI * 0.65, cooldown: 0.45, basicCost: 9, sound: 'sword_swing', hitSound: 'sword_hit' },
     abilities: [
       {
         id: 'charge', name: 'Charge', icon: '🛡️', cd: 5, cost: 25,
@@ -64,7 +73,7 @@ export const CLASSES = {
     color: 0xa06ae8, uiColor: '#b98aff',
     stats: { maxHp: 92, damage: 12, speed: 6.0, armor: 0.0, crit: 0.12 },
     resource: { name: 'Mana', max: 120, regen: 11 },
-    basic: { kind: 'bolt', speed: 17, cooldown: 0.42, color: 0xc08aff, sound: 'magic_bolt', hitSound: 'magic_bolt' },
+    basic: { kind: 'bolt', speed: 17, cooldown: 0.42, basicCost: 10, color: 0xc08aff, sound: 'magic_bolt', hitSound: 'magic_bolt' },
     abilities: [
       {
         id: 'fireball', name: 'Fireball', icon: '🔥', cd: 4, cost: 25,
@@ -123,7 +132,7 @@ export const CLASSES = {
     color: 0x6ac86a, uiColor: '#8ade8a',
     stats: { maxHp: 108, damage: 13, speed: 6.9, armor: 0.05, crit: 0.18 },
     resource: { name: 'Energy', max: 100, regen: 15 },
-    basic: { kind: 'bolt', speed: 24, cooldown: 0.34, color: 0xd8c890, sound: 'bow_shot', hitSound: 'arrow_hit', arrow: true },
+    basic: { kind: 'bolt', speed: 24, cooldown: 0.34, basicCost: 8, color: 0xd8c890, sound: 'bow_shot', hitSound: 'arrow_hit', arrow: true },
     abilities: [
       {
         id: 'multishot', name: 'Multishot', icon: '🏹', cd: 5, cost: 25,
