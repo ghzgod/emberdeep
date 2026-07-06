@@ -512,7 +512,7 @@ export class Game {
     this.setupTorchLights(theme);
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner(0, 'Embervale — rest, trade, prepare');
-    audio.playMusic('dungeon');
+    audio.playMusic('tavern'); // town uses the calm tavern theme — no cave water drips
     this.shopCooldown = 1;
     this.requestSave(true);
 
@@ -1288,7 +1288,7 @@ export class Game {
       this.inTown ? 'Embervale — rest, trade, prepare' : theme.name,
       !this.inTown
     );
-    audio.playMusic(!this.inTown && this.dungeon.boss ? 'boss' : 'dungeon');
+    audio.playMusic(this.inTown ? 'tavern' : (this.dungeon.boss ? 'boss' : 'dungeon'));
     this.stairsCooldown = 1.5;
   }
 
