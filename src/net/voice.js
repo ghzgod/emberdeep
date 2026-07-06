@@ -77,6 +77,38 @@ export class VoiceChat {
   // without transmitting to anyone.
   setMonitor(on) { this.monitor = on; }
 
+  // Record ~3s from the mic and play it straight back, so the user can confirm
+  // their microphone actually works. Never transmitted. onState(stage) reports
+  // 'record' -> 'play' -> 'done' (or throws if the mic is unavailable).
+  async testMic(onState) {
+    const owned = !this.stream;
+    const stream = this.stream || await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    const wasEnabled = this.track ? this.track.enabled : null;
+    if (this.track) this.track.enabled = true; // make sure input is captured
+    const rec = new MediaRecorder(stream);
+    const chunks = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    onState?.('record');
+    return new Promise((resolve, reject) => {
+      rec.onstop = () => {
+        if (this.track) this.track.enabled = wasEnabled ?? false;
+        if (owned) stream.getTracks().forEach((t) => t.stop()); // release a borrowed mic
+        if (!chunks.length) { onState?.('done'); return resolve('empty'); }
+        const url = URL.createObjectURL(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
+        const a = new Audio(url);
+        onState?.('play');
+        a.onended = () => { URL.revokeObjectURL(url); onState?.('done'); resolve('done'); };
+        a.onerror = () => { URL.revokeObjectURL(url); onState?.('done'); resolve('playfail'); };
+        a.play().catch(() => { onState?.('done'); resolve('playfail'); });
+      };
+      rec.onerror = (e) => reject(e.error || new Error('record failed'));
+      rec.start();
+      setTimeout(() => { try { rec.stop(); } catch {} }, 3000);
+    });
+  }
+
   _tick() {
     if (!this._analyser) return;
 
