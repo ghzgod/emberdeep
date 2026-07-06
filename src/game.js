@@ -1249,6 +1249,8 @@ export class Game {
       if (!this.player.dead) {
         m.mesh.rotation.y = Math.atan2(this.player.pos.x - m.pos.x, this.player.pos.z - m.pos.z);
       }
+      // animate mirrored mobs on the guest too (they're always pursuing)
+      if (typeof m._animateGait === 'function') { m.state = 'chase'; m._animateGait(dt); }
       m.hitFlash = Math.max(0, m.hitFlash - dt);
       m.mesh.traverse((o) => {
         if (o.isMesh && o.material?.emissive !== undefined) {
