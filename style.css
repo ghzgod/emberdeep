@@ -759,10 +759,13 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 #voice-meter-row { display: flex; align-items: center; gap: 12px; width: 100%; }
 #voice-meter-track {
   flex: 1; height: 12px; background: #120d18; border: 1px solid var(--panel-border);
-  border-radius: 6px; overflow: hidden;
+  border-radius: 6px; overflow: hidden; position: relative;
 }
 #voice-meter { height: 100%; width: 0%; background: #4f7bd9; transition: width 0.1s; }
-#btn-mic-test { flex: none; white-space: nowrap; }
+/* trigger-threshold marker: the level bar crosses green to the right of this. */
+#voice-meter-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--gold); box-shadow: 0 0 4px rgba(255,200,90,0.9); pointer-events: none; }
+#mic-test-row { margin-top: 6px; }
+#btn-mic-test { white-space: nowrap; }
 #voice-meter.hot { background: #7ce87c; }
 #voice-engine-bar {
   width: 100%; height: 10px; background: #120d18;

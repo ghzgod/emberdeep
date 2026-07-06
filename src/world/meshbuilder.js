@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { FLOOR, WALL, DOOR, PIT, BRIDGE, RUBBLE, CHASM } from './dungeon.js';
-import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture } from './textures.js';
+import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture, makeBannerTexture, floorRng, jitterAccentHue } from './textures.js';
+
+// Built once per theme (cheap; avoids regenerating the canvas per banner prop).
+const _bannerTexCache = new Map();
+const bannerTexture = (theme) => {
+  if (!_bannerTexCache.has(theme.name)) _bannerTexCache.set(theme.name, makeBannerTexture(theme));
+  return _bannerTexCache.get(theme.name);
+};
 
 // Built once, shared by every cobweb prop (cheap; avoids a canvas per web).
 let _cobwebTex = null;
@@ -18,13 +25,19 @@ export function worldToTile(x, z) {
 
 let woodTex = null;
 
-export function buildDungeonMeshes(dungeon, theme) {
+export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   const group = new THREE.Group();
   const { grid, size } = dungeon;
 
   const town = !!dungeon.town;
-  const floorTex = town ? makeGrassTexture() : makeFloorTexture(theme);
-  const wallTex = makeWallTexture(theme);
+  // Per-floor seed: nudges texture tint / torch hue / prop mix / particle
+  // density so floors within the same act read as distinct places, while the
+  // act's palette and identity (from `theme`) stay obvious. Deterministic
+  // from the floor number alone, so it needs no network sync in multiplayer.
+  const frng = floorRng(floor);
+  const floorTex = town ? makeGrassTexture() : makeFloorTexture(theme, frng());
+  const wallTex = makeWallTexture(theme, frng());
+  const floorAccent = town ? theme.accent : jitterAccentHue(theme.accent, frng);
   if (!woodTex) woodTex = makeWoodTexture();
 
   // --- Floors (instanced) ---
@@ -231,7 +244,7 @@ export function buildDungeonMeshes(dungeon, theme) {
     const sconceGeo = new THREE.CylinderGeometry(0.05, 0.08, 0.5, 6);
     const sconceMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1 });
     const flameGeo = new THREE.SphereGeometry(0.13, 8, 6);
-    const flameMat = new THREE.MeshBasicMaterial({ color: theme.accent });
+    const flameMat = new THREE.MeshBasicMaterial({ color: floorAccent });
     for (const t of dungeon.torches) {
       const w = tileToWorld(t.fx, t.fy);
       const sconce = new THREE.Mesh(sconceGeo, sconceMat);
@@ -574,20 +587,37 @@ export function buildDungeonMeshes(dungeon, theme) {
   // --- Dungeon decoration: wall-hugging themed props ---
   // (Room-center "rug" rings were removed — their faint ring outline read as a
   //  stray portal ring in every large room. The only ring is the real portal.)
-  const breakables = (!town && dungeon.props?.length) ? buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs) : [];
-  // atmospheric dust motes drifting through the dungeon air (themed, animated
-  // by the smoke-puff loop) — cheap depth without external assets
+  const breakables = (!town && dungeon.props?.length) ? buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, floorAccent, frng) : [];
+  // atmospheric particles drifting through the dungeon air — kind and motion
+  // themed per act (dust/spores/embers/wisps/bubbles), density per floor.
+  // Still driven entirely by the existing puff.kind === 'mote' update path in
+  // game.js; only the per-mote `style` differs.
   if (!town && floorTiles.length) {
-    const moteGeo = new THREE.SphereGeometry(0.03, 4, 4);
-    const moteMat = new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.22, depthWrite: false, fog: true });
-    for (let i = 0; i < 26; i++) {
+    const MOTE_STYLES = {
+      'The Old Halls':      { key: 'dust',   opacity: 0.22, blend: THREE.NormalBlending,   size: 0.03 },
+      'The Rotting Depths': { key: 'spore',  opacity: 0.28, blend: THREE.NormalBlending,   size: 0.035 },
+      'The Ember Vaults':   { key: 'ember',  opacity: 0.55, blend: THREE.AdditiveBlending, size: 0.026 },
+      'The Sunless Court':  { key: 'wisp',   opacity: 0.3,  blend: THREE.NormalBlending,   size: 0.05 },
+      'The Abyssal Throne': { key: 'bubble', opacity: 0.26, blend: THREE.NormalBlending,   size: 0.045 },
+    };
+    const style = MOTE_STYLES[theme.name] || MOTE_STYLES['The Old Halls'];
+    const moteGeo = new THREE.SphereGeometry(style.size, 4, 4);
+    const moteCount = 16 + Math.floor(frng() * 12); // per-floor density, always a small count
+    for (let i = 0; i < moteCount; i++) {
       const tp = floorTiles[Math.floor(Math.random() * floorTiles.length)];
       const w = tileToWorld(tp.x, tp.y);
-      const m = new THREE.Mesh(moteGeo, moteMat);
+      // each mote gets its own (cheap) material so ember/wisp fades and
+      // pulses don't affect every other mote sharing a single material
+      const mat = new THREE.MeshBasicMaterial({ color: floorAccent, transparent: true, opacity: style.opacity, depthWrite: false, fog: true, blending: style.blend });
+      const m = new THREE.Mesh(moteGeo, mat);
       const baseY = 0.4 + Math.random() * 1.3;
       m.position.set(w.x + (Math.random() - 0.5) * TILE, baseY, w.z + (Math.random() - 0.5) * TILE);
       group.add(m);
-      smokePuffs.push({ mesh: m, kind: 'mote', baseY, phase: Math.random() * 10, speed: 0.15 + Math.random() * 0.2, cx: m.position.x, cz: m.position.z, drift: Math.random() * Math.PI * 2 });
+      smokePuffs.push({
+        mesh: m, kind: 'mote', style: style.key, baseY, baseOpacity: style.opacity,
+        phase: Math.random() * 10, speed: 0.15 + Math.random() * 0.2,
+        cx: m.position.x, cz: m.position.z, drift: Math.random() * Math.PI * 2,
+      });
     }
   }
   // --- World beyond the town walls: forest ring, horizon, a wandering critter ---

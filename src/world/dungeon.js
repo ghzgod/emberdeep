@@ -203,8 +203,10 @@ export function generateDungeon(floor) {
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (grid[y + dy]?.[x + dx] === WALL) return { dx, dy };
     return null;
   };
+  // per-floor density within the act: floor 1 sparser, floor 10 denser
+  const propCap = 12 + ((floor - 1) % 10);
   for (const t of floorTiles) {
-    if (props.length >= 20) break;
+    if (props.length >= propCap) break;
     if (isBlockedProp(t.x, t.y)) continue;
     if (props.some((p) => Math.abs(p.x - t.x) + Math.abs(p.y - t.y) < 2)) continue;
     const dir = wallDirOf(t.x, t.y);

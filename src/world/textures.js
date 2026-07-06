@@ -80,6 +80,43 @@ export function makePaintingTexture() {
   return tex;
 }
 
+// Deterministic per-floor RNG (simple LCG) so floor-to-floor variation (tint,
+// torch hue, prop mix, particle density) is stable across reloads and stays
+// in sync between host and guest in multiplayer without transmitting anything
+// extra — both sides derive it from the same floor number.
+export function floorRng(floor) {
+  let seed = (Math.imul((floor || 0) + 1, 2654435761) ^ 0x9e3779b9) >>> 0;
+  return () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+}
+
+// Nudges an accent color's hue/saturation a small deterministic amount, so
+// each floor within an act carries a slightly different torchlight/particle
+// mood without straying from the act's palette.
+export function jitterAccentHue(hex, rng) {
+  const c = new THREE.Color(hex);
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  hsl.h = (hsl.h + (rng() - 0.5) * 0.05 + 1) % 1;
+  hsl.s = Math.min(1, Math.max(0, hsl.s * (0.85 + rng() * 0.3)));
+  c.setHSL(hsl.h, hsl.s, hsl.l);
+  return c.getHex();
+}
+
+// Deterministic brightness shift (seed in [0,1)) applied to a base color
+// before the existing random per-tile jitter/speckle — gives floor textures
+// within an act a subtle per-floor lightness difference.
+function seededTint(hex, seed, amount) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const d = Math.round((seed - 0.5) * 2 * amount);
+  const c = (v) => Math.min(255, Math.max(0, v + d));
+  const h = (v) => v.toString(16).padStart(2, '0');
+  return `#${h(c(r))}${h(c(g))}${h(c(b))}`;
+}
+
 function jitterColor(hex, amount) {
   const n = parseInt(hex.slice(1), 16);
   let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
@@ -110,15 +147,16 @@ function speckle(ctx, size, count, alpha) {
   }
 }
 
-export function makeFloorTexture(theme) {
+export function makeFloorTexture(theme, floorSeed = 0.5) {
   const size = 256;
   const [canvas, ctx] = makeCanvas(size);
   const tiles = 4, ts = size / tiles;
+  const floorBase = seededTint(theme.floor, floorSeed, 10); // per-floor lightness within the act
   ctx.fillStyle = theme.mortar;
   ctx.fillRect(0, 0, size, size);
   for (let y = 0; y < tiles; y++) {
     for (let x = 0; x < tiles; x++) {
-      ctx.fillStyle = shadeColor(theme.floor, 10); // brightness only — keeps stone hue
+      ctx.fillStyle = shadeColor(floorBase, 10); // brightness only — keeps stone hue
       ctx.fillRect(x * ts + 2, y * ts + 2, ts - 4, ts - 4);
       // cracked corner detail
       if (Math.random() < 0.3) {
@@ -139,9 +177,10 @@ export function makeFloorTexture(theme) {
   return tex;
 }
 
-export function makeWallTexture(theme) {
+export function makeWallTexture(theme, floorSeed = 0.5) {
   const size = 256;
   const [canvas, ctx] = makeCanvas(size);
+  const wallBase = seededTint(theme.wall, floorSeed, 9); // per-floor lightness within the act
   ctx.fillStyle = theme.mortar;
   ctx.fillRect(0, 0, size, size);
   const rows = 6, bh = size / rows;
@@ -151,7 +190,7 @@ export function makeWallTexture(theme) {
     const bw = size / cols;
     for (let c = -1; c < cols + 1; c++) {
       const x = (c + offset) * bw;
-      ctx.fillStyle = jitterColor(theme.wall, 12);
+      ctx.fillStyle = jitterColor(wallBase, 12);
       ctx.fillRect(x + 3, r * bh + 3, bw - 6, bh - 6);
     }
   }
@@ -232,6 +271,45 @@ export function makeCobbleTexture() {
   speckle(ctx, size, 500, 0.12);
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// A wall tapestry motif: dyed cloth with a border and a diamond emblem in the
+// theme's accent, so a hung banner reads as a real decoration rather than a
+// bare colored quad. One texture per theme (cached by the caller).
+export function makeBannerTexture(theme) {
+  const w = 128, h = 240;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  const accentHex = '#' + theme.accent.toString(16).padStart(6, '0');
+  ctx.fillStyle = theme.mortar;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = jitterColor(theme.wall, 8);
+  ctx.fillRect(6, 6, w - 12, h - 12);
+  // vertical fabric folds
+  for (let i = 0; i < 7; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${0.05 + Math.random() * 0.05})`;
+    const fx = 10 + (i / 7) * (w - 20);
+    ctx.fillRect(fx, 6, 3, h - 12);
+  }
+  // accent border frame
+  ctx.strokeStyle = accentHex;
+  ctx.lineWidth = 4;
+  ctx.strokeRect(10, 10, w - 20, h - 20);
+  // diamond emblem with a punched-out center
+  const cx = w / 2, cy = h * 0.4;
+  ctx.fillStyle = accentHex;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 34); ctx.lineTo(cx + 30, cy); ctx.lineTo(cx, cy + 34); ctx.lineTo(cx - 30, cy);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = theme.mortar;
+  ctx.beginPath(); ctx.arc(cx, cy, 13, 0, Math.PI * 2); ctx.fill();
+  // lower trim bar
+  ctx.fillStyle = accentHex;
+  ctx.fillRect(w * 0.2, h - 34, w * 0.6, 6);
+  const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
