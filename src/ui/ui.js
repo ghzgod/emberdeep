@@ -112,8 +112,11 @@ export class UI {
     $('btn-buy-confirm').onclick = () => this.confirmBuy();
     $('btn-buy-cancel').onclick = () => { $('buy-confirm').classList.add('hidden'); this._pendingBuy = null; };
     $('btn-destroy-confirm').onclick = () => {
-      this.game.destroyItems([...(this.destroySel || [])]);
-      this.destroySel?.clear(); this.destroyMode = false;
+      // destroy whatever confirmDestroy staged: bulk marks or a single item
+      const doomed = this._destroyPending || [...(this.destroySel || [])];
+      this.game.destroyItems(doomed);
+      for (const it of doomed) this.destroySel?.delete(it);
+      this._destroyPending = null;
       $('destroy-modal').classList.add('hidden');
       this.renderInventory();
     };
@@ -1138,13 +1141,23 @@ export class UI {
       if (item) {
         el.onmouseenter = (e) => this.showTooltip(item, e);
         el.onmouseleave = () => this.hideTooltip();
-        if (this.destroyMode) {
-          // multi-select: tap to mark/unmark for permanent destruction
-          el.onclick = () => { this.destroySel.has(item) ? this.destroySel.delete(item) : this.destroySel.add(item); this.renderInventory(); };
-        } else {
-          el.onclick = () => this.selectItem(item);
-          el.oncontextmenu = (e) => { e.preventDefault(); this.game.dropItem(item); this.renderInventory(); this.hideTooltip(); };
-        }
+        const toggleMark = () => {
+          this.destroySel.has(item) ? this.destroySel.delete(item) : this.destroySel.add(item);
+          this.renderInventory();
+        };
+        // ctrl/cmd/shift-click marks for bulk destruction; plain click = stats
+        el.onclick = (e) => {
+          if (this._suppressClick) { this._suppressClick = false; return; }
+          if (e.ctrlKey || e.metaKey || e.shiftKey) toggleMark();
+          else this.selectItem(item);
+        };
+        // touch: press-and-hold marks the item instead
+        el.onpointerdown = (e) => {
+          if (e.pointerType !== 'touch') return;
+          this._holdT = setTimeout(() => { this._suppressClick = true; toggleMark(); }, 450);
+        };
+        el.onpointerup = el.onpointerleave = () => clearTimeout(this._holdT);
+        el.oncontextmenu = (e) => { e.preventDefault(); this.game.dropItem(item); this.renderInventory(); this.hideTooltip(); };
       }
       grid.appendChild(el);
     }
@@ -1177,33 +1190,39 @@ export class UI {
     dc.textContent = `Drop all commons (${commons})`;
     dc.style.display = commons ? '' : 'none';
 
-    // trash mode: multi-select + confirm to permanently destroy items
-    let tb = $('destroy-toggle-btn');
-    if (!tb) {
-      tb = document.createElement('button');
-      tb.id = 'destroy-toggle-btn'; tb.className = 'menu-btn small';
-      row.appendChild(tb);
-      tb.onclick = () => { this.destroyMode = !this.destroyMode; this.destroySel.clear(); this.renderInventory(); };
-    }
-    // nothing in the pack: no point offering destruction
-    if (!p.inventory.length && this.destroyMode) { this.destroyMode = false; this.destroySel.clear(); }
-    tb.style.display = p.inventory.length ? '' : 'none';
-    tb.textContent = this.destroyMode ? '✖ Cancel destroy' : '🗑 Destroy items';
+    // Bulk destruction: no standing toggle button. Marking 2+ items
+    // (ctrl-click / press-and-hold) reveals the destroy button; single-item
+    // destruction lives on the item's stats panel instead.
+    $('destroy-toggle-btn')?.remove(); // retired control from the old flow
     let db = $('destroy-confirm-btn');
     if (!db) {
       db = document.createElement('button');
       db.id = 'destroy-confirm-btn'; db.className = 'menu-btn small danger';
       row.appendChild(db);
-      db.onclick = () => this.confirmDestroy();
+      db.onclick = () => this.confirmDestroy([...this.destroySel]);
     }
-    db.textContent = `🗑 Destroy ${this.destroySel.size}`;
-    db.style.display = (this.destroyMode && this.destroySel.size) ? '' : 'none';
+    db.textContent = `🗑 Destroy ${this.destroySel.size} items`;
+    db.style.display = this.destroySel.size >= 2 ? '' : 'none';
   }
 
-  // List the marked items and ask before wiping them for good.
-  confirmDestroy() {
-    const items = [...this.destroySel];
-    if (!items.length) return;
+  // List the doomed items and ask before wiping them for good. Anything
+  // valuable gets called out loudly above the message so a misclick can't
+  // silently vaporize an Epic.
+  confirmDestroy(items) {
+    if (!items?.length) return;
+    this._destroyPending = items;
+    const high = items.filter((it) => ['rare', 'epic', 'legendary'].includes(it.rarity) || (it.value || 0) >= 200);
+    const warn = $('destroy-warning');
+    if (high.length) {
+      warn.innerHTML = `<div class="destroy-warn-head">⚠ You are about to destroy high-value gear:</div>` +
+        high.map((it) => {
+          const stats = Object.entries(it.stats || {}).map(([k, v]) => statLabel(k, v)).join(' · ');
+          return `<div class="tt-stat tt-${it.rarity}">${it.icon} <b>${it.name}</b> · ${RARITIES[it.rarity].name}${stats ? ' · ' + stats : ''} · ${it.value || 0}g</div>`;
+        }).join('');
+      warn.classList.remove('hidden');
+    } else {
+      warn.classList.add('hidden');
+    }
     $('destroy-count').textContent = `Permanently destroy ${items.length} item${items.length > 1 ? 's' : ''}? This cannot be undone.`;
     $('destroy-list').innerHTML = items.map((it) => `<div class="tt-stat tt-${it.rarity}">${it.icon} ${it.name}</div>`).join('');
     $('destroy-modal').classList.remove('hidden');
@@ -1283,6 +1302,10 @@ export class UI {
     const dropBtn = $('btn-item-drop');
     dropBtn.style.display = equippedSlot ? 'none' : '';
     dropBtn.onclick = () => { this.game.dropItem(item); this.closeItemActions(); this.renderInventory(); };
+    // destroying goes through the same confirmation modal as bulk destruction
+    const destroyBtn = $('btn-item-destroy');
+    destroyBtn.style.display = equippedSlot ? 'none' : '';
+    destroyBtn.onclick = () => { this.closeItemActions(); this.confirmDestroy([item]); };
   }
 
   closeItemActions() {
