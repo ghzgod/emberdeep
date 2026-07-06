@@ -695,12 +695,17 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   .shop-gold { font-size: 13px; padding: 4px 10px; }
 }
 
-/* ---------- Item actions (inventory) ---------- */
-#item-actions {
-  margin-top: 14px; padding: 12px 16px; border: 1px solid var(--panel-border);
-  border-radius: 8px; background: var(--panel); min-width: 300px;
+/* ---------- Item stats panel (inventory) ---------- */
+/* Modal, matching #inspect-panel/#destroy-modal/#act-select: dimmed backdrop,
+   click outside the card to dismiss. */
+#item-actions { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
+#item-actions.hidden { display: none; }
+#item-actions-card {
+  min-width: 300px; max-width: 90vw; max-height: 80vh; overflow: auto; padding: 22px 26px; text-align: center;
+  background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98));
+  border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35);
 }
-#item-actions-info { font-size: 14px; margin-bottom: 10px; text-align: left; }
+#item-actions-info { font-size: 14px; margin-bottom: 14px; text-align: left; }
 #item-actions-info .tt-stat { color: #9fd89f; font-size: 12px; }
 .item-actions-btns { display: flex; gap: 10px; justify-content: center; }
 

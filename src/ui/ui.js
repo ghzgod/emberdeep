@@ -1277,11 +1277,6 @@ export class UI {
     $('item-actions').classList.add('hidden');
   }
 
-  closeItemActions() {
-    this.selectedItem = null;
-    $('item-actions').classList.add('hidden');
-  }
-
   showTooltip(item, e, equipped = false) {
     const tt = $('item-tooltip');
     tt.classList.remove('hidden');
