@@ -94,6 +94,13 @@ const MINIBOSS_NAMES = {
   golem: 'The Unmoved Colossus',
 };
 
+// Ghost ambient moans: very seldom, and never in a chorus. A module-level
+// throttle caps how often ANY ghost may moan (across the whole pack), on top
+// of each ghost's own long randomized cooldown.
+const GHOST_MOAN_RANGE = 14;      // player must be within this many units to hear it
+const GHOST_MOAN_GLOBAL_GAP = 12000; // ms; min gap between any two ghost moans
+let _lastGhostMoanAt = -Infinity;
+
 export class Enemy {
   constructor(typeId, floor, opts = {}) {
     this.typeId = typeId;
@@ -133,6 +140,9 @@ export class Enemy {
     this.dead = false;
     this.hitFlash = 0;
     this.knockback = null;
+    // wraiths moan very seldom -- randomized per-ghost cooldown before the
+    // first possible moan too, so a pack doesn't all sigh on spawn
+    if (typeId === 'ghost') this._moanCd = 25 + Math.random() * 35;
 
     this.mesh = buildEnemyMesh(typeId, this.miniboss ? 1.5 : this.elite ? 1.3 : 1);
     if (this.elite) {
@@ -239,6 +249,18 @@ export class Enemy {
     const target = game.getNearestTarget(this.pos);
     const tPos = target.pos;
     const distToPlayer = Math.hypot(tPos.x - this.pos.x, tPos.z - this.pos.z);
+
+    // Wraiths moan very seldom -- long per-ghost cooldown, plus a global
+    // throttle so a pack of ghosts never chorus together.
+    if (this.typeId === 'ghost') {
+      this._moanCd = (this._moanCd ?? 25 + Math.random() * 35) - dt;
+      if (this._moanCd <= 0 && distToPlayer < GHOST_MOAN_RANGE && performance.now() - _lastGhostMoanAt > GHOST_MOAN_GLOBAL_GAP) {
+        audio.ghostMoan(undefined, { pos: this.pos, volume: 0.5 });
+        _lastGhostMoanAt = performance.now();
+        this._moanCd = 25 + Math.random() * 35;
+      }
+    }
+
     const atk = this.def.attack;
 
     switch (this.state) {
