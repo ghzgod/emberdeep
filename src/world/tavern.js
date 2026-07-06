@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, WALL } from './dungeon.js';
 import { TILE, tileToWorld } from './meshbuilder.js';
-import { makeWoodTexture } from './textures.js';
+import { makeWoodTexture, makePaintingTexture } from './textures.js';
 
 // "The Sleeping Golem" — the tavern interior. Warm, safe, and populated.
 // 12 x 9 tiles. Furniture occupies solid (WALL) tiles so you can't walk
@@ -65,6 +65,20 @@ export function buildTavernInterior() {
     beam.position.set((W * TILE) / 2, wallH - 0.1, i * (H * TILE) / 4);
     group.add(beam);
   }
+
+  // framed procedural paintings on the side walls (each is a unique dusk scene)
+  const mkPainting = (x, z, roty) => {
+    const p = new THREE.Group();
+    p.add(new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.72, 0.05), darkWood));
+    const art = new THREE.Mesh(new THREE.PlaneGeometry(0.78, 0.58), new THREE.MeshStandardMaterial({ map: makePaintingTexture(), roughness: 0.9 }));
+    art.position.z = 0.03;
+    p.add(art);
+    p.position.set(x, 1.55, z); p.rotation.y = roty;
+    group.add(p);
+  };
+  mkPainting(TILE + 0.04, 2.2 * TILE, Math.PI / 2);          // west wall
+  mkPainting(TILE + 0.04, 5.4 * TILE, Math.PI / 2);
+  mkPainting(W * TILE - TILE - 0.04, 3.4 * TILE, -Math.PI / 2); // east wall
 
   // ---- the bar (on BAR_TILES row) ----
   const barCenter = tileToWorld(5.5, 1);
