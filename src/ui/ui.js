@@ -522,10 +522,15 @@ export class UI {
     const vThresh = $('set-voice-thresh');
     const vVal = $('set-voice-thresh-val');
     const syncVoiceRows = () => {
-      vRow.classList.toggle('hidden', s.voiceMode !== 'auto');
-      vMeterRow.classList.toggle('hidden', s.voiceMode === 'off');
-      $('touch-mic').classList.toggle('hidden', s.voiceMode !== 'ptt');
-      this.setMicAvailable(s.voiceMode === 'ptt');
+      const mode = s.voiceMode;
+      vRow.classList.toggle('hidden', mode !== 'auto');            // trigger-level slider: voice-activated only
+      // The live level meter sits directly under the slider, voice-activated
+      // only, so you can dial the threshold just above your speaking level.
+      vMeterRow.classList.toggle('hidden', mode !== 'auto');
+      // The hear-yourself mic test is useful in any mic mode (PTT or auto).
+      $('mic-test-row').classList.toggle('hidden', mode === 'off');
+      $('touch-mic').classList.toggle('hidden', mode !== 'ptt');
+      this.setMicAvailable(mode === 'ptt');
     };
     vSel.value = s.voiceMode;
     vThresh.value = s.voiceThreshold;
@@ -573,6 +578,8 @@ export class UI {
       if (!this.screens.settings.classList.contains('visible')) return;
       const { voice } = await import('../net/voice.js');
       const meter = $('voice-meter');
+      const mark = $('voice-meter-mark');
+      if (mark) mark.style.left = `${s.voiceThreshold}%`; // trigger line tracks the slider
       if (voice.active) {
         meter.style.width = `${voice.level}%`;
         meter.classList.toggle('hot', voice.level >= voice.threshold);
