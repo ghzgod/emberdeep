@@ -495,6 +495,23 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #act-card #act-list .menu-btn { display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
 #act-card #act-list .menu-btn small { opacity: 0.6; font-size: 11px; }
 
+/* Player inspect panel */
+#inspect-panel { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
+#inspect-panel.hidden { display: none; }
+#inspect-card { min-width: 300px; max-width: 90vw; max-height: 80vh; overflow: auto; padding: 22px 26px; background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98)); border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35); text-align: center; }
+#inspect-card h2 { font-size: 22px; margin: 0 0 2px; }
+#inspect-card #inspect-sub { font-size: 13px; opacity: 0.7; margin-bottom: 12px; }
+#inspect-card #inspect-slots { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; text-align: left; }
+.inspect-slot { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--panel-border); background: rgba(0,0,0,0.25); }
+.inspect-slot.empty { opacity: 0.5; }
+.inspect-slot .is-icon { font-size: 22px; width: 26px; text-align: center; }
+.inspect-slot .is-txt { display: flex; flex-direction: column; }
+.inspect-slot .is-txt small { opacity: 0.75; font-size: 11px; }
+.inspect-slot .is-empty { text-transform: capitalize; }
+.inspect-slot.rarity-rare { border-color: #4f8bd9; }
+.inspect-slot.rarity-epic { border-color: #a03bd9; }
+.inspect-slot.rarity-legendary { border-color: #ff8c1a; }
+
 /* anti-cheat lockout banner */
 #cheat-lock { position: fixed; top: 18%; left: 50%; transform: translateX(-50%); z-index: 55; text-align: center; padding: 14px 26px; border-radius: 12px; background: rgba(40,10,10,0.9); border: 2px solid #e04444; color: #ffdada; font-size: 26px; font-weight: bold; letter-spacing: 1px; box-shadow: 0 0 26px rgba(224,68,68,0.5); pointer-events: none; }
 #cheat-lock.hidden { display: none; }
