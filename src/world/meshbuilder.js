@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FLOOR, WALL, DOOR, PIT, BRIDGE, RUBBLE, CHASM } from './dungeon.js';
-import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture, makeBannerTexture, floorRng, jitterAccentHue } from './textures.js';
+import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture, makeBannerTexture, makeGlowTexture, makeRuneTexture, floorRng, jitterAccentHue } from './textures.js';
 
 // Built once per theme (cheap; avoids regenerating the canvas per banner prop).
 const _bannerTexCache = new Map();
@@ -9,9 +9,21 @@ const bannerTexture = (theme) => {
   return _bannerTexCache.get(theme.name);
 };
 
+// Built once per theme; the occasional glowing floor rune reuses one texture.
+const _runeTexCache = new Map();
+const runeTexture = (theme) => {
+  if (!_runeTexCache.has(theme.name)) _runeTexCache.set(theme.name, makeRuneTexture(theme));
+  return _runeTexCache.get(theme.name);
+};
+
 // Built once, shared by every cobweb prop (cheap; avoids a canvas per web).
 let _cobwebTex = null;
 const cobwebTexture = () => (_cobwebTex ||= makeCobwebTexture());
+
+// Built once, shared by every flame (torch/brazier/candelabra) and used by
+// the projectile system too, so every "glow" in the game reuses one texture.
+let _glowTex = null;
+const glowTexture = () => (_glowTex ||= makeGlowTexture());
 
 export const TILE = 2;          // world units per grid tile
 export const WALL_HEIGHT = 3;
@@ -100,10 +112,12 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
     }
   }
 
-  // --- Bridges: raised wooden planks with side rails, over the chasm ---
+  // --- Bridges: raised stone slabs with side rails, over the chasm ---
+  // (Used to be a wood-plank texture; that read as a rainbow-striped wood
+  // floor dropped into a stone dungeon. Reusing the dungeon's own floor
+  // texture keeps the crossing gothic and consistent with the room floor.)
   if (bridgeT.length) {
-    if (!woodTex) woodTex = makeWoodTexture();
-    const plankMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.9 });
+    const plankMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95 });
     const plankGeo = new THREE.BoxGeometry(TILE, 0.16, TILE);
     const plankMesh = new THREE.InstancedMesh(plankGeo, plankMat, bridgeT.length);
     bridgeT.forEach((tp, i) => {
@@ -253,7 +267,16 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       const flame = new THREE.Mesh(flameGeo, flameMat);
       flame.position.set(w.x, 1.95, w.z);
       group.add(flame);
-      torchPositions.push({ x: w.x, y: 2.0, z: w.z, flame });
+      // additive glow sprite behind the flame core so it blooms like a real
+      // ember instead of reading as a flat lit sphere
+      const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTexture(), color: floorAccent, blending: THREE.AdditiveBlending,
+        transparent: true, depthWrite: false, opacity: 0.6,
+      }));
+      glowSprite.scale.setScalar(0.55);
+      glowSprite.position.copy(flame.position);
+      group.add(glowSprite);
+      torchPositions.push({ x: w.x, y: 2.0, z: w.z, flame, glow: glowSprite });
     }
   }
 
@@ -618,6 +641,24 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
         phase: Math.random() * 10, speed: 0.15 + Math.random() * 0.2,
         cx: m.position.x, cz: m.position.z, drift: Math.random() * Math.PI * 2,
       });
+    }
+  }
+  // --- Occasional glowing rune floor tile: a rare inlaid glyph that reads as
+  // faintly magical (unlit, so it glows regardless of local lighting).
+  if (!town && floorTiles.length) {
+    const runeCount = 2 + Math.floor(frng() * 3); // 2-4 per floor
+    const runeMat = new THREE.MeshBasicMaterial({
+      map: runeTexture(theme), transparent: true, opacity: 0.7, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -1, fog: true,
+    });
+    const runeGeo = new THREE.PlaneGeometry(TILE * 0.62, TILE * 0.62);
+    for (let i = 0; i < runeCount; i++) {
+      const tp = floorTiles[Math.floor(Math.random() * floorTiles.length)];
+      const w = tileToWorld(tp.x, tp.y);
+      const rune = new THREE.Mesh(runeGeo, runeMat);
+      rune.rotation.x = -Math.PI / 2;
+      rune.position.set(w.x, 0.025, w.z);
+      group.add(rune);
     }
   }
   // --- World beyond the town walls: forest ring, horizon, a wandering critter ---
@@ -1075,11 +1116,27 @@ function buildProp(kind, C, torchPositions, smokePuffs, px, pz, theme) {
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.9, 6), std(C.IRON)); leg.position.y = 0.45; g.add(leg);
     const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.16, 0.24, 10), std(C.IRON)); bowl.position.y = 0.95; g.add(bowl);
     const localFlame = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 8), glow(C.accent)); localFlame.position.y = 1.25; g.add(localFlame);
-    if (torchPositions) torchPositions.push({ x: px, y: 1.25, z: pz, flame: localFlame });
+    // glowing-orb bloom behind the flame core
+    const braGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture(), color: C.accent, blending: THREE.AdditiveBlending,
+      transparent: true, depthWrite: false, opacity: 0.65,
+    }));
+    braGlow.scale.setScalar(0.75); braGlow.position.copy(localFlame.position); g.add(braGlow);
+    if (torchPositions) torchPositions.push({ x: px, y: 1.25, z: pz, flame: localFlame, glow: braGlow });
   } else if (kind === 'candelabra') {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 1.5, 6), std(C.IRON)); pole.position.y = 0.75; g.add(pole);
-    for (const dx of [-0.28, 0, 0.28]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.18, 6), std(0xd8cf9a)); c.position.set(dx, 1.5, 0); g.add(c); const fl = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.16, 6), glow(0xffd27a)); fl.position.set(dx, 1.66, 0); g.add(fl); }
-    if (torchPositions) torchPositions.push({ x: px, y: 1.5, z: pz, flame: g.children[g.children.length - 1] });
+    let lastFlame = null, lastGlow = null;
+    for (const dx of [-0.28, 0, 0.28]) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.18, 6), std(0xd8cf9a)); c.position.set(dx, 1.5, 0); g.add(c);
+      const fl = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.16, 6), glow(0xffd27a)); fl.position.set(dx, 1.66, 0); g.add(fl);
+      const flGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTexture(), color: 0xffd27a, blending: THREE.AdditiveBlending,
+        transparent: true, depthWrite: false, opacity: 0.55,
+      }));
+      flGlow.scale.setScalar(0.32); flGlow.position.copy(fl.position); g.add(flGlow);
+      lastFlame = fl; lastGlow = flGlow;
+    }
+    if (torchPositions) torchPositions.push({ x: px, y: 1.5, z: pz, flame: lastFlame, glow: lastGlow });
   } else if (kind === 'sarcophagus') {
     const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 1.9), std(C.STONE)); base.position.y = 0.25; g.add(base);
     const lid = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.16, 2.0), std(0x6b6474)); lid.position.y = 0.56; lid.rotation.y = 0.04; g.add(lid);
