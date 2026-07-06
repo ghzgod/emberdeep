@@ -467,11 +467,9 @@ export class Game {
     this.openedDoors = new Set();
     const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
     this.player.pos.set(spawn.x, 0, spawn.z);
-    this.setTownAtmosphere(true);
-    this.scene.background = new THREE.Color(0x0d0a12);
-    this.scene.fog = new THREE.Fog(0x0d0a12, 16, 34);
+    this.setTownAtmosphere(true); // warm lamplit tavern (see setTownAtmosphere)
     const theme = themeForFloor(1);
-    this.setupTorchLights({ ...theme, accent: 0xffa95e });
+    this.setupTorchLights({ ...theme, accent: 0xffb877 });
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner('THE SLEEPING GOLEM', 'Rest a while, hero', true);
     audio.playMusic('tavern');
@@ -843,12 +841,23 @@ export class Game {
 
   // Town is an open evening square: brighter, bluer, softer fog than the dungeon.
   setTownAtmosphere(on) {
-    if (on) {
+    if (on && this.inTavern) {
+      // Warm, lamplit tavern: amber ambient so the wood and back-bar glow, and
+      // a soft hearth-coloured glow that follows the player through the room.
+      this.scene.background = new THREE.Color(0x1a1109);
+      this.scene.fog = new THREE.Fog(0x1a1109, 22, 46);
+      this.ambient.color.setHex(0xffb066);
+      this.ambient.intensity = 0.82;
+      this.playerLight.color.setHex(0xffcf9a);
+      this.playerLight.intensity = 16;
+      this.playerLight.distance = 11;
+    } else if (on) {
       this.scene.background = new THREE.Color(0x151d30);
       this.scene.fog = new THREE.Fog(0x151d30, 24, 52);
       this.ambient.color.setHex(0x9aa4c8);
       this.ambient.intensity = 0.85;
       // no "flashlight" under the open sky — just a faint presence
+      this.playerLight.color.setHex(0xffd8a0);
       this.playerLight.intensity = 5;
       this.playerLight.distance = 6;
     } else {
@@ -857,6 +866,7 @@ export class Game {
       this.ambient.color.setHex(0x8a7a9a);
       this.ambient.intensity = 0.55;
       // underground the hero carries the light
+      this.playerLight.color.setHex(0xffd8a0);
       this.playerLight.intensity = 40;
       this.playerLight.distance = 14;
     }
