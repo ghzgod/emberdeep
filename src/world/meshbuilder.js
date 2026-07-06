@@ -980,7 +980,7 @@ function buildRoomRugs(group, dungeon, theme) {
 
 // Wall-hugging themed clutter. Braziers/candelabra register as torch lights so
 // they glow and flicker via the game's pooled-light loop.
-function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs) {
+function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, floorAccent, frng) {
   const SETS = {
     'The Old Halls':      ['barrel', 'crate', 'bones', 'cobweb', 'banner', 'pot'],
     'The Rotting Depths': ['mushroom', 'bones', 'pot', 'cobweb', 'barrel', 'skull'],
@@ -989,18 +989,41 @@ function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs) {
     'The Abyssal Throne': ['sarcophagus', 'skull', 'brazier', 'banner', 'bones', 'cobweb'],
   };
   const kinds = SETS[theme.name] || SETS['The Old Halls'];
-  const accent = new THREE.Color(theme.accent);
+  // Per-floor weighting over the SAME kind set: one floor might lean
+  // skull-heavy, the next banner-heavy, keeping the act's prop set intact
+  // while the mix varies floor to floor.
+  const weights = kinds.map(() => 0.55 + frng() * 0.9);
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const pickKind = (roll) => {
+    let r = (roll || 0) * totalWeight;
+    for (let i = 0; i < kinds.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return kinds[i];
+    }
+    return kinds[kinds.length - 1];
+  };
+  const accent = new THREE.Color(floorAccent);
   const C = { WOOD: 0x54402c, IRON: 0x3f3f47, BONE: 0xcfc6a6, STONE: 0x5e5766, TERRA: 0x8a4b33, accent };
   const breakables = [];
   for (const p of dungeon.props) {
-    const kind = kinds[Math.min(kinds.length - 1, Math.floor((p.roll || 0) * kinds.length))];
+    const kind = pickKind(p.roll);
     const w = tileToWorld(p.x, p.y);
-    const px = w.x + (p.dx || 0) * (TILE * 0.32);
-    const pz = w.z + (p.dy || 0) * (TILE * 0.32);
-    const node = buildProp(kind, C, torchPositions, smokePuffs, px, pz);
+    // Banners are flat wall hangings and need to sit flush against the wall;
+    // freestanding clutter keeps a bit of clearance from it.
+    const hug = kind === 'banner' ? 0.46 : 0.32;
+    const px = w.x + (p.dx || 0) * (TILE * hug);
+    const pz = w.z + (p.dy || 0) * (TILE * hug);
+    const node = buildProp(kind, C, torchPositions, smokePuffs, px, pz, theme);
     if (!node) continue;
     node.position.set(px, 0, pz);
-    node.rotation.y = p.r || 0;
+    if (kind === 'banner' && (p.dx || p.dy)) {
+      // Face away from the wall and into the room instead of spinning to a
+      // random yaw — a flat hanging needs to actually face the viewer, unlike
+      // barrels/bones/etc which read fine from any angle.
+      node.rotation.y = Math.atan2(-(p.dx || 0), -(p.dy || 0));
+    } else {
+      node.rotation.y = p.r || 0;
+    }
     group.add(node);
     // containers can be smashed by attacks that land near them
     if (kind === 'barrel' || kind === 'crate' || kind === 'pot') breakables.push({ mesh: node, x: px, z: pz, kind });
@@ -1008,7 +1031,7 @@ function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs) {
   return breakables;
 }
 
-function buildProp(kind, C, torchPositions, smokePuffs, px, pz) {
+function buildProp(kind, C, torchPositions, smokePuffs, px, pz, theme) {
   const g = new THREE.Group();
   const std = (color, rough = 1) => new THREE.MeshStandardMaterial({ color, roughness: rough, flatShading: true });
   const glow = (color) => new THREE.MeshBasicMaterial({ color, fog: false });
@@ -1035,18 +1058,19 @@ function buildProp(kind, C, torchPositions, smokePuffs, px, pz) {
       new THREE.MeshBasicMaterial({ map: cobwebTexture(), transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, fog: true }));
     web.position.set(0, 2.05, 0); web.rotation.set(0, Math.PI / 4, 0); g.add(web);
   } else if (kind === 'banner') {
-    // A wall tapestry: horizontal rod across the top, a thin cloth "box" (so it
-    // reads as hanging fabric from ANY angle instead of vanishing edge-on like
-    // the old single plane), a notched hem, and a glowing themed emblem.
+    // A wall tapestry: horizontal rod across the top, a double-sided cloth
+    // panel carrying a real woven motif (see makeBannerTexture), and a
+    // notched hem. Hangs flush against the wall — buildDungeonProps computes
+    // the yaw so it always faces into the room instead of a random angle.
     const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.92, 6), std(0x2a2a30));
     rod.rotation.z = Math.PI / 2; rod.position.set(0, 2.12, 0); g.add(rod);
     for (const dx of [-0.4, 0.4]) { const cap = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), std(0xb8912e)); cap.position.set(dx, 2.12, 0); g.add(cap); }
-    const clothMat = new THREE.MeshStandardMaterial({ color: C.accent.clone().multiplyScalar(0.6), roughness: 1 });
-    const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.72, 1.5, 0.04), clothMat);
-    cloth.position.set(0, 1.33, 0); g.add(cloth);
-    const hemL = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.28, 3), clothMat); hemL.rotation.x = Math.PI; hemL.position.set(-0.18, 0.53, 0); g.add(hemL);
+    const clothMat = new THREE.MeshStandardMaterial({ map: bannerTexture(theme), roughness: 1, side: THREE.DoubleSide });
+    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 1.5), clothMat);
+    cloth.position.set(0, 1.33, 0.02); g.add(cloth);
+    const hemMat = new THREE.MeshStandardMaterial({ color: C.accent.clone().multiplyScalar(0.5), roughness: 1 });
+    const hemL = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.28, 3), hemMat); hemL.rotation.x = Math.PI; hemL.position.set(-0.18, 0.53, 0.02); g.add(hemL);
     const hemR = hemL.clone(); hemR.position.x = 0.18; g.add(hemR);
-    const emblem = new THREE.Mesh(new THREE.CircleGeometry(0.17, 6), glow(C.accent)); emblem.position.set(0, 1.5, 0.03); g.add(emblem);
   } else if (kind === 'brazier') {
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.9, 6), std(C.IRON)); leg.position.y = 0.45; g.add(leg);
     const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.16, 0.24, 10), std(C.IRON)); bowl.position.y = 0.95; g.add(bowl);
