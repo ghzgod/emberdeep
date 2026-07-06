@@ -192,13 +192,17 @@ export class Game {
     // the download is slow we proceed to the title and it finishes in the
     // background (lines stay subtitle-only until it's ready). Cached on repeat
     // visits, so this is near-instant after the first load.
-    this.ui.setLoadingProgress(0.7, 'Downloading natural voices…');
+    // If a backend was pinned on a prior visit the model is already in the
+    // browser cache, so this is a fast local LOAD, not a fresh download — say so
+    // instead of alarming the player with "Downloading" on every refresh.
+    const voiceVerb = localStorage.getItem('emberdeep-tts-backend') ? 'Loading' : 'Downloading';
+    this.ui.setLoadingProgress(0.7, `${voiceVerb} natural voices…`);
     try {
       const { neuralVoice } = await import('./ai/neuralVoice.js');
       neuralVoice.onStatus = (st, prog) => {
         if (st === 'loading') {
           const p = Math.max(0, prog || 0);
-          this.ui.setLoadingProgress(0.7 + p * 0.3, p > 0 ? `Downloading natural voices… ${Math.round(p * 100)}%` : 'Downloading natural voices…');
+          this.ui.setLoadingProgress(0.7 + p * 0.3, p > 0 ? `${voiceVerb} natural voices… ${Math.round(p * 100)}%` : `${voiceVerb} natural voices…`);
         } else if (st === 'ready') {
           this.ui.setLoadingProgress(1, 'Ready');
         }
@@ -247,7 +251,15 @@ export class Game {
     this.vendorMemory = data.vendorMemory || {};
     if (this.floor === MAX_FLOOR && this.bossDefeated) this.floor = MAX_FLOOR + 1;
     this.ui.buildHotbar(this.player);
-    this.enterWorld();
+    // A mid-dungeon refresh drops you back onto the floor you were fighting on,
+    // not town. Enemies respawn for that floor (exact combat state isn't saved).
+    // MP guests always rejoin through the host's world instead.
+    if (data.inDungeon && this.floor >= 1 && !(net.active && !net.isHost)) {
+      this.loadFloor(this.floor);
+      this.enterPlaying();
+    } else {
+      this.enterWorld();
+    }
   }
 
   // Everyone starts in their OWN town — guests included. A guest only joins
@@ -2126,6 +2138,7 @@ export class Game {
     SaveManager.saveSlot(this.slotId, {
       player: this.player.toSave(),
       floor: Math.max(1, this.floor),
+      inDungeon: !this.inTown, // were we mid-dungeon (vs town/tavern) when saved?
       kills: this.kills,
       deaths: this.deaths,
       bossDefeated: this.bossDefeated,
