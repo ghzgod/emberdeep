@@ -26,7 +26,27 @@ export class MovementLearner {
     this.trainTimer = TRAIN_EVERY;
     this.trainCount = 0;
     this._predCache = { t: 0, dx: 0, dz: 0 };
+    // combat-outcome learning: a running estimate of how far away the player
+    // lands hits, so enemies learn to keep just beyond your effective range.
+    this.attackRangeEMA = null;
+    this._hitCount = 0;
+    try { const d = parseFloat(localStorage.getItem('emberdeep-danger-v1')); if (!Number.isNaN(d)) this.attackRangeEMA = d; } catch { /* ignore */ }
   }
+
+  // Call whenever the PLAYER lands a hit, with the player->target distance. An
+  // exponential moving average captures your preferred engagement range; it is
+  // persisted so enemies remember it across sessions.
+  recordPlayerHit(dist) {
+    if (!(dist >= 0)) return;
+    const d = Math.min(9, dist);
+    this.attackRangeEMA = this.attackRangeEMA == null ? d : this.attackRangeEMA * 0.96 + d * 0.04;
+    if ((++this._hitCount % 20) === 0) {
+      try { localStorage.setItem('emberdeep-danger-v1', String(this.attackRangeEMA.toFixed(2))); } catch { /* ignore */ }
+    }
+  }
+
+  // The learned distance at which the player is dangerous (or null if unlearned).
+  dangerRange() { return this.attackRangeEMA; }
 
   async init() {
     try {

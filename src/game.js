@@ -1630,6 +1630,9 @@ export class Game {
   }
 
   // ---------------- combat API ----------------
+  // Is the local hero mid-swing / holding attack? Enemies use this to juke.
+  playerIsAttacking() { return !!(this.player && (this.player.aiming || this.player.attackAnim > 0.05)); }
+
   meleeAttack(player, basic) {
     let hitAny = false;
     for (const e of this.enemies) {
@@ -1643,6 +1646,7 @@ export class Game {
       while (diff < -Math.PI) diff += Math.PI * 2;
       if (Math.abs(diff) < basic.arc / 2) {
         this.damageEnemy(e, player.damage, { knockback: 3, kbFrom: player.pos });
+        learner.recordPlayerHit(dist); // learn your engagement range
         hitAny = true;
       }
     }
@@ -1844,6 +1848,7 @@ export class Game {
       // scorch the ground where a power lands (darker for fire/burn)
       this.addWallMark(x, z, { color: opts.status?.burn ? 0x1a0f08 : 0x201a16, size: Math.min(radius * 0.7, 1.2), opacity: 0.3 });
       this.breakNear(x, z, radius); // powers shatter nearby containers
+      learner.recordPlayerHit(Math.hypot(x - this.player.pos.x, z - this.player.pos.z));
       for (const e of this.enemies) {
         if (e.dead) continue;
         const d = Math.hypot(e.pos.x - x, e.pos.z - z);
