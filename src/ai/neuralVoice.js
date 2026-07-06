@@ -81,10 +81,21 @@ class NeuralVoice {
       // instant. WebGPU session-create can occasionally hang on some GPUs, so it's
       // time-boxed — if it stalls we fall through to the universally-compatible
       // single-threaded WASM q8 path instead of stalling forever.
-      const attempts = [
+      let attempts = [
         ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32', timeout: 30000 }] : []),
         { device: 'wasm', dtype: 'q8', timeout: 120000 },
       ];
+      // Go straight to whichever backend worked last time. Without the pin,
+      // every refresh re-attempts WebGPU fp32 first, and fp32 is a DIFFERENT
+      // (far larger) set of weight files than the cached q8 ones, so machines
+      // that settled on WASM re-downloaded fp32 bytes they could never finish
+      // inside the timeout on every reload: the "it re-downloads the voices
+      // it already has" bug. The pin is cleared if it ever stops working.
+      const pinned = localStorage.getItem('emberdeep-tts-backend');
+      if (pinned) {
+        const hit = attempts.find((a) => `${a.device}|${a.dtype}` === pinned);
+        if (hit) attempts = [hit, ...attempts.filter((a) => a !== hit)];
+      }
       const progress_callback = (p) => {
         if ((p.status === 'progress' || p.status === 'download') && p.total) {
           this.progress = Math.min(1, (p.loaded || 0) / p.total);
@@ -100,10 +111,12 @@ class NeuralVoice {
               { device: opt.device, dtype: opt.dtype, progress_callback }),
             new Promise((_, rej) => setTimeout(() => rej(new Error(`${opt.device} timed out`)), opt.timeout)),
           ]);
+          localStorage.setItem('emberdeep-tts-backend', `${opt.device}|${opt.dtype}`);
           this._set('ready');
           return true;
         } catch (err) {
           lastErr = err;
+          localStorage.removeItem('emberdeep-tts-backend');
           console.warn(`[neural-tts] ${opt.device} attempt failed`, err);
         }
       }
