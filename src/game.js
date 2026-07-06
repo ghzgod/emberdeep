@@ -939,7 +939,7 @@ export class Game {
     this.floor = floor;
     const theme = themeForFloor(floor);
     this.dungeon = generateDungeon(floor);
-    this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme);
+    this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme, floor);
     this.scene.add(this.dungeonMeshes.group);
 
     // grid copy for door state
@@ -1345,7 +1345,7 @@ export class Game {
     this.floor = msg.floor;
     this.dungeon = msg.dungeon;
     const theme = themeForFloor(this.inTown ? 1 : this.floor);
-    this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme);
+    this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme, this.inTown ? 1 : this.floor);
     this.scene.add(this.dungeonMeshes.group);
     this.openedDoors = new Set();
     this.setTownAtmosphere(this.inTown);
@@ -1736,9 +1736,22 @@ export class Game {
         hitAny = true;
       }
     }
+    const hitX = player.pos.x + (player.aimDir?.x || 0) * basic.range;
+    const hitZ = player.pos.z + (player.aimDir?.z || 0) * basic.range;
     if (hitAny) audio.play(basic.hitSound);
+    else if (!this.isWalkable(hitX, hitZ, 0.1)) {
+      // a whiffed swing that lands on stone strikes sparks and chips the wall
+      this.wallDebris(hitX, hitZ);
+      this.particles.burst(hitX, 1.0, hitZ, 5, 0xffd27a, { speed: 3.2, life: 0.24, size: 0.07 });
+      audio.play('shield_block', { pos: { x: hitX, z: hitZ }, volume: 0.32, rate: 1.4 });
+    }
     // a swing also smashes any container it sweeps through
-    this.breakNear(player.pos.x + (player.aimDir?.x || 0) * basic.range, player.pos.z + (player.aimDir?.z || 0) * basic.range, 1.0);
+    this.breakNear(hitX, hitZ, 1.0);
+    // a miss that reaches into a wall chips it: small stone-fleck puff + mark
+    if (!hitAny && !this.isWalkable(hitX, hitZ, 0.15)) {
+      this.particles.burst(hitX, 0.9, hitZ, 4, 0x8a8590, { speed: 2.2, life: 0.35, size: 0.09, up: 0.8 });
+      this.addWallMark(hitX, hitZ, { color: 0x241f1c, size: 0.16 + Math.random() * 0.08, opacity: 0.28 });
+    }
   }
 
   // Smash any breakable container (barrel/crate/pot) within radius of an impact.
@@ -2364,6 +2377,7 @@ export class Game {
     this.updateChests();
     this.updateStairs(dt);
     this.updatePits();
+    this.updateWallMarks(dt);
     this.updateTownInteractions(dt);
     this.updateTorches(dt);
     roaster.update(dt, this);
@@ -2618,24 +2632,44 @@ export class Game {
   }
 
   // A persistent ground decal at an impact point (chip, scuff or scorch). The
-  // pool is capped and recycles its oldest mark, so it can't leak RAM; cleared
-  // with the floor.
+  // pool is capped (oldest removed first) so it can't leak RAM or draw calls,
+  // and each mark fades out over ~20s via updateWallMarks(); cleared with the
+  // floor.
   addWallMark(x, z, opts = {}) {
     if (!this.wallMarks) this.wallMarks = [];
-    if (this.wallMarks.length >= 48) {
+    if (this.wallMarks.length >= 40) {
       const old = this.wallMarks.shift();
       this.scene.remove(old.mesh); old.mesh.geometry.dispose(); old.mesh.material.dispose();
     }
     const size = opts.size ?? (0.3 + Math.random() * 0.25);
+    const opacity = opts.opacity ?? 0.4;
     const mesh = new THREE.Mesh(
       new THREE.CircleGeometry(size, 10),
-      new THREE.MeshBasicMaterial({ color: opts.color ?? 0x000000, transparent: true, opacity: opts.opacity ?? 0.4, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 })
+      new THREE.MeshBasicMaterial({ color: opts.color ?? 0x000000, transparent: true, opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 })
     );
     mesh.rotation.x = -Math.PI / 2;
     mesh.rotation.z = Math.random() * Math.PI;
     mesh.position.set(x, 0.03, z);
     this.scene.add(mesh);
-    this.wallMarks.push({ mesh });
+    this.wallMarks.push({ mesh, age: 0, baseOpacity: opacity, fadeAfter: opts.fadeAfter ?? 20 });
+  }
+
+  // Ages out wall marks over their fadeAfter window (last third of life fades
+  // to 0) so old scars don't linger forever; the cap in addWallMark keeps the
+  // pool itself bounded independently of this.
+  updateWallMarks(dt) {
+    if (!this.wallMarks?.length) return;
+    for (let i = this.wallMarks.length - 1; i >= 0; i--) {
+      const d = this.wallMarks[i];
+      d.age += dt;
+      const t = d.age / d.fadeAfter;
+      if (t >= 1) {
+        this.scene.remove(d.mesh); d.mesh.geometry.dispose(); d.mesh.material.dispose();
+        this.wallMarks.splice(i, 1);
+        continue;
+      }
+      d.mesh.material.opacity = d.baseOpacity * Math.min(1, (1 - t) / 0.34);
+    }
   }
 
   // Town: vendors open their shop when you walk up; the portal descends.
@@ -2719,12 +2753,50 @@ export class Game {
       for (const puff of puffs) {
         puff.phase = (puff.phase || 0) + dt * (puff.speed || 0.4);
         if (puff.kind === 'mote') {
-          // slow drifting dust: gentle lissajous wander around its home point
-          puff.mesh.position.set(
-            puff.cx + Math.cos(puff.drift + puff.phase * 0.5) * 0.32,
-            puff.baseY + Math.sin(puff.phase * 0.8) * 0.25,
-            puff.cz + Math.sin(puff.drift + puff.phase * 0.4) * 0.32,
-          );
+          // Per-act ambience: same drifting-particle system, different motion
+          // per theme (dust/spores/embers/wisps/bubbles).
+          const style = puff.style || 'dust';
+          if (style === 'ember') {
+            // rising embers: drift up, fading out, then reset to the ground
+            puff.rise = ((puff.rise || 0) + dt * 0.4) % 1.7;
+            puff.mesh.position.set(
+              puff.cx + Math.cos(puff.drift + puff.phase * 0.6) * 0.2,
+              puff.baseY + puff.rise,
+              puff.cz + Math.sin(puff.drift + puff.phase * 0.5) * 0.2,
+            );
+            puff.mesh.material.opacity = puff.baseOpacity * (1 - puff.rise / 1.7);
+          } else if (style === 'bubble') {
+            // slow rising bubbles with a lazy wobble
+            puff.rise = ((puff.rise || 0) + dt * 0.15) % 1.5;
+            puff.mesh.position.set(
+              puff.cx + Math.cos(puff.drift + puff.phase * 0.35) * 0.2,
+              puff.baseY + puff.rise,
+              puff.cz + Math.sin(puff.drift + puff.phase * 0.3) * 0.2,
+            );
+          } else if (style === 'spore') {
+            // spores sink slowly as they drift, like falling dust
+            puff.rise = ((puff.rise || 0) - dt * 0.12) % 0.9;
+            puff.mesh.position.set(
+              puff.cx + Math.cos(puff.drift + puff.phase * 0.45) * 0.3,
+              puff.baseY + puff.rise + Math.sin(puff.phase * 0.6) * 0.15,
+              puff.cz + Math.sin(puff.drift + puff.phase * 0.35) * 0.3,
+            );
+          } else if (style === 'wisp') {
+            // faint wisps wander wide and pulse in and out of visibility
+            puff.mesh.position.set(
+              puff.cx + Math.cos(puff.drift + puff.phase * 0.25) * 0.5,
+              puff.baseY + Math.sin(puff.phase * 0.6) * 0.35,
+              puff.cz + Math.sin(puff.drift + puff.phase * 0.2) * 0.5,
+            );
+            puff.mesh.material.opacity = puff.baseOpacity * (0.5 + Math.sin(puff.phase * 1.3) * 0.5);
+          } else {
+            // dust: gentle lissajous wander around its home point
+            puff.mesh.position.set(
+              puff.cx + Math.cos(puff.drift + puff.phase * 0.5) * 0.32,
+              puff.baseY + Math.sin(puff.phase * 0.8) * 0.25,
+              puff.cz + Math.sin(puff.drift + puff.phase * 0.4) * 0.32,
+            );
+          }
           continue;
         }
         if (puff.kind === 'firefly') {
