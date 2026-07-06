@@ -518,15 +518,14 @@ export class UI {
     // voice chat
     const vSel = $('set-voice');
     const vRow = $('voice-thresh-row');
-    const vMeterRow = $('voice-meter-row');
     const vThresh = $('set-voice-thresh');
     const vVal = $('set-voice-thresh-val');
     const syncVoiceRows = () => {
       const mode = s.voiceMode;
-      vRow.classList.toggle('hidden', mode !== 'auto');            // trigger-level slider: voice-activated only
-      // The live level meter sits directly under the slider, voice-activated
-      // only, so you can dial the threshold just above your speaking level.
-      vMeterRow.classList.toggle('hidden', mode !== 'auto');
+      // The trigger slider doubles as the live mic meter (fill inside the
+      // slider track, knob = cutoff) - voice-activated only.
+      vRow.classList.toggle('hidden', mode !== 'auto');
+      $('voice-meter-hint').classList.toggle('hidden', mode !== 'auto');
       // The hear-yourself mic test is useful in any mic mode (PTT or auto).
       $('mic-test-row').classList.toggle('hidden', mode === 'off');
       $('touch-mic').classList.toggle('hidden', mode !== 'ptt');
@@ -573,18 +572,22 @@ export class UI {
       }
       micTestBtn.disabled = false;
     };
-    // live mic level meter while settings open
+    // Live mic level while settings are open, drawn INSIDE the trigger slider:
+    // the fill is your voice, the knob is the cutoff it must cross.
     setInterval(async () => {
       if (!this.screens.settings.classList.contains('visible')) return;
       const { voice } = await import('../net/voice.js');
-      const meter = $('voice-meter');
-      const mark = $('voice-meter-mark');
-      if (mark) mark.style.left = `${s.voiceThreshold}%`; // trigger line tracks the slider
+      const fill = $('voice-level-fill');
+      if (!fill) return;
       if (voice.active) {
-        meter.style.width = `${voice.level}%`;
-        meter.classList.toggle('hot', voice.level >= voice.threshold);
+        // map the level onto the slider's own min..max scale so the fill lines
+        // up with where the knob sits for the same value
+        const min = +vThresh.min, max = +vThresh.max;
+        const frac = Math.max(0, Math.min(1, (voice.level - min) / (max - min)));
+        fill.style.width = `${frac * 100}%`;
+        fill.classList.toggle('hot', voice.level >= voice.threshold);
       } else {
-        meter.style.width = '0%';
+        fill.style.width = '0%';
       }
     }, 120);
   }
