@@ -1,25 +1,54 @@
 import * as THREE from 'three';
 import { audio } from '../core/audio.js';
 
-// Pooled projectiles for player bolts/arrows and enemy shots.
+// Pooled projectiles for player bolts/arrows and enemy shots. Each projectile
+// is a bright core + an additive glow sprite (so it reads as a glowing mote,
+// not a flat ball) and leaves a sparkle trail in its own colour.
 const POOL_SIZE = 80;
+
+// Soft radial glow: white center fading to transparent, drawn once and reused
+// as an additive sprite. Gives every projectile a cheap bloom without postfx.
+function makeGlowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d');
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.4, 'rgba(255,255,255,0.5)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
+// Lighten a hex colour toward white for the glow halo / default trail, so the
+// halo reads as a hotter version of the core rather than the same flat tone.
+function lighten(hex, amt = 0.45) {
+  const c = new THREE.Color(hex);
+  c.lerp(new THREE.Color(0xffffff), amt);
+  return c.getHex();
+}
 
 export class ProjectileSystem {
   constructor(scene) {
     this.scene = scene;
     this.pool = [];
     this.active = [];
-    const geo = new THREE.SphereGeometry(1, 8, 6);
-    const arrowGeo = new THREE.ConeGeometry(0.5, 2.4, 6);
+    this.glowTex = makeGlowTexture();
+    const geo = new THREE.SphereGeometry(1, 10, 8);
+    const arrowGeo = new THREE.ConeGeometry(0.5, 2.4, 7);
     for (let i = 0; i < POOL_SIZE; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const mesh = new THREE.Mesh(geo, mat);
-      const arrowMesh = new THREE.Mesh(arrowGeo, mat);
-      mesh.visible = false;
-      arrowMesh.visible = false;
-      scene.add(mesh);
-      scene.add(arrowMesh);
-      this.pool.push({ mesh, arrowMesh, live: false });
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      const arrowMesh = new THREE.Mesh(arrowGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      const mkGlow = () => new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this.glowTex, color: 0xffffff, blending: THREE.AdditiveBlending,
+        transparent: true, depthWrite: false,
+      }));
+      const glow = mkGlow();
+      const arrowGlow = mkGlow();
+      mesh.visible = arrowMesh.visible = glow.visible = arrowGlow.visible = false;
+      scene.add(mesh, arrowMesh, glow, arrowGlow);
+      this.pool.push({ mesh, arrowMesh, glow, arrowGlow, live: false });
     }
   }
 
@@ -36,20 +65,34 @@ export class ProjectileSystem {
     p.aoe = opts.aoe || 0;
     p.status = opts.status || null;
     p.hitSound = opts.hitSound || null;
-    p.trail = opts.trail || null;
     p.life = opts.life ?? 2.5;
     p.arrow = !!opts.arrow;
+    p.t = 0;
+
+    const color = opts.color ?? 0xffffff;
+    const glowColor = opts.glow ?? lighten(color, 0.5);
+    // Sparkle trail defaults to the projectile's own colour so casters/arrows
+    // always leave a coloured streak, even if the caller didn't ask for one.
+    p.trail = opts.trail ?? color;
+    p.trailY = opts.trailY ?? 0.9;
 
     const size = opts.size ?? 0.2;
-    const m = p.arrow ? p.arrowMesh : p.mesh;
-    m.visible = true;
-    m.scale.setScalar(size);
-    m.material.color.setHex(opts.color ?? 0xffffff);
-    m.position.set(p.x, 0.9, p.z);
+    p.size = size;
+    const core = p.arrow ? p.arrowMesh : p.mesh;
+    const glow = p.arrow ? p.arrowGlow : p.glow;
+    p.core = core; p.aglow = glow; // active refs (don't clobber the pool's .glow)
+    core.visible = true; glow.visible = true;
+    core.scale.setScalar(size);
+    core.material.color.setHex(color);
+    glow.material.color.setHex(glowColor);
+    glow.scale.setScalar(size * (p.arrow ? 2.4 : 3.4));
+    glow.material.opacity = 0.9;
+    core.position.set(p.x, p.trailY, p.z);
+    glow.position.copy(core.position);
     if (p.arrow) {
-      m.rotation.z = -Math.PI / 2;
-      m.rotation.y = -Math.atan2(p.dirZ, p.dirX);
-      m.rotation.order = 'YZX';
+      core.rotation.z = -Math.PI / 2;
+      core.rotation.y = -Math.atan2(p.dirZ, p.dirX);
+      core.rotation.order = 'YZX';
     }
     this.active.push(p);
   }
@@ -60,19 +103,27 @@ export class ProjectileSystem {
       p.x += p.dirX * p.speed * dt;
       p.z += p.dirZ * p.speed * dt;
       p.life -= dt;
+      p.t += dt;
 
-      const m = p.arrow ? p.arrowMesh : p.mesh;
-      m.position.set(p.x, 0.9, p.z);
-      if (p.trail && Math.random() < 0.5) {
-        game.particles.burst(p.x, 0.9, p.z, 1, p.trail, { speed: 0.6, life: 0.3, size: 0.08 });
+      const core = p.core, glow = p.aglow;
+      core.position.set(p.x, p.trailY, p.z);
+      glow.position.copy(core.position);
+      // shimmer: the halo pulses so the mote looks like it's burning/charged
+      const pulse = 1 + Math.sin(p.t * 30) * 0.14;
+      glow.scale.setScalar(p.size * (p.arrow ? 2.4 : 3.4) * pulse);
+      glow.material.opacity = 0.7 + Math.sin(p.t * 22) * 0.2;
+      // coloured sparkle trail
+      if (p.trail && Math.random() < 0.8) {
+        game.particles.burst(p.x, p.trailY, p.z, 1, p.trail, { speed: 0.7, life: 0.32, size: 0.07 });
       }
 
       let hit = false;
 
-      // wall collision — knock chips off the masonry
+      // wall collision — knock chips off the masonry + a coloured spark splash
       if (!game.isWalkable(p.x, p.z, 0.1)) {
         hit = true;
         game.wallDebris(p.x, p.z);
+        game.particles.burst(p.x, p.trailY, p.z, 8, lighten(core.material.color.getHex(), 0.3), { speed: 3.2, life: 0.3, size: 0.08 });
       }
 
       if (!hit && p.friendly) {
@@ -83,12 +134,15 @@ export class ProjectileSystem {
             hit = true;
             if (p.aoe) {
               game.aoeDamage(p.x, p.z, p.aoe, p.damage, { source: 'player', status: p.status });
-              game.particles.burst(p.x, 0.9, p.z, 24, 0xff8a3a, { speed: 5, life: 0.5 });
+              game.particles.burst(p.x, 0.9, p.z, 26, 0xff8a3a, { speed: 5, life: 0.5 });
+              game.particles.burst(p.x, 0.9, p.z, 14, lighten(core.material.color.getHex(), 0.5), { speed: 3, life: 0.4, size: 0.1 });
               game.shake(0.2);
             } else {
               game.damageEnemy(e, p.damage, { status: p.status });
-              // impact sparks in the projectile's own color
-              game.particles.burst(p.x, 0.9, p.z, 6, m.material.color.getHex(), { speed: 3, life: 0.28, size: 0.09 });
+              // bright impact burst in the projectile's palette + hot flash
+              const c = core.material.color.getHex();
+              game.particles.burst(p.x, 0.9, p.z, 10, c, { speed: 3.4, life: 0.3, size: 0.09 });
+              game.particles.burst(p.x, 0.9, p.z, 5, lighten(c, 0.6), { speed: 1.6, life: 0.22, size: 0.13 });
             }
             break;
           }
@@ -110,7 +164,8 @@ export class ProjectileSystem {
           game.particles.burst(p.x, 0.9, p.z, 18, 0xff6a3a, { speed: 4, life: 0.5 });
         }
         p.live = false;
-        m.visible = false;
+        core.visible = false;
+        glow.visible = false;
         this.active.splice(i, 1);
       }
     }
@@ -121,6 +176,8 @@ export class ProjectileSystem {
       p.live = false;
       p.mesh.visible = false;
       p.arrowMesh.visible = false;
+      p.glow.visible = false;
+      p.arrowGlow.visible = false;
     }
     this.active.length = 0;
   }

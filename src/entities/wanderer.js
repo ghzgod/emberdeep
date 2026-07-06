@@ -103,23 +103,29 @@ export class Wanderer {
     }
     // context reads
     if (p.hp < p.maxHp * 0.5) options.push(`You are leaking. Maribel keeps red bottles for exactly this shade of foolish.`);
-    if (p.gold > 400) options.push(`${name}, ${p.gold} gold sings in your pockets. Zoltan hears it too. He always hears it.`);
-    if (game.deaths >= 3) options.push(`${name}, I have watched you die ${game.deaths} times. The floor grows fond of your face.`);
-    if (p.skillPoints() > 0) options.push(`${name}, power sleeps unspent in you. You hold ${p.skillPoints()} mastery point${p.skillPoints() === 1 ? '' : 's'}. Wake it. (Press K, the voices say.)`);
+    if (p.gold > 400) options.push(`${p.gold} gold sings in your pockets. Zoltan hears it too. He always hears it.`);
+    if (game.deaths >= 3) options.push(`I have watched you die ${game.deaths} times. The floor grows fond of your face.`);
+    if (p.skillPoints() > 0) options.push(`Power sleeps unspent in you. You hold ${p.skillPoints()} mastery point${p.skillPoints() === 1 ? '' : 's'}. Wake it. (Press K, the voices say.)`);
     if (p.potions === 0) options.push(`No potions? Brave. Stupid, but brave.`);
     const legendaries = [...p.inventory, ...Object.values(p.equipped)].filter((i) => i && i.rarity === 'legendary').length;
     if (legendaries > 0) options.push(`That relic you carry hums in my teeth. The deep will want it back.`);
     // class-specific tip
     const classTips = {
       Knight: `Your War Cry frightens even the walls. Shout before you swing.`,
-      Mage: `${cls}, blink through what you cannot outrun. Space is a suggestion.`,
+      Mage: `Blink through what you cannot outrun. Space is a suggestion.`,
       Ranger: `Lay the trap FIRST. Then be somewhere else. That is the whole art.`,
     };
     options.push(classTips[cls] || `Swing well, hero.`);
     // habits (movement-learning net)
     if (game.fleeTendency > 0.4) options.push(`You run in circles when frightened. The imps have noticed. I have noticed. Everyone has noticed.`);
 
-    return options[Math.floor(Math.random() * options.length)];
+    // Greeting-first, like the vendors: an opener, the name woven in only some
+    // of the time (never leading, never trailing), then the actual counsel.
+    const body = options[Math.floor(Math.random() * options.length)];
+    const openers = ['Ah', 'Hm', 'Come closer', 'Listen well', 'There you are', 'The bones stir', 'Well now', 'Mm, good'];
+    const opener = openers[Math.floor(Math.random() * openers.length)];
+    const nameBit = name && Math.random() < 0.4 ? `, ${name}` : '';
+    return `${opener}${nameBit}. ${body}`;
   }
 
   dispose() {

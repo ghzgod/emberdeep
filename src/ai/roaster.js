@@ -98,6 +98,36 @@ const VOICE_CAST = {
   spider: { female: true, vi: 1, pitch: 1.35, rate: 1.05, kokoro: 'af_sky', kSpeed: 1.05 },
 };
 
+// Vendor/NPC greeting openers, in-voice, first-meeting vs "welcome back".
+// The name is NEVER baked into these — composeVendorLine() weaves it in on a
+// random chance so it never lands at the end of the sentence.
+const VENDOR_OPENERS = {
+  potions: {
+    first: ['Ah, welcome in', 'Come in, come in', 'Well met, traveler', 'Oh, hello there', 'Step inside, dear', 'There you are'],
+    back: ['Welcome back', 'Back again, good', 'There\'s a face I know', 'Ah, you again', 'Good to see you again'],
+  },
+  gear: {
+    first: ['Well met', 'Come in, come in', 'Hah, a new face', 'State your business', 'Forge\'s hot, what do you need', 'Ah, a customer'],
+    back: ['Back again', 'You again, good', 'Welcome back', 'Still in one piece, I see', 'Good, you\'re alive'],
+  },
+  mystery: {
+    first: ['Ahh, a new thread in the weave', 'The cards whispered you\'d come', 'Well met, wanderer', 'Fate brings another', 'Come closer, seeker', 'The stars stir'],
+    back: ['Welcome back, seeker', 'The weave brings you again', 'Ah, you return', 'Fate again, hm', 'Back for more, are we'],
+  },
+  barkeep: {
+    first: ['Ah, welcome in', 'Well met, traveler', 'Come in, sit by the fire', 'Evening to you'],
+    back: ['Welcome back', 'Good to see you again', 'Back again, eh', 'Ah, you again'],
+  },
+};
+
+// Purchase callbacks: only used when the player has bought something from
+// this vendor before, and only some of the time (see composeVendorLine).
+const VENDOR_CALLBACKS = {
+  potions: ['How did that {item} treat you?', 'Still stocking up after that {item}?', 'That {item} keep you standing, I hope?'],
+  gear: ['That {item} still holding an edge?', 'Still swinging that {item}?', 'How\'s that {item} treating you out there?'],
+  mystery: ['Did that {item} reveal its secrets yet?', 'Fate still smiling on that {item}?', 'That {item} worth what you paid, I trust?'],
+};
+
 const FEMALE_HINT = /female|samantha|victoria|karen|moira|tessa|fiona|kate|serena|susan|allison|ava|zira|jenny/i;
 const MALE_HINT = /male|daniel|alex|fred|arthur|george|aaron|guy|david|mark|james|oliver/i;
 
@@ -127,6 +157,25 @@ export class Roaster {
 
   speak(text, typeId) {
     this.speakAs(text, this.pickVoice(typeId));
+  }
+
+  // Compose a greeting-first NPC line: opener, then (~35% chance) the
+  // player's name woven in early (never trailing), then a period, then the
+  // body. If the player bought something here before, the body sometimes
+  // becomes a personal callback about that item instead of the plain body
+  // the caller supplied. `memory` is { met, lastItem } or undefined/empty.
+  composeVendorLine(type, { playerName, memory, body } = {}) {
+    const pool = VENDOR_OPENERS[type] || VENDOR_OPENERS.gear;
+    const opener = memory?.met
+      ? pool.back[Math.floor(Math.random() * pool.back.length)]
+      : pool.first[Math.floor(Math.random() * pool.first.length)];
+    const nameBit = playerName && Math.random() < 0.35 ? `, ${playerName}` : '';
+    const callbacks = VENDOR_CALLBACKS[type];
+    let line2 = body;
+    if (memory?.lastItem && callbacks && Math.random() < 0.4) {
+      line2 = callbacks[Math.floor(Math.random() * callbacks.length)].replaceAll('{item}', memory.lastItem);
+    }
+    return `${opener}${nameBit}. ${line2}`;
   }
 
   // Speak with an explicit voice cast — vendors, narrators, anyone.

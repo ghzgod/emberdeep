@@ -331,65 +331,108 @@ export function buildDungeonMeshes(dungeon, theme) {
       canopy.position.set(0, 2.2, -0.1);
       stall.add(counter, poleL, poleR, canopy);
 
-      // --- shopkeeper with face, arms, and per-type character ---
+      // --- shopkeeper: readable face + real character per vendor, built to
+      // read from the overhead camera (big eyes, head tipped up, hands on the
+      // counter instead of arms splayed out like poles) ---
       const keeper = new THREE.Group();
-      const bodyColor = v.type === 'potions' ? 0x7a4a5a : v.type === 'gear' ? 0x3a3a40 : 0x2a2038;
-      const kBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.5, 4, 8), new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.85 }));
-      kBody.position.y = 0.72;
-      const kHead = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 10), skinMat);
-      kHead.position.y = 1.34;
-      // face: two eyes + nose nub (reused geo/mat across keepers, orientation varies little so cheap clones are fine)
-      const eyeGeo = new THREE.SphereGeometry(0.028, 6, 6);
-      const eyeL = new THREE.Mesh(eyeGeo, eyeMat); eyeL.position.set(-0.08, 1.36, 0.17);
-      const eyeR = new THREE.Mesh(eyeGeo, eyeMat); eyeR.position.set(0.08, 1.36, 0.17);
-      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.09, 6), skinMat);
-      nose.position.set(0, 1.3, 0.2);
-      nose.rotation.x = Math.PI / 2;
-      keeper.add(kBody, kHead, eyeL, eyeR, nose);
-
-      // arms (shared capsule geo, tinted per body color)
+      const bodyColor = v.type === 'potions' ? 0x8a5566 : v.type === 'gear' ? 0x5a4436 : 0x2a2038;
+      const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf2ede2, roughness: 0.95 });
+      const browMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1 });
+      const kBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.5, 5, 10), new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.85 }));
+      kBody.position.y = 0.78;
+      // head on a pivot tipped up so the face catches the top-down view
+      const kHeadGrp = new THREE.Group();
+      kHeadGrp.position.y = 1.42; kHeadGrp.rotation.x = -0.2;
+      const kHead = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 14), skinMat);
+      const eyeWL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), whiteMat); eyeWL.position.set(-0.1, 0.0, 0.2);
+      const eyeWR = eyeWL.clone(); eyeWR.position.x = 0.1;
+      const pupL = new THREE.Mesh(new THREE.SphereGeometry(0.026, 8, 8), eyeMat); pupL.position.set(-0.1, 0.0, 0.24);
+      const pupR = pupL.clone(); pupR.position.x = 0.1;
+      const browL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.045, 0.06), browMat); browL.position.set(-0.1, 0.08, 0.21); browL.rotation.z = 0.12;
+      const browR = browL.clone(); browR.position.x = 0.1; browR.rotation.z = -0.12;
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), skinMat); nose.position.set(0, -0.04, 0.24);
+      kHeadGrp.add(kHead, eyeWL, eyeWR, pupL, pupR, browL, browR, nose);
+      // arms resting forward with hands on the counter (not splayed outward)
       const armMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.85 });
-      const armGeo = new THREE.CapsuleGeometry(0.07, 0.32, 3, 6);
-      const armL = new THREE.Mesh(armGeo, armMat); armL.position.set(-0.28, 0.78, 0.05); armL.rotation.z = 0.5;
-      const armR = new THREE.Mesh(armGeo, armMat); armR.position.set(0.28, 0.78, 0.05); armR.rotation.z = -0.5;
-      keeper.add(armL, armR);
+      const armGeo = new THREE.CapsuleGeometry(0.085, 0.34, 4, 8);
+      const armL = new THREE.Mesh(armGeo, armMat); armL.position.set(-0.24, 0.9, 0.26); armL.rotation.set(1.2, 0, 0.22);
+      const armR = new THREE.Mesh(armGeo, armMat); armR.position.set(0.24, 0.9, 0.26); armR.rotation.set(1.2, 0, -0.22);
+      const handMat = new THREE.MeshStandardMaterial({ color: 0xd8ab88, roughness: 0.85 });
+      const handGeo = new THREE.SphereGeometry(0.07, 8, 8);
+      const handL = new THREE.Mesh(handGeo, handMat); handL.position.set(-0.18, 0.94, 0.5);
+      const handR = new THREE.Mesh(handGeo, handMat); handR.position.set(0.18, 0.94, 0.5);
+      keeper.add(kBody, kHeadGrp, armL, armR, handL, handR);
 
       if (v.type === 'potions') {
-        // Maribel: wide-brim herbalist hat + apron, warm colors
-        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.4, 0.05, 12), new THREE.MeshStandardMaterial({ color: 0x46512f, roughness: 0.9 }));
-        brim.position.y = 1.48;
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.32, 10), new THREE.MeshStandardMaterial({ color: 0x556038, roughness: 0.9 }));
-        cone.position.y = 1.68;
-        const apron = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.42, 0.06), new THREE.MeshStandardMaterial({ color: 0xc99a4a, roughness: 0.9 }));
-        apron.position.set(0, 0.62, 0.2);
-        keeper.add(brim, cone, apron);
+        // Maribel: kindly herbalist — wide-brim hat, auburn hair, warm apron
+        const hair = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.6), new THREE.MeshStandardMaterial({ color: 0x8a4a2a, roughness: 1 }));
+        hair.position.set(0, 0.02, -0.02); kHeadGrp.add(hair);
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.42, 0.05, 14), new THREE.MeshStandardMaterial({ color: 0x556038, roughness: 0.9 }));
+        brim.position.y = 0.16; kHeadGrp.add(brim);
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.34, 12), new THREE.MeshStandardMaterial({ color: 0x64703f, roughness: 0.9 }));
+        cone.position.y = 0.34; kHeadGrp.add(cone);
+        const apron = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.08), new THREE.MeshStandardMaterial({ color: 0xd4a85a, roughness: 0.9 }));
+        apron.position.set(0, 0.66, 0.24); keeper.add(apron);
+        // braid hanging out from under the hat
+        const braid = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.34, 6), new THREE.MeshStandardMaterial({ color: 0x8a4a2a, roughness: 1 }));
+        braid.position.set(0, -0.13, -0.24); braid.rotation.x = 0.35; kHeadGrp.add(braid);
       } else if (v.type === 'gear') {
-        // Torvald: blacksmith — bandana, thick arms (scaled up), dark leather apron
-        armL.scale.set(1.5, 1.2, 1.5); armR.scale.set(1.5, 1.2, 1.5);
-        const bandana = new THREE.Mesh(new THREE.SphereGeometry(0.205, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55), new THREE.MeshStandardMaterial({ color: 0x4a3628, roughness: 0.9 }));
-        bandana.position.y = 1.36;
-        const apron = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.5, 0.07), new THREE.MeshStandardMaterial({ color: 0x2a221c, roughness: 0.95 }));
-        apron.position.set(0, 0.58, 0.2);
-        keeper.add(bandana, apron);
+        // Torvald: burly bald smith — big black beard, red bandana, sooty apron
+        kBody.scale.set(1.25, 1, 1.1); kBody.position.y = 0.74;
+        armL.scale.setScalar(1.35); armR.scale.setScalar(1.35);
+        const bald = new THREE.Mesh(new THREE.SphereGeometry(0.245, 14, 10), skinMat); bald.position.y = 0.01; kHeadGrp.add(bald);
+        const bandana = new THREE.Mesh(new THREE.SphereGeometry(0.255, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.42), new THREE.MeshStandardMaterial({ color: 0x9a3a2a, roughness: 0.9 }));
+        bandana.position.y = 0.05; kHeadGrp.add(bandana);
+        const beard = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 12, 0, Math.PI * 2, Math.PI * 0.44, Math.PI * 0.56), new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 1 }));
+        beard.position.set(0, -0.13, 0.08); beard.scale.set(1, 1.3, 0.95); kHeadGrp.add(beard);
+        const apron = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.56, 0.09), new THREE.MeshStandardMaterial({ color: 0x2a221c, roughness: 0.95 }));
+        apron.position.set(0, 0.62, 0.24); keeper.add(apron);
+        // soot-dark forearms — a life spent at the forge
+        const sootMat = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.95 });
+        const sootGeo = new THREE.CapsuleGeometry(0.075, 0.15, 3, 6);
+        const sootL = new THREE.Mesh(sootGeo, sootMat); sootL.position.set(-0.2, 0.92, 0.4); sootL.rotation.set(1.2, 0, 0.22);
+        const sootR = new THREE.Mesh(sootGeo, sootMat); sootR.position.set(0.2, 0.92, 0.4); sootR.rotation.set(1.2, 0, -0.22);
+        keeper.add(sootL, sootR);
       } else {
-        // Zoltan: deep hood with glowing eyes, star-speckled robe, floating orb
-        kHead.material = new THREE.MeshStandardMaterial({ color: 0x1a1622, roughness: 0.9 }); // face lost in shadow
-        eyeL.material = new THREE.MeshBasicMaterial({ color: 0x9a5eff });
-        eyeR.material = new THREE.MeshBasicMaterial({ color: 0x9a5eff });
-        eyeL.scale.setScalar(1.6); eyeR.scale.setScalar(1.6);
-        const hood = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.42, 10), new THREE.MeshStandardMaterial({ color: 0x2a2038, roughness: 0.85 }));
-        hood.position.y = 1.5;
-        const robe = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.9, 8), new THREE.MeshStandardMaterial({ color: 0x241c34, roughness: 0.85, emissive: 0x3a1a55, emissiveIntensity: 0.15 }));
-        robe.position.y = 0.5;
-        keeper.add(hood, robe);
-        // floating glowing orb beside Zoltan
-        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), new THREE.MeshBasicMaterial({ color: 0xb35eff, transparent: true, opacity: 0.85 }));
-        orb.position.set(0.42, 1.15, -0.15);
-        keeper.add(orb);
+        // Zoltan: hooded seer — face lost in shadow, glowing eyes, floating orb
+        kHead.material = new THREE.MeshStandardMaterial({ color: 0x171320, roughness: 0.9 });
+        const glowEye = new THREE.MeshBasicMaterial({ color: 0xb884ff });
+        eyeWL.material = glowEye; eyeWR.material = glowEye; eyeWL.scale.setScalar(0.85); eyeWR.scale.setScalar(0.85);
+        pupL.visible = pupR.visible = browL.visible = browR.visible = nose.visible = false;
+        const hood = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.5, 12), new THREE.MeshStandardMaterial({ color: 0x2a2038, roughness: 0.85 }));
+        hood.position.y = 0.12; kHeadGrp.add(hood);
+        const cowl = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.07, 8, 16), new THREE.MeshStandardMaterial({ color: 0x241c34, roughness: 0.85 }));
+        cowl.rotation.x = Math.PI / 2 - 0.3; cowl.position.set(0, -0.02, 0.12); kHeadGrp.add(cowl);
+        const robe = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.95, 10), new THREE.MeshStandardMaterial({ color: 0x241c34, roughness: 0.85, emissive: 0x3a1a55, emissiveIntensity: 0.18 }));
+        robe.position.y = 0.5; keeper.add(robe);
+        // star-speckled robe: small glowing flecks scattered over the cone,
+        // riding along with it (children of the robe, so no extra transforms)
+        const starMat = new THREE.MeshBasicMaterial({ color: 0xe8d8ff });
+        const starGeo = new THREE.SphereGeometry(0.013, 4, 4);
+        for (let i = 0; i < 9; i++) {
+          const sy = -0.35 + Math.random() * 0.75;
+          const rad = 0.34 * (0.475 - sy) / 0.95 * 0.9;
+          const a = Math.random() * Math.PI * 2;
+          const star = new THREE.Mesh(starGeo, starMat);
+          star.position.set(Math.cos(a) * rad, sy, Math.sin(a) * rad);
+          robe.add(star);
+        }
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 10), new THREE.MeshBasicMaterial({ color: 0xc07eff, transparent: true, opacity: 0.85 }));
+        orb.position.set(0.5, 1.2, 0.35); keeper.add(orb);
+        const orbLight = new THREE.PointLight(0xb884ff, 6, 3, 2); orbLight.position.copy(orb.position); keeper.add(orbLight);
         smokePuffs.push({ mesh: orb, baseY: orb.position.y, phase: Math.random() * Math.PI * 2, speed: 0.8 + Math.random() * 0.3, kind: 'firefly' });
       }
-      keeper.position.z = -0.7;
+      keeper.position.z = -0.62;
       stall.add(keeper);
+
+      // hanging lantern on the stall front — lights the keeper's face at night
+      const lantern = new THREE.Group();
+      const lanternBody = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.2, 0.14),
+        new THREE.MeshStandardMaterial({ color: 0x2a2018, emissive: 0xffb44a, emissiveIntensity: 0.7 }));
+      const lanternLight = new THREE.PointLight(0xffbf7a, 11, 5, 2);
+      lantern.add(lanternBody, lanternLight);
+      lantern.position.set(0.72, 1.85, 0.4);
+      stall.add(lantern);
 
       // wares on the counter
       let ware;
@@ -414,6 +457,12 @@ export function buildDungeonMeshes(dungeon, theme) {
           blade.rotation.z = -0.15 + i * 0.15;
           ware.add(blade);
         }
+        // a hammer resting on the counter beside the blades
+        const hHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.34, 6), new THREE.MeshStandardMaterial({ color: 0x5a4028, roughness: 0.9 }));
+        hHandle.position.set(0.5, 1.06, 0.1); hHandle.rotation.z = Math.PI / 2 - 0.2;
+        const hHead = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 0.09), new THREE.MeshStandardMaterial({ color: 0x3a3a40, metalness: 0.6, roughness: 0.4 }));
+        hHead.position.set(0.66, 1.09, 0.1);
+        ware.add(hHandle, hHead);
       } else {
         // rune cards fanned on the counter
         ware = new THREE.Group();
@@ -956,9 +1005,18 @@ function buildProp(kind, C, torchPositions, smokePuffs, px, pz) {
       new THREE.MeshBasicMaterial({ map: cobwebTexture(), transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, fog: true }));
     web.position.set(0, 2.05, 0); web.rotation.set(0, Math.PI / 4, 0); g.add(web);
   } else if (kind === 'banner') {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6), std(0x2a2a30)); pole.position.y = 1.2; g.add(pole);
-    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 1.4), new THREE.MeshStandardMaterial({ color: C.accent.clone().multiplyScalar(0.7), roughness: 1, side: THREE.DoubleSide }));
-    cloth.position.set(0, 1.35, 0.03); g.add(cloth);
+    // A wall tapestry: horizontal rod across the top, a thin cloth "box" (so it
+    // reads as hanging fabric from ANY angle instead of vanishing edge-on like
+    // the old single plane), a notched hem, and a glowing themed emblem.
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.92, 6), std(0x2a2a30));
+    rod.rotation.z = Math.PI / 2; rod.position.set(0, 2.12, 0); g.add(rod);
+    for (const dx of [-0.4, 0.4]) { const cap = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), std(0xb8912e)); cap.position.set(dx, 2.12, 0); g.add(cap); }
+    const clothMat = new THREE.MeshStandardMaterial({ color: C.accent.clone().multiplyScalar(0.6), roughness: 1 });
+    const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.72, 1.5, 0.04), clothMat);
+    cloth.position.set(0, 1.33, 0); g.add(cloth);
+    const hemL = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.28, 3), clothMat); hemL.rotation.x = Math.PI; hemL.position.set(-0.18, 0.53, 0); g.add(hemL);
+    const hemR = hemL.clone(); hemR.position.x = 0.18; g.add(hemR);
+    const emblem = new THREE.Mesh(new THREE.CircleGeometry(0.17, 6), glow(C.accent)); emblem.position.set(0, 1.5, 0.03); g.add(emblem);
   } else if (kind === 'brazier') {
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.9, 6), std(C.IRON)); leg.position.y = 0.45; g.add(leg);
     const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.16, 0.24, 10), std(C.IRON)); bowl.position.y = 0.95; g.add(bowl);

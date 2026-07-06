@@ -223,6 +223,7 @@ export class Game {
     this.actsCleared = 0;
     this.elitesKilled = 0;
     this.storySeen = [];
+    this.vendorMemory = {}; // per-vendor { met, lastItem } for greeting-first dialogue
     this.ui.buildHotbar(this.player);
     this.enterWorld();
     this.showStory('prologue');
@@ -243,6 +244,7 @@ export class Game {
     this.elitesKilled = data.elitesKilled || 0;
     this.actsCleared = data.actsCleared ?? (this.bossDefeated ? 5 : Math.min(4, Math.floor((this.floor - 1) / 10)));
     this.storySeen = data.storySeen || [];
+    this.vendorMemory = data.vendorMemory || {};
     if (this.floor === MAX_FLOOR && this.bossDefeated) this.floor = MAX_FLOOR + 1;
     this.ui.buildHotbar(this.player);
     this.enterWorld();
@@ -519,21 +521,51 @@ export class Game {
     if (net.isHost) this.broadcastWorld();
   }
 
-  // Vendors make subtle, tethered movements at their booth so they feel alive
-  // without wandering off — a slow look-around, a gentle shuffle and bob.
+  // Vendors roam a small tether around their booth: amble to a nearby point
+  // behind the counter, idle a while, pick another. When the local player
+  // gets close they stop wandering and turn to face them instead.
   updateVendors(dt) {
     const vendors = this.dungeonMeshes?.vendorMeshes;
     if (!vendors) return;
     this._vt = (this._vt || 0) + dt;
-    const t = this._vt;
-    vendors.forEach((v, i) => {
+    const p = this.player;
+    const TETHER = 1.2;   // max wander radius around the booth anchor
+    const SPEED = 0.6;    // slow amble, world units/sec
+    const wrapAngle = (a) => { a = a % (Math.PI * 2); if (a > Math.PI) a -= Math.PI * 2; if (a < -Math.PI) a += Math.PI * 2; return a; };
+    vendors.forEach((v) => {
       const k = v.keeper;
-      if (!k || !v.keeperHome) return;
-      const ph = i * 1.7;
-      k.rotation.y = Math.sin(t * 0.5 + ph) * 0.35;
-      k.position.x = v.keeperHome.x + Math.sin(t * 0.33 + ph) * 0.12;
-      k.position.z = v.keeperHome.z + Math.sin(t * 0.27 + ph * 1.3) * 0.07;
-      k.position.y = v.keeperHome.y + Math.abs(Math.sin(t * 0.9 + ph)) * 0.02;
+      const home = v.keeperHome;
+      if (!k || !home) return;
+      // never wander past the counter toward the customer side
+      const keeperSideZ = home.z + 0.28;
+      const roam = v._roam || (v._roam = { target: home.clone(), idle: 1 + Math.random() * 2 });
+
+      const dx = p.pos.x - (v.wx + k.position.x), dz = p.pos.z - (v.wz + k.position.z);
+      if (Math.hypot(dx, dz) < 4) {
+        // attentive: stop ambling and turn to face the player
+        const faceYaw = Math.atan2(dx, dz);
+        k.rotation.y += wrapAngle(faceYaw - k.rotation.y) * Math.min(1, dt * 4);
+        k.position.y = home.y + Math.abs(Math.sin(this._vt * 1.1)) * 0.02;
+        return;
+      }
+
+      const distToTarget = Math.hypot(k.position.x - roam.target.x, k.position.z - roam.target.z);
+      if (distToTarget < 0.05) {
+        roam.idle -= dt;
+        if (roam.idle <= 0) {
+          const a = Math.random() * Math.PI * 2;
+          const rad = 0.3 + Math.random() * (TETHER - 0.3);
+          roam.target.set(home.x + Math.cos(a) * rad, home.y, Math.min(home.z + Math.sin(a) * rad, keeperSideZ));
+          roam.idle = 1.5 + Math.random() * 2.5;
+        }
+      } else {
+        const step = Math.min(distToTarget, SPEED * dt);
+        const ang = Math.atan2(roam.target.x - k.position.x, roam.target.z - k.position.z);
+        k.position.x += Math.sin(ang) * step;
+        k.position.z += Math.cos(ang) * step;
+        k.rotation.y = ang;
+      }
+      k.position.y = home.y + Math.abs(Math.sin(this._vt * 0.9)) * 0.02;
     });
   }
 
@@ -611,6 +643,11 @@ export class Game {
       }
       this._gambleReadyAt = performance.now() + 6000; // fate must rest
       this.ui.showRelicReveal(item); // pop up what fate handed over
+    }
+    // remember what the player bought here so a later greeting can ask about it
+    if (vendor?.name) {
+      const mem = this.vendorMemory[vendor.name] || {};
+      this.vendorMemory[vendor.name] = { ...mem, met: true, lastItem: entry.label.replace(/\s*\(.*?\)\s*$/, '') };
     }
     this.requestSave();
   }
@@ -717,16 +754,19 @@ export class Game {
   barkeepChat() {
     const p = this.player;
     const n = this.playerName();
-    const lines = [];
-    if (p.hp < p.maxHp * 0.6) lines.push(`${n}, rough night? Sit by the fire, the hearth mends what potions can't.`);
-    if (this.deaths >= 3) lines.push('Heard the floor\'s been winning. It always brags. Ignore it.');
-    if (this.actsCleared >= 1) lines.push(`Word travels — ${['', 'Malruk', 'Sszarra', 'Vexmal', 'the Colossus'][this.actsCleared] || 'the lords'} fell to you. First round's full price anyway.`);
-    lines.push(
+    const bodies = [];
+    if (p.hp < p.maxHp * 0.6) bodies.push('Rough night? Sit by the fire, the hearth mends what potions can\'t.');
+    if (this.deaths >= 3) bodies.push('Heard the floor\'s been winning. It always brags. Ignore it.');
+    if (this.actsCleared >= 1) bodies.push(`Word travels fast. ${['', 'Malruk', 'Sszarra', 'Vexmal', 'the Colossus'][this.actsCleared] || 'The lords'} fell to you, and the first round's still full price.`);
+    bodies.push(
       'Welcome to the Sleeping Golem. He\'s out back. Still sleeping.',
-      `${n}, Zoltan's dice are loaded. Course they are. Doesn't mean they won't love you.`,
+      'Zoltan\'s dice are loaded. Course they are. Doesn\'t mean they won\'t love you.',
       'The bard quit. Said the dungeon "hummed in the wrong key". So it\'s just the fire and me.',
     );
-    const line = lines[Math.floor(Math.random() * lines.length)];
+    const body = bodies[Math.floor(Math.random() * bodies.length)];
+    const memory = this.vendorMemory['Barlow the Barkeep'] || {};
+    const line = roaster.composeVendorLine('barkeep', { playerName: n, memory, body });
+    if (!memory.met) { this.vendorMemory['Barlow the Barkeep'] = { met: true }; this.requestSave(); }
     const b = this.dungeonMeshes.barkeepPos;
     this.ui.showSubtitle('Barlow the Barkeep', line);
     roaster.speakAs(line, { female: false, vi: 5, pitch: 0.8, rate: 0.95, kokoro: 'am_liam', kSpeed: 0.95 });
@@ -796,36 +836,42 @@ export class Game {
 
   // Vendors greet you by name, each in their own voice — and they READ you:
   // health, potions, gold, gear. No "you look wounded" at full health.
+  // The greeting itself always leads with an opener, the player's name is
+  // woven in only sometimes (roaster.composeVendorLine), and returning
+  // customers who bought something before sometimes get asked about it.
   greetFromVendor(vendor) {
     const n = this.playerName();
     const p = this.player;
     const hurt = p.hp < p.maxHp * 0.6;
     const rich = p.gold > 300;
-    const lines = { potions: [], gear: [], mystery: [] };
+    const bodies = { potions: [], gear: [], mystery: [] };
 
     // Maribel — health/potion aware
-    if (hurt) lines.potions.push(`Oh dear, ${n}, you're hurt. Sit, drink, live.`);
-    else if (p.potions === 0) lines.potions.push(`${n}, an empty satchel? Never descend without a red bottle.`);
-    else lines.potions.push('Potions, fresh from the still.', `Welcome back, ${n}, drink responsibly, dear.`, 'You look well! Let’s keep it that way.');
+    if (hurt) bodies.potions.push('You\'re hurt. Sit, drink, live.');
+    else if (p.potions === 0) bodies.potions.push('An empty satchel? Never descend without a red bottle.');
+    else bodies.potions.push('Potions, fresh from the still.', 'Drink responsibly, dear.', 'You look well! Let’s keep it that way.');
 
     // Torvald — gear aware
     const weapon = p.equipped.weapon;
-    if (!weapon) lines.gear.push(`${n}, bare-handed?! By the forge, take a blade before the deep takes you.`);
-    else if (weapon.rarity === 'common') lines.gear.push('That old iron of yours has seen better days. Browse a while.');
-    else lines.gear.push(`${n}, steel for the worthy. Pick a blade.`, 'The forge burned all night for this.');
+    if (!weapon) bodies.gear.push('Bare-handed?! By the forge, take a blade before the deep takes you.');
+    else if (weapon.rarity === 'common') bodies.gear.push('That old iron of yours has seen better days. Browse a while.');
+    else bodies.gear.push('Steel for the worthy. Pick a blade.', 'The forge burned all night for this.');
 
     // Zoltan — gold aware
-    if (rich) lines.mystery.push(`${n}, that's ${p.gold} gold — fate can hear it jingling from here.`);
-    else if (p.gold < 100) lines.mystery.push('Light pockets today… fate does not work on credit, friend.');
-    else lines.mystery.push(`${n}, fate has been expecting you.`, 'Care to tempt destiny?');
+    if (rich) bodies.mystery.push(`That's ${p.gold} gold — fate can hear it jingling from here.`);
+    else if (p.gold < 100) bodies.mystery.push('Light pockets today… fate does not work on credit, friend.');
+    else bodies.mystery.push('Fate has been expecting you.', 'Care to tempt destiny?');
     // unique voices: no vendor shares a voice with any enemy or each other
     const casts = {
       potions: { female: true, vi: 2, pitch: 1.2, rate: 1.02, kokoro: 'af_bella', kSpeed: 1.0 },
       gear: { female: false, vi: 2, pitch: 0.6, rate: 0.95, kokoro: 'am_michael', kSpeed: 0.92 },
       mystery: { female: false, vi: 3, pitch: 0.85, rate: 0.88, kokoro: 'bm_george', kSpeed: 0.88 },
     };
-    const bank = lines[vendor.type] || lines.gear;
-    const line = bank[Math.floor(Math.random() * bank.length)];
+    const bank = bodies[vendor.type] || bodies.gear;
+    const body = bank[Math.floor(Math.random() * bank.length)];
+    const memory = this.vendorMemory[vendor.name] || {};
+    const line = roaster.composeVendorLine(vendor.type, { playerName: n, memory, body });
+    if (!memory.met) { this.vendorMemory[vendor.name] = { ...memory, met: true }; this.requestSave(); }
     this.ui.showSubtitle(vendor.name, line);
     roaster.speakAs(line, casts[vendor.type] || casts.gear);
   }
@@ -2086,6 +2132,7 @@ export class Game {
       actsCleared: this.actsCleared,
       elitesKilled: this.elitesKilled,
       storySeen: this.storySeen,
+      vendorMemory: this.vendorMemory,
     });
   }
 
