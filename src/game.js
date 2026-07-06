@@ -440,6 +440,7 @@ export class Game {
     for (const e of this.enemies) this.scene.remove(e.mesh);
     this.enemies = [];
     if (this.deathMarkers) { for (const d of this.deathMarkers) this.scene.remove(d.mesh); this.deathMarkers = []; }
+    if (this.wallMarks) { for (const d of this.wallMarks) { this.scene.remove(d.mesh); d.mesh.geometry.dispose(); d.mesh.material.dispose(); } this.wallMarks = []; }
     if (this.boss) { this.scene.remove(this.boss.mesh); this.boss = null; }
     for (const z of this.zones) if (z.mesh) this.scene.remove(z.mesh);
     this.zones = [];
@@ -1643,6 +1644,8 @@ export class Game {
 
   aoeDamage(x, z, radius, damage, opts = {}) {
     if (opts.source === 'player') {
+      // scorch the ground where a power lands (darker for fire/burn)
+      this.addWallMark(x, z, { color: opts.status?.burn ? 0x1a0f08 : 0x201a16, size: Math.min(radius * 0.7, 1.2), opacity: 0.3 });
       for (const e of this.enemies) {
         if (e.dead) continue;
         const d = Math.hypot(e.pos.x - x, e.pos.z - z);
@@ -2262,10 +2265,33 @@ export class Game {
   // Pit holes: fall through to the next floor (solo) — it hurts.
   updatePits() { /* pit-fall traps removed */ }
 
-  // Bricks and dust burst off walls when projectiles strike them.
+  // Bricks and dust burst off walls when projectiles strike them, and a
+  // lasting chip/scuff is left behind.
   wallDebris(x, z) {
     this.particles.burst(x, 1.0, z, 7, 0x8a8590, { speed: 3, life: 0.4, size: 0.11, up: 0.9 });
     this.particles.burst(x, 1.0, z, 3, 0x5a5560, { speed: 1.6, life: 0.55, size: 0.18, up: 1.2 });
+    this.addWallMark(x, z, { color: 0x241f1c, size: 0.22 + Math.random() * 0.14 });
+  }
+
+  // A persistent ground decal at an impact point (chip, scuff or scorch). The
+  // pool is capped and recycles its oldest mark, so it can't leak RAM; cleared
+  // with the floor.
+  addWallMark(x, z, opts = {}) {
+    if (!this.wallMarks) this.wallMarks = [];
+    if (this.wallMarks.length >= 48) {
+      const old = this.wallMarks.shift();
+      this.scene.remove(old.mesh); old.mesh.geometry.dispose(); old.mesh.material.dispose();
+    }
+    const size = opts.size ?? (0.3 + Math.random() * 0.25);
+    const mesh = new THREE.Mesh(
+      new THREE.CircleGeometry(size, 10),
+      new THREE.MeshBasicMaterial({ color: opts.color ?? 0x000000, transparent: true, opacity: opts.opacity ?? 0.4, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.rotation.z = Math.random() * Math.PI;
+    mesh.position.set(x, 0.03, z);
+    this.scene.add(mesh);
+    this.wallMarks.push({ mesh });
   }
 
   // Town: vendors open their shop when you walk up; the portal descends.
