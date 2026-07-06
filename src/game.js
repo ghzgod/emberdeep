@@ -1396,10 +1396,10 @@ export class Game {
   // Show equipped gear on a hero: a rarity-tinted helmet, shoulder pauldrons and
   // chest plate that only rebuild when the loadout's rarities change. Works for
   // the local hero (full items) and remotes (compact synced loadout) alike.
-  updateHeroGear(mesh, equipped) {
+  updateHeroGear(mesh, equipped, classId = 'knight') {
     if (!mesh || !equipped) return;
     const slots = ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket'];
-    const sig = slots.map((s) => (equipped[s]?.rarity || '-')).join('');
+    const sig = classId + '|' + slots.map((s) => (equipped[s]?.rarity || '-')).join('');
     if (mesh.userData.gearSig === sig) return;
     mesh.userData.gearSig = sig;
     if (mesh.userData.gearVisual) { mesh.remove(mesh.userData.gearVisual); mesh.userData.gearVisual = null; }
@@ -1410,8 +1410,18 @@ export class Game {
       return new THREE.MeshStandardMaterial({ color: c, metalness: 0.5, roughness: 0.45, emissive: hot ? c : 0x000000, emissiveIntensity: rarity === 'legendary' ? 0.4 : rarity === 'epic' ? 0.22 : 0 });
     };
     if (equipped.helmet) {
-      const helm = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), mat(equipped.helmet.rarity));
-      helm.position.y = 1.5;
+      const m = mat(equipped.helmet.rarity);
+      let helm;
+      if (classId === 'mage') { // pointed wizard hat
+        helm = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.5, 10), m); helm.position.y = 1.66; helm.rotation.z = 0.12;
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.36, 0.04, 12), m); brim.position.y = 1.44; grp.add(brim);
+      } else if (classId === 'ranger') { // feathered cap
+        helm = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), m); helm.position.y = 1.5;
+        const feather = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.34, 5), new THREE.MeshStandardMaterial({ color: 0xc23b3b })); feather.position.set(0.2, 1.66, -0.05); feather.rotation.z = -0.7; grp.add(feather);
+      } else { // knight: domed steel helm with a crest
+        helm = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), m); helm.position.y = 1.5;
+        const crest = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.32), m); crest.position.y = 1.68; grp.add(crest);
+      }
       grp.add(helm);
     }
     if (equipped.chest) {
@@ -1427,8 +1437,8 @@ export class Game {
 
   // Keep the local hero's aura in sync, spin sparkles, and fly the companion.
   animateAuras(dt) {
-    if (this.player?.mesh) { this.setHeroAura(this.player.mesh, this.heroAuraTier()); this.updateHeroGear(this.player.mesh, this.player.equipped); }
-    for (const [, rp] of this.remotePlayers) if (rp.loadout) this.updateHeroGear(rp.mesh, rp.loadout);
+    if (this.player?.mesh) { this.setHeroAura(this.player.mesh, this.heroAuraTier()); this.updateHeroGear(this.player.mesh, this.player.equipped, this.player.classId); }
+    for (const [, rp] of this.remotePlayers) if (rp.loadout) this.updateHeroGear(rp.mesh, rp.loadout, rp.cls);
     this._auraT = (this._auraT || 0) + dt;
     const t = this._auraT;
     const anim = (mesh) => {
