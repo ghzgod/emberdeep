@@ -224,7 +224,13 @@
       <h2 class="screen-heading">Inventory</h2>
       <div id="equip-slots" class="equip-row"></div>
       <div id="inv-grid" class="inv-grid"></div>
-      <div id="item-actions" class="hidden">
+      <div id="item-tooltip" class="hidden"></div>
+      <p class="hint">Tap an item for stats · Tab/Esc to close</p>
+    </div>
+
+    <!-- Item stats panel (loose inventory item -> stats + Equip) -->
+    <div id="item-actions" class="hidden">
+      <div id="item-actions-card">
         <div id="item-actions-info"></div>
         <div class="item-actions-btns">
           <button id="btn-item-equip" class="menu-btn small">Equip</button>
@@ -232,8 +238,6 @@
           <button id="btn-item-drop" class="menu-btn small">Drop</button>
         </div>
       </div>
-      <div id="item-tooltip" class="hidden"></div>
-      <p class="hint">Tap an item for actions · Tab/Esc to close</p>
     </div>
 
     <!-- Notice board -->
