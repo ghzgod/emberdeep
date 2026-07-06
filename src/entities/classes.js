@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { audio } from '../core/audio.js';
+import { hashSeed, mulberry32, jitterColor } from './heroModel.js';
 
 // Class definitions: stats, basic attack, four abilities each.
 // Ability exec() receives (game, player) and uses the game's combat API.
@@ -185,7 +186,12 @@ export const CLASSES = {
 };
 
 // ---- Low-poly hero mesh per class ----
-export function buildHeroMesh(classDef) {
+// `name` seeds the same deterministic cosmetic variation as the animated
+// KayKit path (heroModel.js's applyCosmetics) so a hero looks consistent
+// whichever path builds it. This mesh is only used if the GLTF model failed
+// to load, which in practice basically never happens, but it's kept alive
+// (real leg gait, not just a static cylinder) so it doesn't look broken.
+export function buildHeroMesh(classDef, name = '') {
   const g = new THREE.Group();
   const color = classDef.color;
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
@@ -196,9 +202,27 @@ export function buildHeroMesh(classDef) {
   body.position.y = 0.75;
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), skinMat);
   head.position.y = 1.45;
-  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.4, 8), darkMat);
-  legs.position.y = 0.2;
-  g.add(body, head, legs);
+  // two separate legs (was one static cylinder) so they can swing alternately
+  const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.42, 8), darkMat);
+  legL.position.set(-0.12, 0.21, 0);
+  const legR = legL.clone();
+  legR.position.x = 0.12;
+  g.add(body, head, legL, legR);
+
+  // Deterministic per-name variation: subtle skin tone + a chance of a
+  // cloth/trim tint and a small scar, mirroring heroModel.js's applyCosmetics.
+  const rng = mulberry32(hashSeed(name || 'Hero'));
+  jitterColor(skinMat, rng, 0.08);
+  if (rng() < 0.6) jitterColor(bodyMat, rng, 0.18);
+  if (rng() < 0.5) {
+    const scar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.015, 0.02),
+      new THREE.MeshStandardMaterial({ color: 0x3a1c18, roughness: 0.9 })
+    );
+    scar.position.set(0.08, 0.02, 0.2);
+    scar.rotation.z = 0.4;
+    head.add(scar);
+  }
 
   // Class-specific weapon, held forward on the right
   const weapon = new THREE.Group();
@@ -250,6 +274,31 @@ export function buildHeroMesh(classDef) {
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.02;
   g.add(shadow);
+
+  // Lightweight procedural gait for this fallback mesh, in the same spirit as
+  // enemies.js's limb registry: legs swing alternately while moving (faster
+  // swing at higher speed01), and a small idle breathing sway/weight shift
+  // otherwise. Driven from Player.update via g.userData.updateGait(dt, speed01, attacking).
+  let gaitT = Math.random() * 6; // desyncs multiple heroes on screen
+  g.userData.updateGait = (dt, speed01, attacking) => {
+    const moving = speed01 > 0.02;
+    if (moving) {
+      gaitT += dt * (3 + speed01 * 6);
+      const amp = 0.32 + speed01 * 0.18;
+      legL.rotation.x = Math.sin(gaitT) * amp;
+      legR.rotation.x = Math.sin(gaitT + Math.PI) * amp;
+      g.position.y = 0;
+      g.rotation.z = 0;
+    } else {
+      legL.rotation.x += (0 - legL.rotation.x) * Math.min(1, 8 * dt);
+      legR.rotation.x += (0 - legR.rotation.x) * Math.min(1, 8 * dt);
+      if (!attacking) {
+        gaitT += dt;
+        g.position.y = Math.sin(gaitT * 1.6) * 0.012;
+        g.rotation.z = Math.sin(gaitT * 0.35) * 0.05;
+      }
+    }
+  };
 
   return g;
 }
