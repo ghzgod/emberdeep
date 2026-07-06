@@ -1715,6 +1715,26 @@ export class Game {
     return true;
   }
 
+  // Teleport a trapped hero to the nearest genuinely open spot: spiral outward
+  // tile by tile and take the first centre that is walkable with clearance.
+  unstickPlayer() {
+    const p = this.player;
+    for (let r = 1; r <= 8; r++) {
+      for (let ox = -r; ox <= r; ox++) {
+        for (let oz = -r; oz <= r; oz++) {
+          if (Math.max(Math.abs(ox), Math.abs(oz)) !== r) continue; // ring only
+          const x = p.pos.x + ox * TILE, z = p.pos.z + oz * TILE;
+          if (!this.isWalkable(x, z, 0.35)) continue;
+          p.pos.set(x, 0, z);
+          this.ui.floaters?.spawn(p.pos, 'Freed from the stone', 'crit');
+          audio.play('blink', { volume: 0.5 });
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   // ---------------- combat API ----------------
   // Is the local hero mid-swing / holding attack? Enemies use this to juke.
   playerIsAttacking() { return !!(this.player && (this.player.aiming || this.player.attackAnim > 0.05)); }
@@ -2252,6 +2272,23 @@ export class Game {
   updatePlaying(dt) {
     const p = this.player;
     const input = this.input;
+
+    // Stuck failsafe (1x/sec): if the hero is embedded in geometry or boxed in
+    // on every side (knockback can shove you into a door gap that then seals),
+    // snap to the nearest open tile instead of leaving the player trapped.
+    this._stuckT = (this._stuckT || 0) + dt;
+    if (this._stuckT >= 1 && p && !p.dead) {
+      this._stuckT = 0;
+      const embedded = !this.isWalkable(p.pos.x, p.pos.z, 0.25);
+      let freedom = 0;
+      if (!embedded) {
+        for (let a = 0; a < 8; a++) {
+          const ang = (a * Math.PI) / 4;
+          if (this.isWalkable(p.pos.x + Math.cos(ang) * 0.6, p.pos.z + Math.sin(ang) * 0.6, 0.28)) { freedom++; break; }
+        }
+      }
+      if (embedded || freedom === 0) this.unstickPlayer();
+    }
 
     // one-time notice the first time you step into the portal safe zone this floor
     if (p && this.safeZone) {
