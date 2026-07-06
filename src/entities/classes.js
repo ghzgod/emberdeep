@@ -24,6 +24,9 @@ export const CLASSES = {
     stats: { maxHp: 135, damage: 15, speed: 6.3, armor: 0.15, crit: 0.08 },
     resource: { name: 'Stamina', max: 100, regen: 12 },
     basic: { kind: 'melee', range: 2.3, arc: Math.PI * 0.65, cooldown: 0.45, basicCost: 9, sound: 'sword_swing', hitSound: 'sword_hit' },
+    // AoE (whirlwind) sits LAST, since slot 4 is the "ultimate" slot every class
+    // reserves for its area ability, and the cdr4 gear stat only reduces
+    // whatever ability currently occupies slot 4.
     abilities: [
       {
         id: 'charge', name: 'Charge', icon: '🛡️', cd: 5, cost: 25,
@@ -31,16 +34,6 @@ export const CLASSES = {
         exec(game, p) {
           audio.play('charge');
           p.startDash(14, 0.22, { damageMult: 1.4, knockback: 9 });
-        },
-      },
-      {
-        id: 'whirlwind', name: 'Whirlwind', icon: '🌀', cd: 6, cost: 30,
-        desc: 'Spin in a deadly circle, striking all nearby enemies.',
-        exec(game, p) {
-          audio.play('whirlwind');
-          game.aoeDamage(p.pos.x, p.pos.z, 3.2, p.damage * 1.8, { knockback: 6, source: 'player' });
-          game.particles.ring(p.pos.x, 0.6, p.pos.z, 3.2, 0xdadfff);
-          p.spinTimer = 0.45;
         },
       },
       {
@@ -61,6 +54,16 @@ export const CLASSES = {
           game.stunEnemiesNear(p.pos.x, p.pos.z, 5, 1.2);
           game.particles.ring(p.pos.x, 1.2, p.pos.z, 5, 0xffb04a);
           game.shake(0.35);
+        },
+      },
+      {
+        id: 'whirlwind', name: 'Whirlwind', icon: '🌀', cd: 6, cost: 30,
+        desc: 'Spin in a deadly circle, striking all nearby enemies.',
+        exec(game, p) {
+          audio.play('whirlwind');
+          game.aoeDamage(p.pos.x, p.pos.z, 3.2, p.damage * 1.8, { knockback: 6, source: 'player' });
+          game.particles.ring(p.pos.x, 0.6, p.pos.z, 3.2, 0xdadfff);
+          p.spinTimer = 0.45;
         },
       },
     ],
