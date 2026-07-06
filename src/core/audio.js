@@ -96,6 +96,10 @@ export class AudioEngine {
     this.musicGain.connect(this.masterGain);
     this.sfxGain = this.ctx.createGain();
     this.sfxGain.connect(this.masterGain);
+    // procedural ambience bed rides on the music channel (respects that slider)
+    this.ambGain = this.ctx.createGain();
+    this.ambGain.gain.value = 0.9;
+    this.ambGain.connect(this.musicGain);
     this.applyVolumes();
   }
 
@@ -235,6 +239,98 @@ export class AudioEngine {
     setTimeout(() => { try { old.source.stop(); } catch {} }, fadeSec * 1000 + 100);
     this.currentMusic = null;
   }
+
+  // ---------- Procedural ambience beds (per area, no audio assets) ----------
+  _noise(seconds = 3) {
+    if (this._noiseBuf) return this._noiseBuf;
+    const n = Math.floor(this.ctx.sampleRate * seconds);
+    const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < n; i++) { const w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; d[i] = last * 3.2; } // brownish
+    this._noiseBuf = buf;
+    return buf;
+  }
+
+  // profile: town | tavern | dungeon-wet | dungeon-dry
+  startAmbience(profile) {
+    if (!this.ctx) return;
+    if (this._amb?.profile === profile) return;
+    this.stopAmbience();
+    const P = AMBIENCE[profile];
+    if (!P) return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._noise();
+    src.loop = true;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = P.freq; filt.Q.value = 0.7;
+    const g = this.ctx.createGain();
+    g.gain.value = 0.0001; g.gain.linearRampToValueAtTime(P.bed, t + 1.5);
+    src.connect(filt); filt.connect(g); g.connect(this.ambGain);
+    src.start();
+    let drone = null;
+    if (P.drone) {
+      drone = this.ctx.createOscillator(); drone.type = 'sine'; drone.frequency.value = P.drone;
+      const dg = this.ctx.createGain(); dg.gain.value = P.droneGain || 0.05;
+      drone.connect(dg); dg.connect(this.ambGain); drone.start();
+    }
+    const timer = setInterval(() => {
+      if (!this.ctx || this.ctx.state !== 'running') return;
+      if (P.crackle && Math.random() < P.crackle) this._crackle();
+      if (P.chirp && Math.random() < P.chirp) this._chirp();
+      if (P.drip && Math.random() < P.drip) this._drip();
+    }, 340);
+    this._amb = { profile, src, g, drone, timer };
+  }
+
+  stopAmbience() {
+    const a = this._amb;
+    if (!a) return;
+    clearInterval(a.timer);
+    try { a.g.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.6); } catch { /* */ }
+    setTimeout(() => { try { a.src.stop(); } catch {} try { a.drone?.stop(); } catch {} }, 700);
+    this._amb = null;
+  }
+
+  _crackle() { // a short fire pop
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource(); src.buffer = this._noise();
+    const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1200 + Math.random() * 2200; f.Q.value = 2;
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05 + Math.random() * 0.06, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    src.connect(f); f.connect(g); g.connect(this.ambGain);
+    src.start(t, Math.random() * 2, 0.09);
+  }
+
+  _chirp() { // a couple of quick bird notes
+    const t = this.ctx.currentTime; const base = 2000 + Math.random() * 1600;
+    const notes = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < notes; i++) {
+      const tt = t + i * 0.08; const o = this.ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(base * (1 + i * 0.12), tt);
+      const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, tt);
+      g.gain.exponentialRampToValueAtTime(0.03, tt + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.08);
+      o.connect(g); g.connect(this.ambGain); o.start(tt); o.stop(tt + 0.1);
+    }
+  }
+
+  _drip() { // a single cave water drop (wet acts only)
+    const t = this.ctx.currentTime; const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(880, t); o.frequency.exponentialRampToValueAtTime(300, t + 0.12);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(g); g.connect(this.ambGain); o.start(t); o.stop(t + 0.2);
+  }
 }
+
+// Per-area ambience recipes. Drips live ONLY in the wet-cave acts.
+const AMBIENCE = {
+  town:          { freq: 480, bed: 0.05, chirp: 0.05 },                          // open square: wind + birds
+  tavern:        { freq: 700, bed: 0.045, crackle: 0.5 },                         // room tone + hearth crackle
+  'dungeon-wet': { freq: 300, bed: 0.05, drone: 62, droneGain: 0.05, drip: 0.05 }, // stone/moss caves
+  'dungeon-dry': { freq: 260, bed: 0.045, drone: 55, droneGain: 0.06 },           // ember/cursed/abyss drone
+};
 
 export const audio = new AudioEngine();

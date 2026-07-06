@@ -475,6 +475,7 @@ export class Game {
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner('THE SLEEPING GOLEM', 'Rest a while, hero', true);
     audio.playMusic('tavern');
+    audio.startAmbience('tavern'); // room tone + hearth crackle
     this.stairsCooldown = 1.5;
   }
 
@@ -513,6 +514,7 @@ export class Game {
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner(0, 'Embervale — rest, trade, prepare');
     audio.playMusic('tavern'); // town uses the calm tavern theme — no cave water drips
+    audio.startAmbience('town'); // open-square wind + birdsong
     this.shopCooldown = 1;
     this.requestSave(true);
 
@@ -920,6 +922,7 @@ export class Game {
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner(this.floorBannerTitle(), theme.name, true);
     audio.playMusic(this.dungeon.boss && this.boss ? 'boss' : 'dungeon');
+    audio.startAmbience(actOfFloor(floor) <= 2 ? 'dungeon-wet' : 'dungeon-dry'); // drips only in the wet acts
     audio.play('stairs', { volume: 0.7 });
     this.stairsCooldown = 1.5;
     this.returnPortalArmed = false; // arms once you walk away from the entrance
@@ -1296,6 +1299,7 @@ export class Game {
       !this.inTown
     );
     audio.playMusic(this.inTown ? 'tavern' : (this.dungeon.boss ? 'boss' : 'dungeon'));
+    audio.startAmbience(this.inTown ? 'town' : (actOfFloor(this.floor) <= 2 ? 'dungeon-wet' : 'dungeon-dry'));
     this.stairsCooldown = 1.5;
   }
 
