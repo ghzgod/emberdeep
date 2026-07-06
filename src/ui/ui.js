@@ -380,7 +380,7 @@ export class UI {
     $('shop-portrait').textContent = fl.portrait;
     $('shop-title').textContent = vendor.name;
     $('shop-tagline').textContent = fl.tag;
-    $('shop-gold').innerHTML = `<span class="coin-stack">🪙<span class="c2">🪙</span></span> <b>${p.gold}</b>`;
+    $('shop-gold').innerHTML = `<span class="coin-stack"><span class="coin"></span><span class="coin c2"></span></span> <b>${p.gold}</b>`;
     const fee = this.game.restockFee(vendor);
     $('btn-shop-restock').textContent = `↻ Restock wares — ${fee}g`;
     $('btn-shop-restock').disabled = p.gold < fee;
@@ -876,7 +876,7 @@ export class UI {
     $('xp-text').textContent = '';
     const pts = player.skillPoints();
     $('hud-level').textContent = pts > 0 ? `Lv ${player.level} ✦${pts}` : `Lv ${player.level}`;
-    $('hud-gold').innerHTML = `${player.gold} <span class="coin-stack">🪙<span class="c2">🪙</span></span>`;
+    $('hud-gold').innerHTML = `${player.gold} <span class="coin-stack"><span class="coin"></span><span class="coin c2"></span></span>`;
     $('hud-potions').textContent = `${player.potions} 🧪`;
     // potion buttons only matter when you're actually hurt
     const needPotion = player.hp < player.maxHp - 1 && player.potions > 0;
@@ -967,7 +967,7 @@ export class UI {
     $('buy-stats').innerHTML = detail;
     // for gear, show how it compares to what's worn
     $('buy-compare').innerHTML = item ? (this.affinityNote(item) + this.compareNote(item)) : '';
-    $('buy-price').innerHTML = `<span class="coin-stack">🪙<span class="c2">🪙</span></span> ${entry.price}g`;
+    $('buy-price').innerHTML = `<span class="coin-stack"><span class="coin"></span><span class="coin c2"></span></span> ${entry.price}g`;
     $('buy-card').style.setProperty('--relic-glow', `#${R.color.toString(16).padStart(6, '0')}`);
     const buyBtn = $('btn-buy-confirm');
     const broke = p.gold < entry.price;
