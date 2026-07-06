@@ -285,9 +285,32 @@ export class LootSystem {
     );
     beam.position.y = 1.2;
     g.add(box, beam);
+    // Epic pinnacle (and, lighter, Super Rare) get a glow halo + orbiting stardust.
+    let sparkles = null;
+    if (item.rarity === 'legendary' || item.rarity === 'epic') {
+      const epic = item.rarity === 'legendary';
+      beam.material.opacity = epic ? 0.42 : 0.3;
+      box.material.emissiveIntensity = epic ? 0.95 : 0.65;
+      const halo = new THREE.Mesh(
+        new THREE.SphereGeometry(0.34, 10, 8),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: epic ? 0.22 : 0.14, depthWrite: false })
+      );
+      halo.position.y = 0.35;
+      g.add(halo);
+      sparkles = new THREE.Group();
+      const n = epic ? 7 : 4;
+      const sMat = new THREE.MeshBasicMaterial({ color: epic ? 0xfff2c0 : 0xe6c8ff });
+      for (let i = 0; i < n; i++) {
+        const s = new THREE.Mesh(new THREE.SphereGeometry(0.03, 5, 5), sMat);
+        const a = (i / n) * Math.PI * 2;
+        s.position.set(Math.cos(a) * 0.32, 0.35 + Math.sin(a * 1.5) * 0.12, Math.sin(a) * 0.32);
+        sparkles.add(s);
+      }
+      g.add(sparkles);
+    }
     g.position.set(x, 0, z);
     this.scene.add(g);
-    this.drops.push({ kind: 'gear', item, mesh: g, x, z, bob: Math.random() * 6, spinner: box });
+    this.drops.push({ kind: 'gear', item, mesh: g, x, z, bob: Math.random() * 6, spinner: box, sparkles });
   }
 
   update(dt, game) {
@@ -298,6 +321,7 @@ export class LootSystem {
       const base = d.kind === 'gold' ? 0.15 : 0;
       d.mesh.position.y = base + Math.sin(d.bob) * 0.06;
       if (d.spinner) d.spinner.rotation.y += dt * 2;
+      if (d.sparkles) { d.sparkles.rotation.y -= dt * 1.6; d.sparkles.rotation.x = Math.sin(d.bob * 0.5) * 0.2; }
 
       if (p.dead) continue;
       const dist = Math.hypot(p.pos.x - d.x, p.pos.z - d.z);
