@@ -839,11 +839,15 @@ export class UI {
   }
 
   // ---------- hotbar ----------
+  // Slots render through player.abilityOrder (slot -> ability index) so a
+  // re-slotted ability shows its own icon/name/cooldown in its new spot.
   buildHotbar(player) {
     const bar = $('hotbar');
     bar.innerHTML = '';
     this.hotbarSlots = [];
-    player.classDef.abilities.forEach((ab, i) => {
+    const order = player.abilityOrder || [0, 1, 2, 3];
+    order.forEach((abIndex, i) => {
+      const ab = player.classDef.abilities[abIndex];
       const slot = document.createElement('div');
       slot.className = 'hotbar-slot ready';
       slot.innerHTML = `
@@ -852,22 +856,83 @@ export class UI {
         <div class="cd-sweep"></div>
         <span class="ab-name">${ab.name}</span>
       `;
-      slot.title = `${ab.name} (${ab.cost} ${player.classDef.resource.name}) — ${ab.desc}`;
-      // clickable with the mouse, not just the number keys
-      slot.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        if (this.game.state === 'playing') this.game.player?.tryAbility(i, this.game);
-      });
+      slot.title = `${ab.name} (${ab.cost} ${player.classDef.resource.name}): ${ab.desc}`;
       bar.appendChild(slot);
       this.hotbarSlots.push(slot);
     });
+    this.wireHotbarInput(player);
   }
 
-  flashNoResource(index) {
-    const slot = this.hotbarSlots[index];
-    if (!slot) return;
-    slot.classList.add('no-resource');
-    setTimeout(() => slot.classList.remove('no-resource'), 300);
+  // One pointer-based interaction path covers both mouse and touch: a quick
+  // tap/click casts, a small mouse drag (or a touch long-press then drag)
+  // picks a slot up and dropping it on another swaps the two. This avoids a
+  // finger's natural jitter being mistaken for a drag on touch.
+  wireHotbarInput(player) {
+    const LONG_PRESS_MS = 450, DRAG_PX = 6;
+    const clearHighlights = () => this.hotbarSlots.forEach((s) => s.classList.remove('drop-target'));
+    const slotAt = (x, y) => {
+      const el = document.elementFromPoint(x, y)?.closest('.hotbar-slot');
+      return el ? this.hotbarSlots.indexOf(el) : -1;
+    };
+    this.hotbarSlots.forEach((slot, i) => {
+      slot.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        const isTouch = e.pointerType !== 'mouse';
+        const drag = { fromSlot: i, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dragging: false, isTouch };
+        this._hotbarDrag = drag;
+        if (isTouch) {
+          drag.longPressTimer = setTimeout(() => {
+            if (this._hotbarDrag === drag) { drag.dragging = true; slot.classList.add('dragging'); }
+          }, LONG_PRESS_MS);
+        }
+      });
+      slot.addEventListener('pointermove', (e) => {
+        const drag = this._hotbarDrag;
+        if (!drag || drag.pointerId !== e.pointerId) return;
+        if (!drag.isTouch && !drag.dragging) {
+          const moved = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY);
+          if (moved > DRAG_PX) { drag.dragging = true; slot.classList.add('dragging'); }
+        }
+        if (drag.dragging) {
+          clearHighlights();
+          const overIdx = slotAt(e.clientX, e.clientY);
+          if (overIdx !== -1 && overIdx !== drag.fromSlot) this.hotbarSlots[overIdx].classList.add('drop-target');
+        }
+      });
+      const finish = (e) => {
+        const drag = this._hotbarDrag;
+        if (!drag || drag.pointerId !== e.pointerId) return;
+        clearTimeout(drag.longPressTimer);
+        slot.classList.remove('dragging');
+        clearHighlights();
+        this._hotbarDrag = null;
+        if (drag.dragging) {
+          const toSlot = slotAt(e.clientX, e.clientY);
+          if (toSlot !== -1 && toSlot !== drag.fromSlot) {
+            this.game.player?.swapAbilitySlots(drag.fromSlot, toSlot);
+            this.buildHotbar(this.game.player);
+            this.game.requestSave();
+          }
+        } else if (this.game.state === 'playing') {
+          this.game.player?.tryAbility(drag.fromSlot, this.game);
+        }
+      };
+      slot.addEventListener('pointerup', finish);
+      slot.addEventListener('pointercancel', () => {
+        const drag = this._hotbarDrag;
+        if (drag) clearTimeout(drag.longPressTimer);
+        this._hotbarDrag = null;
+        slot.classList.remove('dragging');
+        clearHighlights();
+      });
+    });
+  }
+
+  flashNoResource(slot) {
+    const el = this.hotbarSlots[slot];
+    if (!el) return;
+    el.classList.add('no-resource');
+    setTimeout(() => el.classList.remove('no-resource'), 300);
   }
 
   // ---------- HUD update ----------
@@ -926,11 +991,13 @@ export class UI {
       cl.classList.add('hidden');
     }
 
-    player.classDef.abilities.forEach((ab, i) => {
+    const abilityOrder = player.abilityOrder || [0, 1, 2, 3];
+    abilityOrder.forEach((abIndex, i) => {
+      const ab = player.classDef.abilities[abIndex];
       const slot = this.hotbarSlots[i];
-      if (!slot) return;
-      const cd = player.abilityCds[i];
-      const max = player.abilityCdMax?.[i] || ab.cd;
+      if (!ab || !slot) return;
+      const cd = player.abilityCds[abIndex];
+      const max = player.abilityCdMax?.[abIndex] || ab.cd;
       const sweep = slot.querySelector('.cd-sweep');
       const onCd = cd > 0;
       // radial clock wheel: dark wedge = remaining cooldown, driven by the

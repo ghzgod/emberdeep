@@ -38,6 +38,10 @@ export class Player {
     this.attackCd = 0;
     this.abilityCds = [0, 0, 0, 0];
     this.abilityCdMax = [0, 0, 0, 0]; // actual (post-reduction) cooldown, for the UI wheel
+    // Hotbar slot -> ability index. Cooldowns above stay indexed by ABILITY,
+    // not slot, so re-slotting mid-cooldown never resets or duplicates a
+    // timer; only the slot-4 cdr4 bonus below follows the slot itself.
+    this.abilityOrder = [0, 1, 2, 3];
     this.footstepTimer = 0;
     this.attackAnim = 0;
     this.dead = false;
@@ -275,8 +279,12 @@ export class Player {
     }
   }
 
-  tryAbility(index, game) {
+  // `slot` is the hotbar position (0-3, what keybinds/clicks fire); it maps
+  // through abilityOrder to the actual ability index, so a re-slotted
+  // ability keeps its own cooldown instead of inheriting the slot's.
+  tryAbility(slot, game) {
     if (this.dead) return;
+    const index = this.abilityOrder[slot];
     const ab = this.classDef.abilities[index];
     if (!ab || this.abilityCds[index] > 0) return;
     // Cost scales with the pool (maxResource grows +6/level) so casts-per-full-bar
@@ -285,18 +293,28 @@ export class Player {
     // bar stopped mattering again.
     const cost = Math.round(ab.cost * (this.maxResource / this.classDef.resource.max));
     if (this.resource < cost) {
-      game.ui.flashNoResource(index);
+      game.ui.flashNoResource(slot);
       return;
     }
     this.resource -= cost;
     let cd = ab.cd * (1 - 0.03 * this.skillRank('celerity'));
-    if (index === 3) cd *= 1 - (this.ult4Cdr || 0); // weapon ultimate-CDR affects slot 4
+    if (slot === 3) cd *= 1 - (this.ult4Cdr || 0); // weapon ultimate-CDR affects whatever sits in slot 4
     this.abilityCds[index] = cd;
     this.abilityCdMax[index] = cd; // remember the true duration so the UI wheel is accurate
     this.attackAnim = 0.25;
     this.faceAimTimer = 0.8;
     if (this.anim) this.anim.playAttack();
     ab.exec(game, this);
+  }
+
+  // Re-slotting: swap which ability two hotbar slots point to. Cooldowns
+  // live on abilityCds/abilityCdMax (indexed by ability), so this never
+  // touches a timer in flight.
+  swapAbilitySlots(a, b) {
+    if (!Number.isInteger(a) || !Number.isInteger(b)) return;
+    if (a < 0 || a > 3 || b < 0 || b > 3 || a === b) return;
+    const order = this.abilityOrder;
+    [order[a], order[b]] = [order[b], order[a]];
   }
 
   update(dt, game) {
@@ -399,6 +417,7 @@ export class Player {
       invSize: this.invSize,
       equipped: this.equipped,
       skills: this.skills,
+      abilityOrder: this.abilityOrder,
     };
   }
 
@@ -450,6 +469,12 @@ export class Player {
       }
     }
     p.skills = skills;
+    // abilityOrder must be a genuine permutation of 0-3, else reset to identity
+    // (a hand-edited or corrupt save could otherwise point two slots at the
+    // same ability, or leave one unreachable).
+    const order = Array.isArray(data.abilityOrder) ? data.abilityOrder.map((n) => Math.floor(Number(n))) : null;
+    const isValidOrder = order && order.length === 4 && [0, 1, 2, 3].every((n) => order.includes(n));
+    p.abilityOrder = isValidOrder ? order : [0, 1, 2, 3];
     p.recompute();
     p.hp = p.maxHp;
     p.resource = p.maxResource;
