@@ -116,17 +116,69 @@ export function buildTavernInterior() {
   keeper.rotation.y = Math.PI;
   group.add(keeper);
 
-  // shelves with bottles behind the bar
-  const shelf = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 0.1, 0.4), darkWood);
-  shelf.position.set(barCenter.x + TILE / 2, 1.8, TILE * 0.55);
-  group.add(shelf);
-  const bottleColors = [0xd93a3a, 0x3ad95a, 0x3a7ad9, 0xd9b03a, 0xb03ad9];
-  for (let i = 0; i < 10; i++) {
-    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.3, 6),
-      new THREE.MeshStandardMaterial({ color: bottleColors[i % bottleColors.length], roughness: 0.3 }));
-    b.position.set(barCenter.x - 4.6 + i * 1.05, 2.0, TILE * 0.55);
-    group.add(b);
+  // ---- back-bar: two shelves stocked with bottles, spirits, wine + glasses ----
+  const glassMat = (c, o = 0.85) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.15, metalness: 0.1, transparent: true, opacity: o });
+  const corkMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 1 });
+  const shelfZ = TILE * 0.55;
+  for (const sy of [1.55, 1.98]) {
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 0.08, 0.42), darkWood);
+    shelf.position.set(barCenter.x + TILE / 2, sy, shelfZ);
+    group.add(shelf);
   }
+  const wineReds = [0x5a0f1a, 0x7a1420];
+  const spiritCols = [0xcaa14a, 0x3a6ad9, 0x2a8a4a, 0x8a3ad9, 0xb05a2a];
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const placeBottle = (x, y, kind) => {
+    const b = new THREE.Group();
+    if (kind === 'wine') {
+      b.add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.26, 8), glassMat(pick(wineReds), 0.9)));
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.14, 6), glassMat(0x24361c, 0.95)); neck.position.y = 0.2; b.add(neck);
+    } else if (kind === 'flask') {
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), glassMat(pick(spiritCols))); body.scale.y = 0.92; b.add(body);
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.12, 6), corkMat); neck.position.y = 0.13; b.add(neck);
+    } else {
+      b.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.32, 8), glassMat(pick(spiritCols))));
+      const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.05, 6), corkMat); cork.position.y = 0.185; b.add(cork);
+    }
+    b.position.set(x, y, shelfZ);
+    group.add(b);
+  };
+  const kinds = ['wine', 'tall', 'flask'];
+  for (let i = 0; i < 11; i++) placeBottle(barCenter.x - 4.7 + i * 0.95, 1.78, kinds[i % 3]);
+  for (let i = 0; i < 9; i++) placeBottle(barCenter.x - 4.2 + i * 1.05, 2.2, kinds[(i + 1) % 3]);
+  // filled wine glasses on the top shelf
+  for (let i = 0; i < 4; i++) {
+    const glass = new THREE.Group();
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.02, 0.09, 8), glassMat(0xdddddd, 0.35));
+    const wine = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.02, 0.05, 8), glassMat(0x6a0f1a, 0.9)); wine.position.y = -0.015;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.08, 5), glassMat(0xdddddd, 0.35)); stem.position.y = -0.085;
+    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.008, 8), glassMat(0xdddddd, 0.35)); foot.position.y = -0.13;
+    glass.add(bowl, wine, stem, foot);
+    glass.position.set(barCenter.x - 3.5 + i * 2.0, 2.3, shelfZ + 0.02);
+    group.add(glass);
+  }
+  // a wooden cask resting on the floor behind the bar
+  const cask = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.7, 12), plankMat);
+  cask.rotation.z = Math.PI / 2; cask.position.set(barCenter.x - 2.2, 0.34, shelfZ + 0.1);
+  const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.02, 6, 14), new THREE.MeshStandardMaterial({ color: 0x3a3a40, metalness: 0.5, roughness: 0.5 }));
+  hoop.position.copy(cask.position); hoop.rotation.y = Math.PI / 2;
+  group.add(cask, hoop);
+  // iron chandelier with flickering candles over the room
+  const chand = new THREE.Group();
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.03, 6, 16), new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.5, roughness: 0.6 }));
+  ring.rotation.x = Math.PI / 2; chand.add(ring);
+  const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.4, 4), new THREE.MeshStandardMaterial({ color: 0x2a2a30 }));
+  chain.position.y = 0.2; chand.add(chain);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.12, 6), new THREE.MeshStandardMaterial({ color: 0xe8e0c8 }));
+    candle.position.set(Math.cos(a) * 0.5, 0.08, Math.sin(a) * 0.5); chand.add(candle);
+    const flame = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), new THREE.MeshBasicMaterial({ color: 0xffc45e }));
+    flame.position.set(Math.cos(a) * 0.5, 0.18, Math.sin(a) * 0.5); chand.add(flame);
+    smokePuffs.push({ mesh: flame, baseY: 0.18, phase: i * 1.3, speed: 3.5, kind: 'fire' });
+  }
+  chand.position.set((W * TILE) / 2, 2.3, (H * TILE) / 2);
+  group.add(chand);
 
   // ---- tables (on TABLE_TILES) with stools, mugs, candles ----
   const patronMeshes = [];
