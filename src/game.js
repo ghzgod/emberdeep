@@ -2628,6 +2628,15 @@ export class Game {
     if (puffs?.length) {
       for (const puff of puffs) {
         puff.phase = (puff.phase || 0) + dt * (puff.speed || 0.4);
+        if (puff.kind === 'mote') {
+          // slow drifting dust: gentle lissajous wander around its home point
+          puff.mesh.position.set(
+            puff.cx + Math.cos(puff.drift + puff.phase * 0.5) * 0.32,
+            puff.baseY + Math.sin(puff.phase * 0.8) * 0.25,
+            puff.cz + Math.sin(puff.drift + puff.phase * 0.4) * 0.32,
+          );
+          continue;
+        }
         if (puff.kind === 'firefly') {
           // hovering glow — bob gently, never fades out
           puff.mesh.position.y = puff.baseY + Math.sin(puff.phase * 2.4) * 0.18;
