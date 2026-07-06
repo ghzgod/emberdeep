@@ -189,19 +189,72 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   wallMesh.instanceMatrix.needsUpdate = true;
   group.add(wallMesh);
 
-  // Dungeon walls get an inset capstone course on top so the silhouette steps
-  // instead of reading as one plain extruded cube.
+  // Dungeon walls get a weathered stone coping course on top so the
+  // silhouette steps instead of reading as one plain extruded cube. A plain
+  // solid-colour slab (not the wall's own brick texture, which stretched
+  // into a "framed tile roof" look at this smaller scale) with a slim
+  // overhang. Varied per floor via the shared seed: most segments intact,
+  // some missing outright, some broken with a U-shaped notch and a bit of
+  // rubble, so a wall run reads as crumbling battlements rather than a
+  // uniform row of caps.
   if (!town && renderWalls.length) {
-    const capGeo = new THREE.BoxGeometry(TILE * 0.84, 0.34, TILE * 0.84);
-    const capMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 1, flatShading: true });
-    const capMesh = new THREE.InstancedMesh(capGeo, capMat, renderWalls.length);
-    renderWalls.forEach((tp, i) => {
-      const w = tileToWorld(tp.x, tp.y);
-      m.setPosition(w.x, wallH - 0.05, w.z);
-      capMesh.setMatrixAt(i, m);
-    });
-    capMesh.instanceMatrix.needsUpdate = true;
-    group.add(capMesh);
+    const copingMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(theme.wall).multiplyScalar(0.72), roughness: 1, flatShading: true });
+    const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x3a3730, roughness: 1, flatShading: true });
+    const intactGeo = new THREE.BoxGeometry(TILE * 0.96, 0.16, TILE * 0.96);
+    const halfW = TILE * 0.34, gap = TILE * 0.28, halfOffset = halfW / 2 + gap / 2;
+    const halfGeo = new THREE.BoxGeometry(halfW, 0.16, TILE * 0.96);
+    const rubbleGeo = new THREE.BoxGeometry(0.14, 0.12, 0.14);
+
+    const intact = [], broken = [], rubblePos = [];
+    for (const tp of renderWalls) {
+      const roll = frng();
+      if (roll < 0.14) continue; // coping missing entirely
+      if (roll < 0.32) {
+        broken.push(tp);
+        rubblePos.push({ tp, dx: -0.1, dz: 0.05 }, { tp, dx: 0.12, dz: -0.08 });
+      } else {
+        intact.push(tp);
+      }
+    }
+    if (intact.length) {
+      const capMesh = new THREE.InstancedMesh(intactGeo, copingMat, intact.length);
+      intact.forEach((tp, i) => {
+        const w = tileToWorld(tp.x, tp.y);
+        m.setPosition(w.x, wallH - 0.03, w.z);
+        capMesh.setMatrixAt(i, m);
+      });
+      capMesh.instanceMatrix.needsUpdate = true;
+      group.add(capMesh);
+    }
+    if (broken.length) {
+      // two shorter caps with a gap between them: a broken/crumbled section
+      const leftMesh = new THREE.InstancedMesh(halfGeo, copingMat, broken.length);
+      const rightMesh = new THREE.InstancedMesh(halfGeo, copingMat, broken.length);
+      broken.forEach((tp, i) => {
+        const w = tileToWorld(tp.x, tp.y);
+        m.setPosition(w.x - halfOffset, wallH - 0.03, w.z);
+        leftMesh.setMatrixAt(i, m);
+        m.setPosition(w.x + halfOffset, wallH - 0.03, w.z);
+        rightMesh.setMatrixAt(i, m);
+      });
+      leftMesh.instanceMatrix.needsUpdate = true;
+      rightMesh.instanceMatrix.needsUpdate = true;
+      group.add(leftMesh, rightMesh);
+    }
+    if (rubblePos.length) {
+      // a couple of small fallen chunks sitting in/near each notch
+      const rubbleMesh = new THREE.InstancedMesh(rubbleGeo, rubbleMat, rubblePos.length);
+      const rm = new THREE.Matrix4(), rq = new THREE.Quaternion(), rv = new THREE.Vector3(), rs = new THREE.Vector3(1, 1, 1);
+      rubblePos.forEach((r, i) => {
+        const w = tileToWorld(r.tp.x, r.tp.y);
+        rq.setFromEuler(new THREE.Euler(Math.random() * 0.6, Math.random() * Math.PI, Math.random() * 0.6));
+        rv.set(w.x + r.dx, wallH - 0.1, w.z + r.dz);
+        rm.compose(rv, rq, rs);
+        rubbleMesh.setMatrixAt(i, rm);
+      });
+      rubbleMesh.instanceMatrix.needsUpdate = true;
+      group.add(rubbleMesh);
+    }
   }
 
   // --- Town: cobbled square + lane ---
