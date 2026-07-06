@@ -87,9 +87,20 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 /* ---------- HUD ---------- */
 #hud { position: absolute; inset: 0; pointer-events: none; z-index: 10; color: var(--parchment); }
 #hud-topleft { position: absolute; top: 16px; left: 16px; width: 280px; display: flex; flex-direction: column; gap: 5px; }
-.bar-wrap { position: relative; height: 22px; background: rgba(0,0,0,0.65); border: 1px solid #000; border-radius: 4px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,0.08); }
-.bar-wrap.small { height: 16px; }
-.bar-wrap.tiny { height: 8px; }
+/* Rustic bronze-banded frames: layered shadows fake a worn metal rim with a
+   dark bezel, so the bars read like fixtures on an old shield, not web UI. */
+.bar-wrap {
+  position: relative; height: 22px; background: rgba(8, 5, 3, 0.8);
+  border: 2px solid #7a5a24; border-radius: 6px; overflow: hidden;
+  box-shadow:
+    0 0 0 1px #241505,
+    inset 0 0 0 1px rgba(255, 214, 130, 0.28),
+    inset 0 2px 5px rgba(0, 0, 0, 0.7),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.bar-wrap.small { height: 17px; }
+.bar-wrap.tiny { height: 13px; }
+.bar-wrap.tiny .bar-text { font-size: 9px; letter-spacing: 1px; opacity: 0.85; }
 .bar { height: 100%; width: 100%; transition: width 0.12s; }
 .bar.hp { background: linear-gradient(180deg, #d9534f, #8b1e1e); }
 .bar.resource { background: linear-gradient(180deg, #4f7bd9, #1e3a8b); }
