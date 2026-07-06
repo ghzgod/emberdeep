@@ -554,9 +554,12 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   .settings-rows select { max-width: 320px; }
 }
 .settings-rows label { display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 16px; flex-wrap: wrap; }
-/* Slider rows: fixed label column so every meter is the SAME length + aligned. */
+/* Slider rows: fixed label column so every meter is the SAME length + aligned.
+   text-align:left beats the inherited centering that floated slider labels
+   toward the middle of their 180px column. */
 .settings-rows label:has(input[type=range]) {
   display: grid; grid-template-columns: 180px 1fr 52px; gap: 12px; flex-wrap: nowrap;
+  text-align: left;
 }
 .settings-rows label:has(input[type=range]) > span { text-align: right; }
 .settings-rows input[type=range] { flex: 1; min-width: 120px; width: 100%; accent-color: var(--gold); }
@@ -764,17 +767,37 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   animation: mic-pulse 1.2s ease-in-out infinite;
 }
 @keyframes mic-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
-#voice-meter-row { display: flex; align-items: center; gap: 12px; width: 100%; }
-#voice-meter-track {
-  flex: 1; height: 12px; background: #120d18; border: 1px solid var(--panel-border);
-  border-radius: 6px; overflow: hidden; position: relative;
+/* The trigger slider IS the mic meter: a live level fill sits inside the
+   slider's own track, and the gold knob is the cutoff. Fill turns green when
+   the level crosses the knob. */
+#voice-slider-wrap { position: relative; display: block; width: 100%; height: 20px; }
+#voice-slider-wrap::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 12px;
+  transform: translateY(-50%); background: #120d18;
+  border: 1px solid var(--panel-border); border-radius: 6px;
 }
-#voice-meter { height: 100%; width: 0%; background: #4f7bd9; transition: width 0.1s; }
-/* trigger-threshold marker: the level bar crosses green to the right of this. */
-#voice-meter-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--gold); box-shadow: 0 0 4px rgba(255,200,90,0.9); pointer-events: none; }
+#voice-level-fill {
+  position: absolute; left: 1px; top: 50%; height: 10px; transform: translateY(-50%);
+  width: 0%; max-width: calc(100% - 2px); border-radius: 5px;
+  background: #4f7bd9; transition: width 0.1s; pointer-events: none;
+}
+#voice-level-fill.hot { background: #7ce87c; }
+#voice-slider-wrap input[type=range] {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+#voice-slider-wrap input[type=range]::-webkit-slider-runnable-track { background: transparent; height: 20px; }
+#voice-slider-wrap input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%;
+  background: var(--gold); border: 2px solid #7a5514; box-shadow: 0 0 5px rgba(0,0,0,0.6); cursor: pointer;
+}
+#voice-slider-wrap input[type=range]::-moz-range-track { background: transparent; height: 20px; }
+#voice-slider-wrap input[type=range]::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--gold); border: 2px solid #7a5514; box-shadow: 0 0 5px rgba(0,0,0,0.6); cursor: pointer;
+}
 #mic-test-row { margin-top: 6px; }
 #btn-mic-test { white-space: nowrap; }
-#voice-meter.hot { background: #7ce87c; }
 #voice-engine-bar {
   width: 100%; height: 10px; background: #120d18;
   border: 1px solid var(--panel-border); border-radius: 5px; overflow: hidden;
