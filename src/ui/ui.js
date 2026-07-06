@@ -1185,6 +1185,9 @@ export class UI {
       row.appendChild(tb);
       tb.onclick = () => { this.destroyMode = !this.destroyMode; this.destroySel.clear(); this.renderInventory(); };
     }
+    // nothing in the pack: no point offering destruction
+    if (!p.inventory.length && this.destroyMode) { this.destroyMode = false; this.destroySel.clear(); }
+    tb.style.display = p.inventory.length ? '' : 'none';
     tb.textContent = this.destroyMode ? '✖ Cancel destroy' : '🗑 Destroy items';
     let db = $('destroy-confirm-btn');
     if (!db) {
