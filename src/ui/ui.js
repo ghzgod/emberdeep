@@ -1114,13 +1114,22 @@ export class UI {
       $('item-actions').classList.add('hidden');
     }
 
+    // the inventory action buttons sit in a single horizontal row
+    let row = $('inv-btn-row');
+    if (!row) {
+      row = document.createElement('div');
+      row.id = 'inv-btn-row';
+      row.style.cssText = 'display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:8px;';
+      grid.parentElement.appendChild(row);
+    }
+
     // quick "drop all commons" button — created once, shown only when commons exist
     let dc = $('drop-commons-btn');
     if (!dc) {
       dc = document.createElement('button');
       dc.id = 'drop-commons-btn';
       dc.className = 'menu-btn small';
-      grid.parentElement.appendChild(dc);
+      row.appendChild(dc);
       dc.onclick = () => { this.game.dropAllCommons(); this.renderInventory(); };
     }
     const commons = p.inventory.filter((it) => it.rarity === 'common').length;
@@ -1132,7 +1141,7 @@ export class UI {
     if (!tb) {
       tb = document.createElement('button');
       tb.id = 'destroy-toggle-btn'; tb.className = 'menu-btn small';
-      grid.parentElement.appendChild(tb);
+      row.appendChild(tb);
       tb.onclick = () => { this.destroyMode = !this.destroyMode; this.destroySel.clear(); this.renderInventory(); };
     }
     tb.textContent = this.destroyMode ? '✖ Cancel destroy' : '🗑 Destroy items';
@@ -1140,7 +1149,7 @@ export class UI {
     if (!db) {
       db = document.createElement('button');
       db.id = 'destroy-confirm-btn'; db.className = 'menu-btn small danger';
-      grid.parentElement.appendChild(db);
+      row.appendChild(db);
       db.onclick = () => this.confirmDestroy();
     }
     db.textContent = `🗑 Destroy ${this.destroySel.size}`;
