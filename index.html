@@ -111,6 +111,7 @@
     <div id="destroy-modal" class="hidden">
       <div id="destroy-card">
         <h2>🗑 Destroy items</h2>
+        <div id="destroy-warning" class="hidden"></div>
         <div id="destroy-count"></div>
         <div id="destroy-list"></div>
         <div class="buy-actions">
@@ -225,7 +226,7 @@
       <div id="equip-slots" class="equip-row"></div>
       <div id="inv-grid" class="inv-grid"></div>
       <div id="item-tooltip" class="hidden"></div>
-      <p class="hint">Tap an item for stats · Tab/Esc to close</p>
+      <p class="hint">Tap an item for stats · Ctrl-click or hold to multi-select · Tab/Esc to close</p>
     </div>
 
     <!-- Item stats panel (loose inventory item -> stats + Equip) -->
@@ -236,6 +237,7 @@
           <button id="btn-item-equip" class="menu-btn small">Equip</button>
           <button id="btn-item-sell" class="menu-btn small">Sell</button>
           <button id="btn-item-drop" class="menu-btn small">Drop</button>
+          <button id="btn-item-destroy" class="menu-btn small danger">🗑 Destroy</button>
         </div>
       </div>
     </div>
