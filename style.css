@@ -718,6 +718,13 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 #touch-mic.hidden { display: none; }
 #touch-mic:active { border-color: #7ce87c; background: rgba(40, 80, 40, 0.85); transform: scale(1.08); }
 #touch-pause { right: 14px; bottom: 232px; }
+/* Mobile portrait: lift the MP chat clear of the bottom-left rotate buttons
+   (which sit at bottom:96) and compact it so it stays out of the way. */
+@media (pointer: coarse) {
+  #chat { bottom: 164px; width: min(66vw, 300px); padding: 5px 7px 6px; }
+  #chat-recent { max-height: 20vh; }
+  #chat-title { font-size: 11px; }
+}
 
 #voice-indicator {
   position: absolute; bottom: 20px; left: 18px; font-size: 14px; color: #7ce87c;
@@ -749,6 +756,9 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   #touch-mic { left: 14px; right: auto; bottom: 74px; }
   #touch-rotl { left: 14px; bottom: 20px; font-size: 22px; }
   #touch-rotr { left: 70px; bottom: 20px; font-size: 22px; }
+  /* landscape: bottom-left is rotate (b20) + mic (b74); sit chat above them */
+  #chat { bottom: 128px; width: min(44vw, 300px); }
+  #chat-recent { max-height: 32vh; }
   #minimap { width: 84px; height: 84px; }
   #hud-topleft { width: 170px; }
   .hotbar-slot { width: 52px; height: 52px; }
