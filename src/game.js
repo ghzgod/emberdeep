@@ -48,6 +48,32 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
     this.cameraOffset = new THREE.Vector3(0, 11, 9.5);
     this.camYaw = 0; // Q/E (or touch buttons) orbit the camera around the hero
+    this.camZoom = 1; // wheel / pinch zoom, clamped; restored from settings below
+
+    // Zoom: mouse wheel (desktop) and two-finger pinch (touch) scale the camera
+    // offset. Gated to gameplay so menus keep native scrolling.
+    const clampZoom = (z) => Math.min(1.5, Math.max(0.55, z));
+    window.addEventListener('wheel', (e) => {
+      if (this.state !== 'playing') return;
+      this.camZoom = clampZoom(this.camZoom * (1 + e.deltaY * 0.0011));
+      this.settings.camZoom = +this.camZoom.toFixed(3);
+      clearTimeout(this._zoomSaveT); // debounced write, not one per wheel tick
+      this._zoomSaveT = setTimeout(() => this.saveSettings(), 800);
+    }, { passive: true });
+    this._pinch = null;
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) this._pinch = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if (this.state !== 'playing' || e.touches.length !== 2 || !this._pinch) return;
+      const d = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      this.camZoom = clampZoom(this.camZoom * (this._pinch / d));
+      this.settings.camZoom = +this.camZoom.toFixed(3);
+      this._pinch = d;
+    }, { passive: true });
+    window.addEventListener('touchend', () => { this._pinch = null; }, { passive: true });
 
     // lights
     this.ambient = new THREE.AmbientLight(0x8a7a9a, 0.55);
@@ -60,7 +86,7 @@ export class Game {
     const savedSettings = SaveManager.loadSettings();
     const firstVisit = !savedSettings;
     this.settings = Object.assign(
-      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true, voiceChatVolume: 0.9, speechVolume: 0.9,
+      { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true, voiceChatVolume: 0.9, speechVolume: 0.9, camZoom: 1,
         keybinds: { interact: 'KeyF', potion: 'KeyR', talk: 'KeyV', inventory: 'Tab', quests: 'KeyJ', mastery: 'KeyK' } },
       savedSettings || {}
     );
@@ -75,6 +101,8 @@ export class Game {
     }
     // ensure keybinds exist on older saves
     this.settings.keybinds = Object.assign({ interact: 'KeyF', potion: 'KeyR', talk: 'KeyV', inventory: 'Tab', quests: 'KeyJ', mastery: 'KeyK' }, this.settings.keybinds || {});
+    // restore the last camera zoom (clamped in case of a hand-edited value)
+    this.camZoom = Math.min(1.5, Math.max(0.55, this.settings.camZoom || 1));
     // one-time migration: settings saved before push-to-talk became the
     // default carried voiceMode:'off' that the user never chose
     if (!this.settings._v2) {
@@ -2294,7 +2322,7 @@ export class Game {
       const inSafe = this.inSafeZone(p.pos);
       if (inSafe && !this._inSafeZone) {
         this._inSafeZone = true;
-        this.ui.floaters?.spawn(p.pos, '🛡️ Safe zone — no harm can reach you', 'crit');
+        this.ui.floaters?.spawn(p.pos, '🛡️ Safe zone: no harm can reach you', 'crit');
       } else if (!inSafe) this._inSafeZone = false;
     }
 
@@ -2423,12 +2451,13 @@ export class Game {
       this.netPlayTick(dt);
     }
 
-    // ---- camera follow + orbit + shake ----
+    // ---- camera follow + orbit + zoom + shake ----
     const target = p.pos;
-    const camX = target.x + Math.sin(this.camYaw) * this.cameraOffset.z;
-    const camZ = target.z + Math.cos(this.camYaw) * this.cameraOffset.z;
+    const zoom = this.camZoom || 1; // wheel / pinch scales the whole offset
+    const camX = target.x + Math.sin(this.camYaw) * this.cameraOffset.z * zoom;
+    const camZ = target.z + Math.cos(this.camYaw) * this.cameraOffset.z * zoom;
     this.camera.position.x += (camX - this.camera.position.x) * Math.min(1, 8 * dt);
-    this.camera.position.y += (target.y + this.cameraOffset.y - this.camera.position.y) * Math.min(1, 8 * dt);
+    this.camera.position.y += (target.y + this.cameraOffset.y * zoom - this.camera.position.y) * Math.min(1, 8 * dt);
     this.camera.position.z += (camZ - this.camera.position.z) * Math.min(1, 8 * dt);
     if (this.shakeAmount > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.shakeAmount;
