@@ -1516,7 +1516,9 @@ export class Game {
   updateHeroGear(mesh, equipped, classId = 'knight') {
     if (!mesh || !equipped) return;
     const slots = ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket'];
-    const sig = classId + '|' + slots.map((s) => (equipped[s]?.rarity || '-')).join('');
+    // Key the rebuild on each item's ID (not just rarity) so swapping to a
+    // different helmet of the same rarity actually changes the look.
+    const sig = classId + '|' + slots.map((s) => equipped[s]?.id ?? '-').join(',');
     if (mesh.userData.gearSig === sig) return;
     mesh.userData.gearSig = sig;
     if (mesh.userData.gearVisual) { mesh.remove(mesh.userData.gearVisual); mesh.userData.gearVisual = null; }
@@ -1526,27 +1528,45 @@ export class Game {
       const hot = rarity === 'legendary' || rarity === 'epic';
       return new THREE.MeshStandardMaterial({ color: c, metalness: 0.5, roughness: 0.45, emissive: hot ? c : 0x000000, emissiveIntensity: rarity === 'legendary' ? 0.4 : rarity === 'epic' ? 0.22 : 0 });
     };
+    // deterministic 0..1 from an item id, so each item's piece differs a little
+    const rof = (item) => { let h = 2166136261; const s = String(item.id); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; };
     if (equipped.helmet) {
-      const m = mat(equipped.helmet.rarity);
+      const it = equipped.helmet, m = mat(it.rarity), r = rof(it);
       let helm;
-      if (classId === 'mage') { // pointed wizard hat
-        helm = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.5, 10), m); helm.position.y = 1.66; helm.rotation.z = 0.12;
-        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.36, 0.04, 12), m); brim.position.y = 1.44; grp.add(brim);
-      } else if (classId === 'ranger') { // feathered cap
+      if (classId === 'mage') { // pointed hat: height + lean vary per item
+        helm = new THREE.Mesh(new THREE.ConeGeometry(0.24 + r * 0.05, 0.42 + r * 0.2, 10), m); helm.position.y = 1.64 + r * 0.06; helm.rotation.z = 0.06 + r * 0.14;
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.37, 0.04, 12), m); brim.position.y = 1.44; grp.add(brim);
+        if (it.rarity === 'legendary' || it.rarity === 'epic') { const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.05), m); gem.position.set(0, 1.5, 0.34); grp.add(gem); }
+      } else if (classId === 'ranger') { // feathered cap: feather length + angle vary
         helm = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), m); helm.position.y = 1.5;
-        const feather = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.34, 5), new THREE.MeshStandardMaterial({ color: 0xc23b3b })); feather.position.set(0.2, 1.66, -0.05); feather.rotation.z = -0.7; grp.add(feather);
-      } else { // knight: domed steel helm with a crest
+        const feather = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.28 + r * 0.14, 5), new THREE.MeshStandardMaterial({ color: it.rarity === 'common' ? 0xc23b3b : RARITIES[it.rarity].color })); feather.position.set(0.2, 1.66, -0.05); feather.rotation.z = -0.5 - r * 0.5; grp.add(feather);
+      } else { // knight: domed helm, crest height + optional horns vary
         helm = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), m); helm.position.y = 1.5;
-        const crest = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.32), m); crest.position.y = 1.68; grp.add(crest);
+        const crest = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08 + r * 0.12, 0.3), m); crest.position.y = 1.66 + r * 0.05; grp.add(crest);
+        if (r > 0.5) { for (const sx of [-1, 1]) { const horn = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 5), m); horn.position.set(sx * 0.22, 1.6, 0); horn.rotation.z = sx * 0.7; grp.add(horn); } }
       }
       grp.add(helm);
     }
     if (equipped.chest) {
-      const m = mat(equipped.chest.rarity);
-      const pL = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), m); pL.position.set(-0.34, 1.02, 0); pL.scale.y = 0.7;
+      const it = equipped.chest, m = mat(it.rarity), r = rof(it);
+      const pL = new THREE.Mesh(new THREE.SphereGeometry(0.15 + r * 0.05, 8, 6), m); pL.position.set(-0.34, 1.02, 0); pL.scale.y = 0.7;
       const pR = pL.clone(); pR.position.x = 0.34;
-      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 0.14), m); plate.position.set(0, 0.92, 0.24);
-      grp.add(pL, pR, plate);
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.4, 0.14), m); plate.position.set(0, 0.92, 0.24);
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.16), mat(it.rarity)); trim.position.set(0, 0.72 + r * 0.06, 0.24);
+      grp.add(pL, pR, plate, trim);
+    }
+    if (equipped.legs) {
+      const m = mat(equipped.legs.rarity);
+      for (const sx of [-0.12, 0.12]) { const greave = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.16), m); greave.position.set(sx, 0.42, 0.02); grp.add(greave); }
+    }
+    if (equipped.hands) {
+      const m = mat(equipped.hands.rarity);
+      for (const sx of [-0.36, 0.36]) { const gaunt = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.14), m); gaunt.position.set(sx, 0.86, 0.06); grp.add(gaunt); }
+    }
+    if (equipped.trinket) {
+      const it = equipped.trinket, m = mat(it.rarity);
+      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.07), m); gem.position.set(0, 1.14, 0.26); grp.add(gem);
+      if (it.rarity === 'legendary' || it.rarity === 'epic') { const glow = new THREE.PointLight(RARITIES[it.rarity].color, 3, 2, 2); glow.position.set(0, 1.14, 0.3); grp.add(glow); }
     }
     mesh.add(grp);
     mesh.userData.gearVisual = grp;
