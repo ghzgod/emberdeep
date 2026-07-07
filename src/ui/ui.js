@@ -1298,7 +1298,7 @@ export class UI {
     else if (entry.kind === 'elixir') detail = `<span class="tt-stat">${entry.elixir.label}</span>`;
     else if (entry.kind === 'potion') detail = 'Restores 45% health';
     else if (entry.kind === 'bag') detail = '+3 inventory slots, forever';
-    else if (entry.kind === 'gamble') detail = 'Common… or Super Rare. Fate decides.';
+    else if (entry.kind === 'gamble') detail = 'Common… or Epic. Fate decides.';
     $('buy-stats').innerHTML = detail;
     // for gear, show how it compares to what's worn
     $('buy-compare').innerHTML = item ? (this.affinityNote(item) + this.compareNote(item)) : '';
