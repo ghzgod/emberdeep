@@ -55,9 +55,32 @@ export function normalizeForTTS(text) {
 // to freeze every rendered frame no longer drops a single one. Without this,
 // a single generate() call blocks the whole game for as long as it takes to
 // synthesize the line (multi-second on WASM q8 on slower machines).
+// The Kokoro model plus the onnxruntime-web WASM is a ~90 MB download that then
+// has to be instantiated into memory. Mobile Safari (and low-memory phones in
+// general) cannot hold that: instantiation OOMs the tab and Safari shows
+// "A problem repeatedly occurred", killing/reloading the whole game. So on
+// phones we never even attempt it: we degrade to the browser's built-in
+// speechSynthesis, which roaster.js already uses when status === 'error'.
+function isMemoryConstrainedDevice() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  // iPhone / iPod, and iPadOS Safari (which reports as "Macintosh" but has touch)
+  const iOS = /iPhone|iPod/.test(ua) || (/iPad/.test(ua))
+    || (/Macintosh/.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document);
+  // Android phones and any coarse-pointer (touch-first) device
+  const android = /Android/i.test(ua);
+  const coarse = typeof matchMedia === 'function'
+    && matchMedia('(pointer: coarse)').matches
+    && matchMedia('(max-width: 1024px)').matches;
+  // Explicitly small device memory (Chrome/Android expose navigator.deviceMemory)
+  const lowMem = typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 4;
+  return iOS || android || coarse || lowMem;
+}
+
 class NeuralVoice {
   constructor() {
     this.status = 'off';   // off | loading | ready | error
+    this.skipped = false;  // true when we deliberately skipped the heavy download
     this.tts = null;
     this.progress = 0;
     this.onStatus = null;  // UI hook
@@ -78,6 +101,16 @@ class NeuralVoice {
   async load() {
     if (this.status === 'loading' || this.status === 'ready') return this.ready;
     this.lastError = '';
+    // Never download/instantiate the heavy model on a phone: it OOM-crashes
+    // mobile Safari. Fall back to built-in speechSynthesis via the 'error'
+    // path. Requires an explicit opt-in (forceNeural) to try anyway.
+    if (isMemoryConstrainedDevice() && !this._optIn) {
+      this.skipped = true;
+      this.lastError = 'skipped on mobile to avoid an out-of-memory crash';
+      console.warn('[neural-tts] skipping neural voice download on this device; using standard voices');
+      this._set('error');
+      return false;
+    }
     this._set('loading');
     try {
       const { KokoroTTS, env } = await import('kokoro-js');
@@ -142,10 +175,17 @@ class NeuralVoice {
     }
   }
 
-  // Allow a manual retry after a failure.
-  retry() {
+  // True when this device would OOM on the neural model, so the UI can warn
+  // before offering an explicit opt-in.
+  get memoryConstrained() { return isMemoryConstrainedDevice(); }
+
+  // Allow a manual retry after a failure. force = true is the explicit user
+  // opt-in that overrides the mobile skip (the caller must warn about the risk).
+  retry(force = false) {
     if (this.status === 'error' || this.status === 'off') {
       this.status = 'off';
+      this.skipped = false;
+      if (force) this._optIn = true;
       return this.load();
     }
     return Promise.resolve(this.ready);
