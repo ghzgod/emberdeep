@@ -2312,12 +2312,69 @@ export class Game {
   }
 
   // ---------------- per-frame ----------------
+  // Choose the min gap (ms) between rendered frames: ~16.6ms (60fps) during
+  // active combat, ~33.3ms (30fps) when idle. Idle = in town, OR no living enemy
+  // near the player, OR no recent input. A short "active" window after any input
+  // or combat keeps the snap-back smooth: one input bumps us to 60fps for ~600ms
+  // so a switch from idle to action never shows a stutter.
+  _minFrameInterval(now) {
+    const FPS60 = 15;    // matches the historical ~60fps cap
+    const FPS30 = 33;    // ~30fps idle cap
+    // Only gameplay is throttled; menus/loading/title render at the smooth cap so
+    // scrolling and animations there stay crisp.
+    if (this.state !== 'playing') return FPS60;
+
+    // Any live input marks us active (checked cheaply, no new listeners).
+    const i = this.input;
+    const inputActive = i && (
+      i.mouse.down || i.mouse.clicked || i.mouse.rightDown ||
+      (i.keys && i.keys.size > 0) ||
+      this.touch?.joyActive || this.touch?.rotDir
+    );
+    if (inputActive) this._lastActiveT = now;
+
+    // Combat proximity: any living, non-idle-boss enemy within ~14 units of the
+    // player counts as engaged. Recomputed at ~5Hz to keep the per-frame cost tiny.
+    if (this._combatCheckT === undefined || now - this._combatCheckT > 200) {
+      this._combatCheckT = now;
+      this._enemyNear = this._livingEnemyNear();
+    }
+    if (this._enemyNear) this._lastActiveT = now;
+
+    const idle = !this._enemyNear && (this._lastActiveT === undefined || now - this._lastActiveT > 600);
+    return idle ? FPS30 : FPS60;
+  }
+
+  // True if a living enemy (not a still-idle one) is within combat range of the
+  // player. Also drives whether the learner keeps observing/training.
+  _livingEnemyNear() {
+    const p = this.player;
+    if (!p || p.dead || !this.enemies || this.enemies.length === 0) return false;
+    const R2 = 14 * 14;
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      if (e.isBoss && e.state === 'idle') continue;
+      const dx = e.pos.x - p.pos.x, dz = e.pos.z - p.pos.z;
+      if (dx * dx + dz * dz <= R2) return true;
+    }
+    return false;
+  }
+
+  // True if any living enemy exists on the floor (used to pause the learner).
+  _anyLivingEnemy() {
+    if (!this.enemies) return false;
+    for (const e of this.enemies) if (!e.dead) return true;
+    return false;
+  }
+
   frame(now = 0) {
-    // Cap to ~60fps. setAnimationLoop renders at the display refresh rate, so on
-    // a 120Hz/ProMotion display it would draw 120fps — double the GPU load for no
-    // visible benefit. Skipping the extra vsyncs halves GPU use on those panels.
-    // (clock.getDelta() below isn't consumed on skipped frames, so dt stays ~16ms.)
-    if (this._lastFrameT !== undefined && now - this._lastFrameT < 15) return;
+    // Cap frames adaptively. setAnimationLoop renders at the display refresh rate,
+    // so on a 120Hz/ProMotion display it would draw 120fps for no visible benefit.
+    // We hold ~60fps during active combat and drop to ~30fps when idle (in town,
+    // no living enemy near, or no recent input) to cut CPU/battery drain. Skipped
+    // vsyncs do not consume clock.getDelta(), so dt below stays sane.
+    const minGap = this._minFrameInterval(now);
+    if (this._lastFrameT !== undefined && now - this._lastFrameT < minGap) return;
     this._lastFrameT = now;
     const dt = Math.min(0.05, this.clock.getDelta());
 
@@ -2550,8 +2607,11 @@ export class Game {
     // audio listener
     audio.setListener(p.pos.x, p.pos.z);
 
-    // enemy ML observes player movement for online training
-    learner.observe(dt, p);
+    // enemy ML observes player movement for online training, but only while
+    // living enemies exist to use it. In town or on a cleared floor there is
+    // nothing to predict against, so we pause observation (and thus the worker's
+    // training) to save CPU/battery.
+    if (!this.inTown && this._anyLivingEnemy()) learner.observe(dt, p);
 
     // playstyle profile: how much of a runner is this hero? Elites use it to
     // lean harder into interception; Fenwick uses it to mock you.
