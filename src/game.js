@@ -1568,6 +1568,29 @@ export class Game {
       const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.07), m); gem.position.set(0, 1.14, 0.26); grp.add(gem);
       if (it.rarity === 'legendary' || it.rarity === 'epic') { const glow = new THREE.PointLight(RARITIES[it.rarity].color, 3, 2, 2); glow.position.set(0, 1.14, 0.3); grp.add(glow); }
     }
+    // The held weapon is skinned to the hand (animated), so we tint it in place
+    // rather than replace it: equipping a better weapon visibly recolours the
+    // one in your hand by its rarity, and a plain weapon returns to default.
+    if (!mesh.userData.weaponMats) {
+      mesh.userData.weaponMats = [];
+      mesh.traverse((o) => {
+        if (o.isMesh && o.visible && /Sword|Staff|Wand|Crossbow|Knife|Bow|Axe|Hammer|Mace|Dagger|Spear/i.test(o.name)) {
+          o.material = o.material.clone();
+          mesh.userData.weaponMats.push({ m: o.material, color: o.material.color.clone(), emi: o.material.emissive?.clone?.() });
+        }
+      });
+    }
+    const wr = equipped.weapon?.rarity;
+    for (const w of mesh.userData.weaponMats) {
+      if (wr && wr !== 'common') {
+        const c = new THREE.Color(RARITIES[wr]?.color ?? 0x8a8a8a);
+        w.m.color.copy(c);
+        if (w.m.emissive) { w.m.emissive.copy(c); w.m.emissiveIntensity = wr === 'legendary' ? 0.5 : wr === 'epic' ? 0.3 : 0.15; }
+      } else {
+        w.m.color.copy(w.color);
+        if (w.m.emissive && w.emi) { w.m.emissive.copy(w.emi); w.m.emissiveIntensity = 0; }
+      }
+    }
     mesh.add(grp);
     mesh.userData.gearVisual = grp;
   }
