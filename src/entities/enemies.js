@@ -301,8 +301,11 @@ export class Enemy {
         const pa = target.local ? (player.aimAngle || 0) : (target.aim || 0);
         const fwdX = Math.cos(pa), fwdZ = Math.sin(pa);   // target's forward
         const perpX = -fwdZ, perpZ = fwdX;                // lateral
-        // commit to whichever flank we're already nearer (rare re-picks avoid dithering)
-        if (this._flankSide === undefined || Math.random() < 0.006) {
+        // Seed the flank side by id so a pack SPLITS both ways instead of
+        // funneling single file through one doorway (which a mage just AoEs);
+        // rare re-picks toward the nearer side avoid dithering.
+        if (this._flankSide === undefined) this._flankSide = (this.netId % 2 === 0) ? 1 : -1;
+        else if (Math.random() < 0.006) {
           const s = (this.pos.x - tPos.x) * perpX + (this.pos.z - tPos.z) * perpZ;
           this._flankSide = s >= 0 ? 1 : -1;
         }
@@ -338,11 +341,23 @@ export class Enemy {
         const len = Math.hypot(dirX, dirZ) || 1;
         dirX /= len; dirZ /= len;
         const spd = this.moveSpeed;
-        const nx = this.pos.x + dirX * spd * dt;
-        const nz = this.pos.z + dirZ * spd * dt;
+        const step = spd * dt;
+        const okAt = (x, z) => game.isWalkable(x, z, this.radius) && !game.inSafeZone({ x, z }, this.radius);
         // walls block movement; the portal safe zone also repels enemies
-        if (game.isWalkable(nx, this.pos.z, this.radius) && !game.inSafeZone({ x: nx, z: this.pos.z }, this.radius)) this.pos.x = nx;
-        if (game.isWalkable(this.pos.x, nz, this.radius) && !game.inSafeZone({ x: this.pos.x, z: nz }, this.radius)) this.pos.z = nz;
+        let moved = false;
+        if (okAt(this.pos.x + dirX * step, this.pos.z)) { this.pos.x += dirX * step; moved = true; }
+        if (okAt(this.pos.x, this.pos.z + dirZ * step)) { this.pos.z += dirZ * step; moved = true; }
+        // Corner-stuck failsafe: if both axes are blocked, try slipping around by
+        // rotating the heading, so a chaser flows around a wall instead of
+        // trickling single-file through the one gap it found.
+        if (!moved) {
+          for (const a of [0.7, -0.7, 1.4, -1.4, 2.3, -2.3]) {
+            const c = Math.cos(a), s = Math.sin(a);
+            const ax = dirX * c - dirZ * s, az = dirX * s + dirZ * c;
+            const tx = this.pos.x + ax * step, tz = this.pos.z + az * step;
+            if (okAt(tx, tz)) { this.pos.x = tx; this.pos.z = tz; break; }
+          }
+        }
         break;
       }
       case 'windup': {
