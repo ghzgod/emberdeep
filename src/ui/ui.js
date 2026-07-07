@@ -283,6 +283,19 @@ export class UI {
       return;
     }
     const icons = { knight: '🛡️', mage: '🔮', ranger: '🏹' };
+    // One-click resume of the most-recently-played hero: the game you just
+    // refreshed out of. Both Single Player and Multiplayer land on this screen,
+    // so this covers "pick a mode, then Resume" for either. continueGame drops
+    // you back onto the exact dungeon floor when you were mid-run.
+    const recent = saves[0];
+    const rp = recent.data.player;
+    const rcls = CLASSES[rp.classId];
+    const where = recent.data.inDungeon ? `Floor ${recent.data.floor || 1}` : 'Embervale';
+    const resumeBtn = document.createElement('button');
+    resumeBtn.className = 'menu-btn resume-btn';
+    resumeBtn.innerHTML = `<span class="resume-play">&#9654;</span> Resume: ${rcls ? rcls.name : rp.classId} Lv ${rp.level} <span class="resume-where">${where}</span>`;
+    resumeBtn.onclick = () => { audio.play('ui_click', { volume: 0.7 }); this.game.continueGame(recent.id); };
+    wrap.appendChild(resumeBtn);
     for (const slot of saves) {
       const p = slot.data.player;
       const row = document.createElement('div');
