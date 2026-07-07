@@ -14,7 +14,9 @@ const MANIFEST = {
   fireball_cast: ['audio/fireball_cast.mp3'],
   explosion:     ['audio/explosion.mp3'],
   frost_nova:    ['audio/frost_nova.mp3'],
-  blink:         ['audio/blink.mp3'],
+  // blink is SYNTHESIZED in blinkSound() (a quick shimmer/whoosh teleport):
+  // the old sampled clip sounded wrong. No manifest entry so it isn't fetched;
+  // play('blink') is routed to the synth in play().
   arcane_storm:  ['audio/arcane_storm.mp3'],
   charge:        ['audio/charge.mp3'],
   whirlwind:     ['audio/whirlwind.mp3'],
@@ -173,10 +175,71 @@ export class AudioEngine {
     osc.stop(t + s.dur + 0.03);
   }
 
+  // Quick teleport shimmer/whoosh (synthesized, no asset). A short filtered
+  // noise whoosh sweeping upward for the "leave", a bright tri chime sweeping
+  // down for the "arrive", plus a faint high shimmer so it sparkles. ~0.34s,
+  // routed through sfxGain with the same distance attenuation as play().
+  blinkSound(opts = {}) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+    let vol = opts.volume ?? 1;
+    if (opts.pos) {
+      const dx = opts.pos.x - this.listener.x;
+      const dz = opts.pos.z - this.listener.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > AUDIBLE_RANGE) return;
+      vol *= Math.max(0, 1 - dist / AUDIBLE_RANGE) ** 1.5;
+    }
+    if (vol <= 0.01) return;
+    const out = this.sfxGain || this.ctx.destination;
+
+    // (1) whoosh: bandpassed noise sweeping up as the caster blurs away
+    const dur = 0.2;
+    const nz = this.ctx.createBufferSource(); nz.buffer = this._noise();
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.1;
+    bp.frequency.setValueAtTime(600, t);
+    bp.frequency.exponentialRampToValueAtTime(3600, t + dur);
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.12 * vol, t + 0.02);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    nz.connect(bp); bp.connect(ng); ng.connect(out);
+    nz.start(t, Math.random() * 1.5); nz.stop(t + dur + 0.02);
+
+    // (2) arrive chime: bright triangle sweeping down, snappy attack
+    const ct = t + 0.06, cdur = 0.28;
+    const osc = this.ctx.createOscillator(); osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1760, ct);
+    osc.frequency.exponentialRampToValueAtTime(660, ct + cdur);
+    const og = this.ctx.createGain();
+    og.gain.setValueAtTime(0.0001, ct);
+    og.gain.exponentialRampToValueAtTime(0.16 * vol, ct + 0.01);
+    og.gain.exponentialRampToValueAtTime(0.0001, ct + cdur);
+    osc.connect(og); og.connect(out);
+    osc.start(ct); osc.stop(ct + cdur + 0.02);
+
+    // (3) shimmer: faint high sine an octave up with quick vibrato, sparkles
+    const sh = this.ctx.createOscillator(); sh.type = 'sine';
+    sh.frequency.setValueAtTime(3520, ct);
+    sh.frequency.linearRampToValueAtTime(2640, ct + cdur);
+    const vib = this.ctx.createOscillator(); vib.type = 'sine'; vib.frequency.value = 22;
+    const vibG = this.ctx.createGain(); vibG.gain.value = 90;
+    vib.connect(vibG); vibG.connect(sh.frequency);
+    const shg = this.ctx.createGain();
+    shg.gain.setValueAtTime(0.0001, ct);
+    shg.gain.exponentialRampToValueAtTime(0.05 * vol, ct + 0.015);
+    shg.gain.exponentialRampToValueAtTime(0.0001, ct + cdur * 0.9);
+    sh.connect(shg); shg.connect(out);
+    sh.start(ct); vib.start(ct);
+    sh.stop(ct + cdur + 0.02); vib.stop(ct + cdur + 0.02);
+  }
+
   play(name, opts = {}) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     // UI blips are synthesized, not sampled — softer and more pleasant.
     if (UI_SYNTH[name]) { this._playUI(name); return; }
+    // Blink is synthesized (shimmer/whoosh teleport) rather than sampled.
+    if (name === 'blink') { this.blinkSound(opts); return; }
     const variants = MANIFEST[name];
     if (!variants) return;
 
