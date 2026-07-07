@@ -68,10 +68,14 @@ export class UI {
   // OK/confirm, false on cancel, outside-click, or Esc. Pass notice: true for
   // a single-button acknowledgement (no cancel button). danger: true reuses
   // the destroy-modal's red styling on the card and confirm button.
-  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false } = {}) {
+  // dontAsk: true adds a "Do not ask again" toggle row inside the card; when
+  // used, the promise resolves { confirmed, dontAsk } instead of a plain
+  // boolean so callers can persist the choice.
+  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false, dontAsk = false } = {}) {
     return new Promise((resolve) => {
       const modal = $('confirm-modal'), card = $('confirm-card');
       const okBtn = $('btn-confirm-ok'), cancelBtn = $('btn-confirm-cancel');
+      const dontAskRow = $('confirm-dontask-row'), dontAskBox = $('confirm-dontask');
       $('confirm-title').textContent = title;
       $('confirm-message').textContent = message;
       card.classList.toggle('danger', !!danger);
@@ -79,14 +83,16 @@ export class UI {
       okBtn.classList.toggle('danger', !!danger);
       cancelBtn.classList.toggle('hidden', !!notice);
       cancelBtn.textContent = cancelText;
+      dontAskRow.classList.toggle('hidden', !dontAsk);
+      dontAskBox.checked = false;
       modal.classList.remove('hidden');
       audio.play('ui_open');
-      const cleanup = (result) => {
+      const cleanup = (confirmed) => {
         modal.classList.add('hidden');
         okBtn.onclick = null; cancelBtn.onclick = null;
         modal.removeEventListener('click', onBackdrop);
         document.removeEventListener('keydown', onKey);
-        resolve(result);
+        resolve(dontAsk ? { confirmed, dontAsk: dontAskBox.checked } : confirmed);
       };
       const onBackdrop = (e) => { if (e.target === modal) cleanup(false); };
       const onKey = (e) => { if (e.key === 'Escape') cleanup(false); };
@@ -95,6 +101,140 @@ export class UI {
       modal.addEventListener('click', onBackdrop);
       document.addEventListener('keydown', onKey);
     });
+  }
+
+  // Shared explainer for the battery-saver tradeoff, used both for the
+  // one-time first-launch prompt (game.js boot()) and the on-demand
+  // "AI & Voice Mode" button in Settings. Applies the choice and persists
+  // batterySaverDontAsk when the player opts out of ever seeing it again.
+  //
+  // Turning battery saver OFF requires the neural (Kokoro) voices. If they
+  // were never downloaded/cached, this drives the download itself, right
+  // here in the modal, with a progress bar; a cache hit (already downloaded)
+  // applies instantly with no download step. Cancelling mid-download reverts
+  // to battery saver ON, since the voices non-battery-saver mode needs never
+  // finished loading.
+  async promptBatterySaverChoice() {
+    const s = this.game.settings;
+    const result = await this.confirmModal({
+      title: 'AI & Voice Mode',
+      message: 'OFF: smarter bosses that learn over time, and natural neural voices. ON: basic built-in voices, no learning AI, to save battery and memory.',
+      confirmText: 'Turn OFF (full AI)', cancelText: 'Keep Battery Saver ON', dontAsk: true,
+    });
+    if (result.dontAsk) { s.batterySaverDontAsk = true; this.game.saveSettings(); }
+
+    if (!result.confirmed) {
+      // Explicitly kept battery saver ON: nothing to download, just persist.
+      s.batterySaver = true;
+      this.game.saveSettings();
+      const { roaster } = await import('../ai/roaster.js');
+      roaster.batterySaver = true;
+      this.reflectBatteryStatus();
+      if (this.screens.settings.classList.contains('visible')) this.reflectNeuralStatus();
+      return;
+    }
+
+    // Player asked for full AI. Warn first on a device that would OOM on the
+    // heavy download, same safeguard the "Retry neural voices" button uses.
+    const { neuralVoice } = await import('../ai/neuralVoice.js');
+    if (neuralVoice.memoryConstrained && neuralVoice.status !== 'ready') {
+      const ok = await this.confirmModal({
+        title: 'Download neural voices?',
+        message: 'Neural voices are a large download (about 90 MB) and can crash the browser on phones and low-memory devices. Try anyway?',
+        confirmText: 'Download', cancelText: 'Keep standard', danger: true,
+      });
+      if (!ok) { this.reflectBatteryStatus(); return; } // stays on battery saver ON
+      neuralVoice._optIn = true;
+    }
+
+    // Already cached/ready: apply instantly, no download UI.
+    if (neuralVoice.ready) {
+      s.batterySaver = false;
+      this.game.saveSettings();
+      const { roaster } = await import('../ai/roaster.js');
+      roaster.batterySaver = false;
+      this.reflectBatteryStatus();
+      if (this.screens.settings.classList.contains('visible')) this.reflectNeuralStatus();
+      return;
+    }
+
+    const finished = await this.runNeuralVoiceDownload();
+    s.batterySaver = !finished; // completed -> OFF (full AI); cancelled/failed -> stays ON
+    this.game.saveSettings();
+    const { roaster } = await import('../ai/roaster.js');
+    roaster.batterySaver = s.batterySaver;
+    this.reflectBatteryStatus();
+    if (this.screens.settings.classList.contains('visible')) this.reflectNeuralStatus();
+  }
+
+  // Drives the confirm modal into a non-dismissible download-progress state
+  // (Cancel only, no OK, no backdrop/Esc close) while neuralVoice.load()
+  // fetches the Kokoro model. Resolves true once loading completes
+  // successfully, false if the player cancels or the load fails.
+  async runNeuralVoiceDownload() {
+    const { neuralVoice } = await import('../ai/neuralVoice.js');
+    return new Promise((resolve) => {
+      const modal = $('confirm-modal'), card = $('confirm-card');
+      const okBtn = $('btn-confirm-ok'), cancelBtn = $('btn-confirm-cancel');
+      const dontAskRow = $('confirm-dontask-row');
+      const progRow = $('confirm-progress-row'), progBar = $('confirm-progress-bar'), progText = $('confirm-progress-text');
+      $('confirm-title').textContent = 'Downloading neural voices…';
+      $('confirm-message').textContent = 'This is a one-time ~90 MB download, cached afterwards. Cancelling keeps Battery Saver on.';
+      card.classList.remove('danger');
+      dontAskRow.classList.add('hidden');
+      progRow.classList.remove('hidden');
+      progBar.style.width = '0%';
+      progText.textContent = 'Starting…';
+      okBtn.classList.add('hidden');
+      cancelBtn.classList.remove('hidden');
+      cancelBtn.textContent = 'Cancel';
+      modal.classList.remove('hidden');
+      audio.play('ui_open');
+
+      let settled = false;
+      const finish = (ok) => {
+        if (settled) return;
+        settled = true;
+        neuralVoice.onStatus = null;
+        modal.classList.add('hidden');
+        okBtn.classList.remove('hidden');
+        cancelBtn.onclick = null;
+        progRow.classList.add('hidden');
+        resolve(ok);
+      };
+      // No true abort API on neuralVoice (from_pretrained has no cancel hook):
+      // Cancel just stops listening/blocking here and reports "not finished".
+      // The background fetch may still complete to status 'ready' later, but
+      // roaster gates on settings.batterySaver (the caller reverts it to true
+      // on a false resolve), so a late completion is never actually used.
+      cancelBtn.onclick = () => finish(false);
+
+      neuralVoice.onStatus = (status, progress) => {
+        if (settled) return;
+        if (status === 'loading') {
+          const pct = Math.round((progress || 0) * 100);
+          progBar.style.width = `${pct}%`;
+          progText.textContent = pct > 0 ? `Downloading… ${pct}%` : 'Starting…';
+        } else if (status === 'ready') {
+          progBar.style.width = '100%';
+          progText.textContent = 'Ready';
+          finish(true);
+        } else if (status === 'error') {
+          finish(false);
+        }
+      };
+      neuralVoice.retry(true).then((ok) => { if (!settled) finish(!!ok); });
+    });
+  }
+
+  // One-line summary shown under the "AI & Voice Mode" button in Settings.
+  reflectBatteryStatus() {
+    const el = $('battery-status-hint');
+    if (!el) return;
+    const on = this.game.settings.batterySaver === true;
+    el.textContent = on
+      ? 'Battery Saver is ON: basic built-in voices, no learning AI.'
+      : 'Battery Saver is OFF: full neural voices and learning AI enabled.';
   }
 
   // ---------- menu wiring ----------
@@ -547,9 +687,86 @@ export class UI {
     }
   }
 
+  // Builds a themed, in-panel custom dropdown over a native <select id=id>
+  // (wrapped in .cselect in the HTML). The native select stays in the DOM,
+  // visually hidden, so every existing s.value read and el.onchange handler
+  // keeps working unchanged. Picking a custom option sets select.value and
+  // dispatches a real 'change' event. Fixes native <select> popups rendering
+  // off-screen on tablet/mobile inside the transformed settings panel, since
+  // the replacement list is just themed DOM positioned within the page flow.
+  // Returns a sync() function callers can invoke after setting select.value
+  // programmatically (e.g. a fallback reset) to refresh the custom label.
+  enhanceSelect(id) {
+    const select = $(id);
+    const wrap = select.closest('.cselect');
+    const trigger = wrap.querySelector('.cselect-trigger');
+    const label = wrap.querySelector('.cselect-label');
+    const list = wrap.querySelector('.cselect-list');
+    const options = Array.from(select.options);
+
+    const render = () => {
+      list.innerHTML = '';
+      options.forEach((opt) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cselect-option' + (opt.value === select.value ? ' active' : '');
+        btn.textContent = opt.textContent;
+        btn.onclick = () => {
+          select.value = opt.value;
+          select.dispatchEvent(new Event('change'));
+          sync();
+          close();
+        };
+        list.appendChild(btn);
+      });
+    };
+    const sync = () => {
+      const sel = options.find((o) => o.value === select.value);
+      label.textContent = sel ? sel.textContent : '';
+      render();
+    };
+    const open = () => {
+      document.querySelectorAll('.cselect.open').forEach((el) => { if (el !== wrap) el.classList.remove('open'); });
+      wrap.classList.add('open');
+      list.classList.remove('hidden');
+    };
+    const close = () => { wrap.classList.remove('open'); list.classList.add('hidden'); };
+    trigger.onclick = () => (wrap.classList.contains('open') ? close() : open());
+    document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) close(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    sync();
+    return sync;
+  }
+
   // ---------- settings ----------
   wireSettings() {
     const s = this.game.settings;
+    // Every volume row's % label doubles as a mute toggle: click/tap it to
+    // snap the slider to 0, remembering the prior value; click again to
+    // restore it. apply() is whatever the slider's own oninput does, so the
+    // label click goes through the exact same volume-apply path.
+    const wireMuteLabel = (el, labelEl, key, apply) => {
+      labelEl.classList.add('vol-mute-label');
+      labelEl.tabIndex = 0;
+      labelEl.setAttribute('role', 'button');
+      labelEl.title = 'Click to mute / unmute';
+      let prevPct = el.value;
+      labelEl.addEventListener('click', () => {
+        if (+el.value > 0) {
+          prevPct = el.value;
+          el.value = 0;
+        } else {
+          el.value = prevPct > 0 ? prevPct : 100;
+        }
+        s[key] = el.value / 100;
+        labelEl.textContent = `${el.value}%`;
+        apply();
+        this.game.saveSettings();
+      });
+      labelEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); labelEl.click(); }
+      });
+    };
     const bind = (id, valId, key, channel) => {
       const el = $(id);
       el.value = Math.round(s[key] * 100);
@@ -560,6 +777,7 @@ export class UI {
         audio.setVolume(channel, s[key]);
         this.game.saveSettings();
       };
+      wireMuteLabel(el, $(valId), key, () => audio.setVolume(channel, s[key]));
     };
     bind('set-master', 'set-master-val', 'masterVolume', 'master');
     bind('set-music', 'set-music-val', 'musicVolume', 'music');
@@ -576,6 +794,7 @@ export class UI {
         this.game.applyAudioSettings();
         this.game.saveSettings();
       };
+      wireMuteLabel(el, $(valId), key, () => this.game.applyAudioSettings());
     };
     bindPlain('set-vchat', 'set-vchat-val', 'voiceChatVolume');
     bindPlain('set-speech', 'set-speech-val', 'speechVolume');
@@ -603,23 +822,17 @@ export class UI {
     const q = $('set-quality');
     q.value = s.quality;
     q.onchange = () => { s.quality = q.value; this.game.applyQuality(); this.game.saveSettings(); };
+    this._syncQualitySelect = this.enhanceSelect('set-quality');
 
     const shake = $('set-shake');
     shake.checked = s.screenShake;
     shake.onchange = () => { s.screenShake = shake.checked; this.game.saveSettings(); };
 
-    // Battery saver: skip Kokoro TTS + TensorFlow.js. Voice routing flips live
-    // (roaster switches to built-in speechSynthesis); the heavy loads are boot
-    // decisions, so those parts apply on the next reload.
-    const battery = $('set-battery');
-    battery.checked = s.batterySaver === true;
-    battery.onchange = async () => {
-      s.batterySaver = battery.checked;
-      this.game.saveSettings();
-      const { roaster } = await import('../ai/roaster.js');
-      roaster.batterySaver = battery.checked;
-      if (battery.checked) this.reflectNeuralStatus();
-    };
+    // Battery saver / AI & Voice Mode: no inline toggle in Settings; the
+    // themed confirmModal explainer (also shown once on first launch) is the
+    // sole interface, reachable here via a button that reopens it on demand.
+    this.reflectBatteryStatus();
+    $('btn-ai-voice-mode').onclick = () => this.promptBatterySaverChoice();
 
     const taunts = $('set-taunts');
     taunts.checked = s.taunts !== false;
@@ -673,6 +886,7 @@ export class UI {
     vThresh.value = s.voiceThreshold;
     vVal.textContent = s.voiceThreshold;
     syncVoiceRows();
+    const syncVSel = this.enhanceSelect('set-voice');
     vSel.onchange = async () => {
       s.voiceMode = vSel.value;
       this.game.saveSettings();
@@ -689,7 +903,7 @@ export class UI {
         const ok = await this.armMicMonitor();
         if (!ok) {
           voice.disable();
-          vSel.value = 'off'; s.voiceMode = 'off'; this.game.saveSettings(); syncVoiceRows();
+          vSel.value = 'off'; s.voiceMode = 'off'; this.game.saveSettings(); syncVoiceRows(); syncVSel();
           await this.confirmModal({ title: 'No microphone', message: 'Microphone unavailable or permission denied.', notice: true });
         }
       }
@@ -991,6 +1205,7 @@ export class UI {
     $('set-sfx').value = Math.round(s.sfxVolume * 100);
     $('set-sfx-val').textContent = `${Math.round(s.sfxVolume * 100)}%`;
     $('set-quality').value = s.quality;
+    this._syncQualitySelect?.();
     $('set-shake').checked = s.screenShake;
   }
 
