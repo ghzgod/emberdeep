@@ -237,6 +237,50 @@ export class AudioEngine {
     return v;
   }
 
+  // A short vocal grunt when the hero is hit, synthesized so each class sounds
+  // like a different character: knight low and chesty, mage higher and breathy,
+  // ranger mid and terse. Routed through the SFX bus, throttled so rapid multi
+  // hits do not machine-gun the grunt.
+  classHurt(classId, opts = {}) {
+    if (!this.ctx || this.ctx.state !== 'running') return null;
+    const nowMs = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (nowMs - (this._lastGruntAt || 0) < 150) return null;
+    this._lastGruntAt = nowMs;
+    const vol = opts.volume ?? 0.7;
+    const cfg = ({
+      knight: { f0: [110, 140], f1: [66, 88], dur: [0.24, 0.32], type: 'sawtooth', noise: 0.45, nHz: 480, peak: 0.32 },
+      mage:   { f0: [225, 285], f1: [175, 210], dur: [0.18, 0.25], type: 'triangle', noise: 0.75, nHz: 1500, peak: 0.24 },
+      ranger: { f0: [180, 215], f1: [120, 150], dur: [0.13, 0.19], type: 'square', noise: 0.55, nHz: 950, peak: 0.26 },
+    })[classId] || { f0: [150, 190], f1: [100, 130], dur: [0.2, 0.27], type: 'triangle', noise: 0.55, nHz: 820, peak: 0.28 };
+    const t = this.ctx.currentTime;
+    const rnd = (a) => a[0] + Math.random() * (a[1] - a[0]);
+    const dur = rnd(cfg.dur), f0 = rnd(cfg.f0), f1 = rnd(cfg.f1), peak = cfg.peak * vol;
+    // voiced tone with a downward pitch fall
+    const osc = this.ctx.createOscillator(); osc.type = cfg.type;
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + dur);
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = f0 * 6;
+    const og = this.ctx.createGain();
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(peak, t + 0.02);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(lp); lp.connect(og); og.connect(this.sfxGain);
+    osc.start(t); osc.stop(t + dur + 0.05);
+    // breath/exhale noise band on top
+    const nbuf = this.ctx.createBuffer(1, Math.ceil((dur + 0.05) * this.ctx.sampleRate), this.ctx.sampleRate);
+    const nd = nbuf.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const nb = this.ctx.createBufferSource(); nb.buffer = nbuf;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = cfg.nHz; bp.Q.value = 0.8;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(peak * cfg.noise, t + 0.015);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.85);
+    nb.connect(bp); bp.connect(ng); ng.connect(this.sfxGain);
+    nb.start(t); nb.stop(t + dur + 0.05);
+    return classId;
+  }
+
   // (a) low hollow moan: sine/triangle sweeping slowly down ~180->90Hz with a
   // slow tremolo riding on the gain. ~2.2-2.8s, soft attack/release.
   _ghostMoanLow(vol) {
