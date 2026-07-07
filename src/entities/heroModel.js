@@ -227,21 +227,38 @@ export function buildAnimatedHero(classId, name = '') {
 
   const mesh = skeletonClone(data.scene);
   mesh.scale.setScalar(data.scale);
-  let hoodedHead = null;
+  let hoodedHead = null, headMesh = null;
   mesh.traverse((o) => {
     if (o.isMesh) {
       o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
       // Headgear is gear-driven: hide the model's baked-on hat/helmet so an
       // equipped helmet is the ONLY hat, and taking it off leaves a bare head.
       if (/_(Hat|Helmet)$/.test(o.name)) o.visible = false;
-      // The rogue's hood is welded into its head mesh instead of being a
-      // separate node, so remember it here and split it off below.
+      // Track the head so we can (a) anchor equipped helmets to its actual top
+      // and (b) split the rogue's welded-in hood off below.
+      if (/Head/i.test(o.name)) headMesh = o;
       if (o.isSkinnedMesh && /Head.*Hood|Hood.*Head|Hooded/i.test(o.name)) hoodedHead = o;
     }
   });
   // Separate the rogue hood so a helmet can replace it (see splitRogueHood).
   // Stored on userData so updateHeroGear can toggle it with the head slot.
   if (hoodedHead) mesh.userData.hood = splitRogueHood(hoodedHead);
+  // Record where the top of the VISIBLE head sits in the model's local space so
+  // updateHeroGear can seat a helmet on the crown. Each class model is a
+  // different height (head tops range ~1.9 to 2.3 local units), so a fixed
+  // offset buried the helmet inside taller heads. Measured AFTER the hood split
+  // so the rogue anchor is the real (uncovered) head top rather than the old
+  // hood crown, which would leave the helmet floating above the head.
+  if (headMesh) {
+    headMesh.geometry.computeBoundingBox();
+    const bb = headMesh.geometry.boundingBox;
+    mesh.userData.headAnchor = {
+      top: bb.max.y,
+      cx: (bb.min.x + bb.max.x) / 2,
+      cz: (bb.min.z + bb.max.z) / 2,
+      r: Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2,
+    };
+  }
   applyCosmetics(mesh, name);
 
   // fake blob shadow

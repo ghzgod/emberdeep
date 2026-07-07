@@ -6,9 +6,9 @@ const CACHE = new Map();
 // base metal, bright edge highlight, and a gem/accent colour per rarity.
 const TINT = {
   common:    { base: '#8f959d', edge: '#c6ccd4', gem: '#7c8794', glow: 'rgba(180,190,200,0.0)' },
-  rare:      { base: '#3f6bc4', edge: '#8fbaff', gem: '#4fd0ff', glow: 'rgba(80,160,255,0.35)' },
-  epic:      { base: '#8e46cf', edge: '#d29cff', gem: '#c07eff', glow: 'rgba(180,110,255,0.4)' },   // Super Rare (purple)
-  legendary: { base: '#d9832a', edge: '#ffca74', gem: '#ff9a3a', glow: 'rgba(255,150,60,0.5)' },    // Epic (orange)
+  rare:      { base: '#3f6bc4', edge: '#8fbaff', gem: '#4fd0ff', glow: 'rgba(80,160,255,0.16)' },
+  epic:      { base: '#8e46cf', edge: '#d29cff', gem: '#c07eff', glow: 'rgba(180,110,255,0.18)' },   // Super Rare (purple)
+  legendary: { base: '#d9832a', edge: '#ffca74', gem: '#ff9a3a', glow: 'rgba(255,150,60,0.24)' },    // Epic (orange)
 };
 
 function hashStr(s) {
@@ -108,7 +108,7 @@ export function makeItemIcon(item, size = 64) {
 
   // soft rarity glow behind the item
   if (item.rarity !== 'common') {
-    const g = x.createRadialGradient(32, 32, 4, 32, 32, 30);
+    const g = x.createRadialGradient(32, 32, 4, 32, 32, 22);
     g.addColorStop(0, t.glow); g.addColorStop(1, 'rgba(0,0,0,0)');
     x.fillStyle = g; x.fillRect(0, 0, 64, 64);
   }
