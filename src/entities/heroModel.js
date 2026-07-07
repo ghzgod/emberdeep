@@ -91,9 +91,26 @@ export function jitterColor(mat, rng, amount = 0.12) {
 // helmet/hood in normal play, so the skin tint and scar are mostly a "looks
 // right up close" detail; the cape/trim tints are the visible ones at the
 // game's overhead camera distance.
+// Muted, readable clothing palettes so a bare hero still looks distinct and
+// dressed. Same name always picks the same outfit, so it is consistent on
+// reload and identical for every peer who sees that hero in co-op.
+const SHIRT_COLORS = [0x9a3b3b, 0x35548f, 0x3a7048, 0x8a6a2a, 0x6a3b7a, 0x2a6a72, 0x7a4632, 0x4a4a5a, 0x8a4a5c, 0x556a34, 0x3b6a6a, 0x8a5a2a];
+const PANTS_COLORS = [0x35353f, 0x463628, 0x2a3636, 0x413228, 0x30303a, 0x3a2a2a, 0x2f3a2c, 0x2a2f3a];
+
 function applyCosmetics(mesh, name) {
   const rng = mulberry32(hashSeed(name || 'Hero'));
   let headMesh = null, capeMesh = null, trimMesh = null;
+  // Base outfit: a name-seeded shirt (torso) and pants (legs) colour so a
+  // no-gear hero is clothed and unique rather than the flat default. Tinting
+  // multiplies the model's texture (its base colour is white), so it reads as
+  // dyed cloth. Cloned per hero so it never bleeds across characters.
+  const shirt = SHIRT_COLORS[Math.floor(rng() * SHIRT_COLORS.length)];
+  const pants = PANTS_COLORS[Math.floor(rng() * PANTS_COLORS.length)];
+  mesh.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    if (/_Body$/i.test(o.name)) { o.material = o.material.clone(); o.material.color.setHex(shirt); }
+    else if (/_Leg/i.test(o.name)) { o.material = o.material.clone(); o.material.color.setHex(pants); }
+  });
   mesh.traverse((o) => {
     if (!o.isMesh || !o.material) return;
     if (/Head/i.test(o.name)) headMesh = o;
