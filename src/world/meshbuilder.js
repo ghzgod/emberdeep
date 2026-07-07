@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, WALL, DOOR, PIT, BRIDGE, RUBBLE, CHASM } from './dungeon.js';
 import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture, makeBannerTexture, makeGlowTexture, makeRuneTexture, floorRng, jitterAccentHue } from './textures.js';
+import { buildPortal } from './portal.js';
 
 // Built once per theme (cheap; avoids regenerating the canvas per banner prop).
 const _bannerTexCache = new Map();
@@ -603,44 +604,31 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   }
 
   // --- Return portal to town (dungeon floors, at the spawn point) ---
+  // A glowing swirling sphere (blue tint) that looks identical from every
+  // angle, with a swarm of particles orbiting it.
   let returnPortalMesh = null;
   if (!town && !dungeon.boss) {
     const w = tileToWorld(dungeon.spawn.x, dungeon.spawn.y);
-    returnPortalMesh = new THREE.Group();
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(0.7, 0.07, 8, 24),
-      new THREE.MeshBasicMaterial({ color: 0x4fa8d9 })
-    );
-    ring.position.y = 1.1;
-    const inner = new THREE.Mesh(
-      new THREE.CircleGeometry(0.6, 20),
-      new THREE.MeshBasicMaterial({ color: 0x123044, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
-    );
-    inner.position.y = 1.1;
-    returnPortalMesh.add(ring, inner);
-    // keep it clear of the arrival spot so nobody bounces straight back
-    returnPortalMesh.position.set(w.x, 0, w.z - 2.4);
+    const portal = buildPortal({ radius: 0.75, colorA: 0x0a2a44, colorB: 0x4fa8d9, particleCount: 60 });
+    returnPortalMesh = portal.object;
+    returnPortalMesh.position.set(w.x, 1.1, w.z - 2.4); // clear of the arrival spot so nobody bounces straight back
+    returnPortalMesh.userData.portalUpdate = portal.update;
     group.add(returnPortalMesh);
   }
 
+  // --- Dungeon portal (town square, or town-in-dungeon-view) ---
+  // Same sphere treatment in an arcane purple tint, plus a small stone base.
   let portalMesh = null;
   if (dungeon.portal) {
     const w = tileToWorld(dungeon.portal.x, dungeon.portal.y);
     portalMesh = new THREE.Group();
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(1.1, 0.12, 8, 32),
-      new THREE.MeshBasicMaterial({ color: 0xb35eff })
-    );
-    ring.position.y = 1.4;
-    const inner = new THREE.Mesh(
-      new THREE.CircleGeometry(0.98, 24),
-      new THREE.MeshBasicMaterial({ color: 0x3a1a55, transparent: true, opacity: 0.75, side: THREE.DoubleSide })
-    );
-    inner.position.y = 1.4;
+    const portal = buildPortal({ radius: 1.1, colorA: 0x2a0f55, colorB: 0xb35eff, particleCount: 84 });
+    portal.object.position.y = 1.4;
     const baseStep = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.5, 0.25, 8), new THREE.MeshStandardMaterial({ color: 0x333340, roughness: 0.9 }));
     baseStep.position.y = 0.12;
-    portalMesh.add(ring, inner, baseStep);
+    portalMesh.add(portal.object, baseStep);
     portalMesh.position.set(w.x, 0, w.z);
+    portalMesh.userData.portalUpdate = portal.update;
     group.add(portalMesh);
   }
 
