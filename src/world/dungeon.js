@@ -176,35 +176,45 @@ export function generateDungeon(floor) {
     chests.push(solidNear(r.x + randInt(1, r.w - 2), r.y + randInt(1, r.h - 2)));
   }
 
-  // Enemy spawns: every non-spawn room, count scaled by depth.
+  // Enemy spawns, count scaled by depth. Two rules keep the entrance sane no
+  // matter the archetype: (1) a CLEAR radius around the spawn/return portal is
+  // always enemy-free, so nothing (least of all a boss) greets you on the way
+  // in; (2) an open spawn hall (the cavern archetype makes the spawn room huge)
+  // still gets populated in its far reaches, so it is never a dead empty room.
   const enemies = [];
   const af = ((floor - 1) % 10) + 1;
   const minibossFloor = af === 3 || af === 6 || af === 9;
+  const CLEAR = 7; // tiles kept clear around the spawn portal
+  const farFromSpawn = (x, y) => Math.hypot(x - spawn.x, y - spawn.y) > CLEAR;
   let minibossPlaced = false;
   for (const r of rooms) {
-    if (r === spawnRoom) continue;
-    const c = roomCenter(r);
-    const distFromSpawn = Math.hypot(c.x - spawn.x, c.y - spawn.y);
-    let count = Math.min(8, randInt(2, 4) + Math.floor(Math.min(floor, 12) / 2));
+    let count = Math.min(10, randInt(2, 4) + Math.floor(Math.min(floor, 12) / 2));
     if (r === stairsRoom) count += 2;
-    for (let i = 0; i < count; i++) {
+    // a large open spawn hall should still be populated, just not at the door
+    if (r === spawnRoom) count = Math.max(count, Math.floor((r.w * r.h) / 40));
+    let placed = 0, tries = 0;
+    while (placed < count && tries < count * 8) {
+      tries++;
       const sp = solidNear(r.x + randInt(1, r.w - 2), r.y + randInt(1, r.h - 2));
+      if (!farFromSpawn(sp.x, sp.y)) continue;
       enemies.push({ x: sp.x, y: sp.y, type: pickEnemyType(floor), miniboss: false });
+      placed++;
     }
-    if (minibossFloor && !minibossPlaced && r === stairsRoom && distFromSpawn > 10) {
-      enemies.push({ x: c.x, y: c.y, type: pickEnemyType(floor), miniboss: true });
-      minibossPlaced = true;
+    if (minibossFloor && !minibossPlaced && r === stairsRoom) {
+      const c = roomCenter(r);
+      if (farFromSpawn(c.x, c.y)) { enemies.push({ x: c.x, y: c.y, type: pickEnemyType(floor), miniboss: true }); minibossPlaced = true; }
     }
   }
   if (minibossFloor && !minibossPlaced) {
-    const c = roomCenter(stairsRoom);
-    enemies.push({ x: c.x, y: c.y, type: pickEnemyType(floor), miniboss: true });
+    const sp = solidNear(stairs.x, stairs.y);
+    enemies.push({ x: sp.x, y: sp.y, type: pickEnemyType(floor), miniboss: true });
   }
 
-  // Every floor: an ELITE guards the stairs. It must die (and 70% of the
-  // floor must be culled) before the way down unlocks.
-  const sc = roomCenter(stairsRoom);
-  enemies.push({ x: sc.x + 1, y: sc.y, type: pickEnemyType(Math.min(10, floor + 1)), elite: true });
+  // Every floor: an ELITE guards the STAIRS (the actual far descend tile, which
+  // is guaranteed away from spawn, not a room center that can collapse onto it).
+  // It must die and 70% of the floor be culled before the way down unlocks.
+  const es = solidNear(stairs.x + 1, stairs.y);
+  enemies.push({ x: es.x, y: es.y, type: pickEnemyType(Math.min(10, floor + 1)), elite: true });
 
   // Environmental variety: scuff/scorch decals, rubble piles, and (floor 2+)
   // treacherous pit holes that drop you to the next floor.
