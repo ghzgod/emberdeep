@@ -149,7 +149,13 @@ export function buildAnimatedHero(classId, name = '') {
   const mesh = skeletonClone(data.scene);
   mesh.scale.setScalar(data.scale);
   mesh.traverse((o) => {
-    if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; }
+    if (o.isMesh) {
+      o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
+      // Headgear is gear-driven: hide the model's baked-on hat/helmet so an
+      // equipped helmet is the ONLY hat, and taking it off leaves a bare head.
+      // (The rogue's hood is fused into its head mesh, so it stays.)
+      if (/_(Hat|Helmet)$/.test(o.name)) o.visible = false;
+    }
   });
   applyCosmetics(mesh, name);
 
