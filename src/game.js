@@ -224,10 +224,12 @@ export class Game {
     // If a backend was pinned on a prior visit the model is already in the
     // browser cache, so this is a fast local LOAD, not a fresh download — say so
     // instead of alarming the player with "Downloading" on every refresh.
-    const voiceVerb = localStorage.getItem('emberdeep-tts-backend') ? 'Loading' : 'Downloading';
-    this.ui.setLoadingProgress(0.7, `${voiceVerb} natural voices…`);
     try {
       const { neuralVoice } = await import('./ai/neuralVoice.js');
+      // On phones the heavy model is skipped to avoid an out-of-memory crash,
+      // so don't flash a misleading "Downloading" step there.
+      const voiceVerb = localStorage.getItem('emberdeep-tts-backend') ? 'Loading' : 'Downloading';
+      if (!neuralVoice.memoryConstrained) this.ui.setLoadingProgress(0.7, `${voiceVerb} natural voices…`);
       neuralVoice.onStatus = (st, prog) => {
         if (st === 'loading') {
           const p = Math.max(0, prog || 0);
