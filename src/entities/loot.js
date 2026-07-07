@@ -9,8 +9,8 @@ import { audio } from '../core/audio.js';
 export const RARITIES = {
   common:    { name: 'Common', mult: 1.0, color: 0x9a9a9a, css: 'common', weight: 65 },
   rare:      { name: 'Rare', mult: 1.6, color: 0x4f8bd9, css: 'rare', weight: 27 },
-  epic:      { name: 'Super Rare', mult: 2.4, color: 0xa03bd9, css: 'epic', weight: 8 },
-  legendary: { name: 'Epic', mult: 4.0, color: 0xff8c1a, css: 'legendary', weight: 0 }, // pinnacle: earned only
+  epic:      { name: 'Epic', mult: 2.4, color: 0xa03bd9, css: 'epic', weight: 8 },
+  legendary: { name: 'Legendary', mult: 4.0, color: 0xff8c1a, css: 'legendary', weight: 0 }, // pinnacle: earned only
 };
 
 // Legendary uniques come in two pools:
