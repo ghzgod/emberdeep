@@ -507,6 +507,24 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #destroy-card #destroy-count { font-size: 13px; opacity: 0.85; margin-bottom: 10px; }
 #destroy-card #destroy-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 16px; font-size: 13px; }
 
+/* Generic themed confirm/notice modal, replacing native alert()/confirm() -
+   same dimmed backdrop + gradient card as #destroy-modal/#inspect-panel, with
+   a danger variant borrowing #destroy-card's red border for risky actions. */
+#confirm-modal { position: fixed; inset: 0; z-index: 65; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
+#confirm-modal.hidden { display: none; }
+#confirm-card {
+  min-width: 280px; max-width: 86vw; padding: 22px 26px; text-align: center; color: var(--parchment);
+  background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98));
+  border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35);
+}
+#confirm-card.danger {
+  background: linear-gradient(180deg, rgba(30,18,18,0.98), rgba(18,12,12,0.98));
+  border-color: #7a3030; box-shadow: 0 0 30px rgba(224,68,68,0.35);
+}
+#confirm-card h2 { font-size: 20px; margin: 0 0 10px; color: var(--gold); }
+#confirm-card p { font-size: 14px; opacity: 0.9; margin: 0 0 18px; line-height: 1.4; }
+#confirm-card .buy-actions { display: flex; gap: 10px; justify-content: center; }
+
 /* Act travel modal */
 #act-select { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
 #act-select.hidden { display: none; }

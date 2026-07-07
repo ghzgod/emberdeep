@@ -62,6 +62,39 @@ export class UI {
     this.showHud(false);
   }
 
+  // Themed replacement for native alert()/confirm(): resolves true on
+  // OK/confirm, false on cancel, outside-click, or Esc. Pass notice: true for
+  // a single-button acknowledgement (no cancel button). danger: true reuses
+  // the destroy-modal's red styling on the card and confirm button.
+  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false } = {}) {
+    return new Promise((resolve) => {
+      const modal = $('confirm-modal'), card = $('confirm-card');
+      const okBtn = $('btn-confirm-ok'), cancelBtn = $('btn-confirm-cancel');
+      $('confirm-title').textContent = title;
+      $('confirm-message').textContent = message;
+      card.classList.toggle('danger', !!danger);
+      okBtn.textContent = confirmText;
+      okBtn.classList.toggle('danger', !!danger);
+      cancelBtn.classList.toggle('hidden', !!notice);
+      cancelBtn.textContent = cancelText;
+      modal.classList.remove('hidden');
+      audio.play('ui_open');
+      const cleanup = (result) => {
+        modal.classList.add('hidden');
+        okBtn.onclick = null; cancelBtn.onclick = null;
+        modal.removeEventListener('click', onBackdrop);
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      };
+      const onBackdrop = (e) => { if (e.target === modal) cleanup(false); };
+      const onKey = (e) => { if (e.key === 'Escape') cleanup(false); };
+      okBtn.onclick = () => cleanup(true);
+      cancelBtn.onclick = () => cleanup(false);
+      modal.addEventListener('click', onBackdrop);
+      document.addEventListener('keydown', onKey);
+    });
+  }
+
   // ---------- menu wiring ----------
   wireMenus() {
     $('btn-single').onclick = () => {
@@ -97,10 +130,10 @@ export class UI {
     };
     $('btn-mp-back').onclick = () => this.show('title');
     $('btn-saves-back').onclick = () => { this.game.leaveMultiplayerLobby(); this.show('title'); };
-    $('btn-new-character').onclick = () => {
+    $('btn-new-character').onclick = async () => {
       if (!SaveManager.canCreate()) {
         $('saves-list').firstChild?.scrollIntoView();
-        alert('Save limit reached (8). Delete a hero first.');
+        await this.confirmModal({ title: 'Roster full', message: 'Save limit reached (8). Delete a hero first.', notice: true });
         return;
       }
       this.resetClassSelect();
@@ -264,9 +297,14 @@ export class UI {
         </span>
         <button class="save-del" title="Delete hero">✕</button>
       `;
-      row.querySelector('.save-del').onclick = (e) => {
+      row.querySelector('.save-del').onclick = async (e) => {
         e.stopPropagation();
-        if (confirm(`Delete this ${cls ? cls.name : 'hero'} forever?`)) {
+        const ok = await this.confirmModal({
+          title: 'Delete hero',
+          message: `Delete this ${cls ? cls.name : 'hero'} forever?`,
+          confirmText: 'Delete', danger: true,
+        });
+        if (ok) {
           SaveManager.deleteSlot(slot.id);
           this.renderSaves();
         }
@@ -548,7 +586,10 @@ export class UI {
       if (s.voiceMode === 'off') voice.disable();
       else if (net.active) {
         const ok = await voice.enable(s.voiceMode, s.voiceThreshold);
-        if (!ok) { vSel.value = 'off'; s.voiceMode = 'off'; syncVoiceRows(); alert('Microphone unavailable or permission denied.'); }
+        if (!ok) {
+          vSel.value = 'off'; s.voiceMode = 'off'; syncVoiceRows();
+          await this.confirmModal({ title: 'No microphone', message: 'Microphone unavailable or permission denied.', notice: true });
+        }
       }
       if (net.active && net.isHost) net.broadcastRoster();
     };
@@ -570,7 +611,7 @@ export class UI {
           micTestBtn.textContent = stage === 'record' ? '● Recording… (speak)' : stage === 'play' ? '▶ Playing back…' : '🎤 Test mic';
         });
       } catch {
-        alert('Microphone unavailable or permission denied.');
+        await this.confirmModal({ title: 'No microphone', message: 'Microphone unavailable or permission denied.', notice: true });
         micTestBtn.textContent = '🎤 Test mic';
       }
       micTestBtn.disabled = false;
