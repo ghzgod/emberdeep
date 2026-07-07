@@ -159,8 +159,10 @@ export class Roaster {
     return { voice, ...cast };
   }
 
-  speak(text, typeId) {
-    this.speakAs(text, this.pickVoice(typeId));
+  // anchor: optional { x, y, z } world pos of the speaker, forwarded to the
+  // neural voice so a "speaking soon" bubble can float over their head.
+  speak(text, typeId, anchor) {
+    this.speakAs(text, this.pickVoice(typeId), anchor);
   }
 
   // Compose a greeting-first NPC line: opener, then (~35% chance) the
@@ -184,14 +186,15 @@ export class Roaster {
 
   // Speak with an explicit voice cast — vendors, narrators, anyone.
   // Prefers the neural Kokoro engine when it's loaded; Web Speech otherwise.
-  speakAs(text, cast) {
+  // anchor: optional world pos of the speaker for the "speaking soon" bubble.
+  speakAs(text, cast, anchor) {
     if (!this.enabled) return;
     // Battery saver: skip Kokoro completely (no heavy import, no main-thread
     // inference) and use the built-in voices, cast male vs female per `cast`.
     if (this.batterySaver) { this._speakWebSpeech(text, cast); return; }
     import('./neuralVoice.js').then(async ({ neuralVoice }) => {
       if (neuralVoice.ready) {
-        const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1 });
+        const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1, anchor });
         if (ok) return;
       }
       // Kokoro is the only voice. While it's still downloading we stay SILENT
@@ -336,7 +339,7 @@ export class Roaster {
 
   deliver(game, elite, line) {
     game.ui.showSubtitle(elite.name || 'Elite', line, 3600);
-    this.speak(line, elite.typeId);
+    this.speak(line, elite.typeId, elite.pos);
   }
 }
 

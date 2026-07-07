@@ -244,6 +244,13 @@ export class Game {
       // so don't flash a misleading "Downloading" step there.
       const voiceVerb = localStorage.getItem('emberdeep-tts-backend') ? 'Loading' : 'Downloading';
       if (!neuralVoice.memoryConstrained) this.ui.setLoadingProgress(0.7, `${voiceVerb} natural voices…`);
+      // Float a "speaking soon" bubble over the speaker's head while their line
+      // is being synthesized (before audio starts). anchor is the world pos the
+      // caller passed to speak(); no anchor (e.g. a title-screen line) = no bubble.
+      neuralVoice.onGenerating = (active, anchor) => {
+        if (active && anchor) this.ui.floaters.showThinking(anchor);
+        else this.ui.floaters.hideThinking();
+      };
       neuralVoice.onStatus = (st, prog) => {
         if (st === 'loading') {
           const p = Math.max(0, prog || 0);
@@ -1196,7 +1203,7 @@ export class Game {
       const d = Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z);
       if (d > 18) return;
       this.ui.floaters.spawn(e.pos, `“${msg.txt}”`, 'roast', 6);
-      roaster.speak(msg.txt, msg.ty);
+      roaster.speak(msg.txt, msg.ty, e.pos);
     });
     net.on('state', (msg) => {
       if (net.isHost || !this.player) return;
