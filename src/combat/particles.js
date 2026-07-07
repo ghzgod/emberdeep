@@ -38,6 +38,56 @@ export class ParticleSystem {
     this.systems.push({ points, velocities, life, maxLife: life });
   }
 
+  // Directional cone stream (the Dungeon Lord's fire breath): particles spawn
+  // along a forward-biased cone from (x,y,z) toward dir, warm-colored and
+  // additive-blended so overlapping flame reads bright/hot rather than muddy.
+  // Reuses the same per-particle velocity/gravity/fade update loop as burst()
+  // (they're pushed into the same this.systems list); only the initial spawn
+  // shape differs, so no new update path is needed.
+  breath(x, y, z, dirX, dirZ, opts = {}) {
+    const count = opts.count ?? 40;
+    const range = opts.range ?? 8;
+    const spread = opts.spread ?? 0.35; // radians half-angle of the cone
+    const speed = opts.speed ?? 9;
+    const life = opts.life ?? 0.55;
+    const dlen = Math.hypot(dirX, dirZ) || 1;
+    dirX /= dlen; dirZ /= dlen;
+    const positions = new Float32Array(count * 3);
+    const velocities = [];
+    const colors = new Float32Array(count * 3);
+    const hot = new THREE.Color(0xfff2a8);
+    const mid = new THREE.Color(0xff9a2a);
+    const cool = new THREE.Color(0xff3a1a);
+    for (let i = 0; i < count; i++) {
+      // stagger spawn along the cone's length so it reads as a continuous
+      // stream rather than one puff, biased toward the origin (denser near
+      // the mouth, thinner further out, like a real flame jet)
+      const t = Math.pow(Math.random(), 1.6);
+      const dist = t * range * 0.3;
+      const ang = (Math.random() - 0.5) * spread * 2;
+      const cos = Math.cos(ang), sin = Math.sin(ang);
+      const px = dirX * cos - dirZ * sin;
+      const pz = dirX * sin + dirZ * cos;
+      positions[i * 3] = x + px * dist;
+      positions[i * 3 + 1] = y + (Math.random() - 0.3) * 0.3;
+      positions[i * 3 + 2] = z + pz * dist;
+      const s = speed * (0.6 + Math.random() * 0.7);
+      velocities.push(new THREE.Vector3(px * s, (Math.random() - 0.3) * 1.2, pz * s));
+      const c = Math.random() < 0.4 ? hot : Math.random() < 0.7 ? mid : cool;
+      colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const mat = new THREE.PointsMaterial({
+      size: opts.size ?? 0.32, transparent: true, opacity: 1, depthWrite: false,
+      vertexColors: true, blending: THREE.AdditiveBlending,
+    });
+    const points = new THREE.Points(geo, mat);
+    this.scene.add(points);
+    this.systems.push({ points, velocities, life, maxLife: life, noGravity: true });
+  }
+
   ring(x, y, z, radius, color) {
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, depthWrite: false });
     const mesh = new THREE.Mesh(this.ringGeo, mat);
@@ -55,7 +105,7 @@ export class ParticleSystem {
       const pos = s.points.geometry.attributes.position;
       for (let j = 0; j < s.velocities.length; j++) {
         const v = s.velocities[j];
-        v.y -= 6 * dt; // gravity
+        if (!s.noGravity) v.y -= 6 * dt; // fire breath rises/drifts instead of falling
         pos.array[j * 3] += v.x * dt;
         pos.array[j * 3 + 1] += v.y * dt;
         pos.array[j * 3 + 2] += v.z * dt;
