@@ -179,8 +179,9 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 .skills-points { font-size: 15px; opacity: 0.85; }
 .skills-points b { color: var(--gold); font-size: 18px; }
 #skills-grid {
-  display: flex; flex-direction: column; gap: 6px;
-  width: min(90vw, 440px); max-height: 56vh; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px 16px; align-items: start;
+  width: min(94vw, 800px); max-height: 64vh; overflow-y: auto;
   padding: 0 8px 18px 2px;
   /* bottom fade signals there's more to scroll */
   mask-image: linear-gradient(180deg, #000 calc(100% - 30px), transparent);
@@ -203,9 +204,10 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #skills-grid::-webkit-scrollbar-track, #quest-list::-webkit-scrollbar-track,
 #saves-list::-webkit-scrollbar-track, .shop-col > div::-webkit-scrollbar-track,
 .settings-rows::-webkit-scrollbar-track { background: #1a1424; border-radius: 4px; }
+.skill-group { display: flex; flex-direction: column; gap: 6px; break-inside: avoid; }
 .skills-branch {
   font-size: 12px; letter-spacing: 3px; text-transform: uppercase; opacity: 0.6;
-  margin-top: 8px; text-align: left;
+  margin-top: 4px; text-align: left;
 }
 .skill-row {
   display: flex; gap: 12px; align-items: center; text-align: left;
@@ -614,8 +616,15 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 h4.tt-rare { color: #6fa8ff; }
 h4.tt-epic { color: #c77aff; }
 h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
+.shop-item.r-rare .shop-item-name { color: #6fa8ff; }
+.shop-item.r-epic .shop-item-name { color: #c77aff; }
 .shop-item.r-legendary .shop-item-name { color: #ffab4a; }
 #item-tooltip .tt-stat { color: #9fd89f; }
+/* Readability guard: the vendor, mystery-relic and buy panels sit on dark purple
+   backgrounds, so their default text is light parchment. Never black on purple.
+   Rarity names/prices set their own brighter colours above. */
+#shop-panel, #relic-card, #buy-card, #inspect-card, #act-card,
+#relic-reveal, #buy-confirm { color: var(--parchment); }
 
 /* ---------- Settings ---------- */
 #settings-screen { background: rgba(6, 4, 10, 0.94); }
