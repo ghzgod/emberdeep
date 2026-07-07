@@ -664,6 +664,10 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   // (Room-center "rug" rings were removed — their faint ring outline read as a
   //  stray portal ring in every large room. The only ring is the real portal.)
   const breakables = (!town && dungeon.props?.length) ? buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, floorAccent, frng) : [];
+  // --- Cathedral archetype dressing: pew benches (breakable) + altar ---
+  if (!town && dungeon.archetype === 'cathedral' && dungeon.naveRoom) {
+    buildCathedralDressing(group, dungeon, theme, torchPositions, breakables);
+  }
   // atmospheric particles drifting through the dungeon air — kind and motion
   // themed per act (dust/spores/embers/wisps/bubbles), density per floor.
   // Still driven entirely by the existing puff.kind === 'mote' update path in
@@ -1070,6 +1074,72 @@ function buildRoomRugs(group, dungeon, theme) {
     ring.rotation.x = -Math.PI / 2; ring.position.set(w.x, 0.04, w.z);
     group.add(rug, ring);
   }
+}
+
+// Gothic cathedral archetype dressing: breakable pew benches down the nave
+// and an altar (dais + candle flames + a glowing arch window on the far
+// wall) at the far end. Columns/colonnades are just isolated WALL tiles the
+// generator carved, so they render for free through the normal wall mesh.
+function buildCathedralDressing(group, dungeon, theme, torchPositions, breakables) {
+  const woodMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 });
+  const benchSeatGeo = new THREE.BoxGeometry(0.9, 0.12, 0.4);
+  const benchBackGeo = new THREE.BoxGeometry(0.9, 0.5, 0.08);
+  const legGeo = new THREE.BoxGeometry(0.06, 0.28, 0.06);
+  for (const p of dungeon.pews) {
+    const w = tileToWorld(p.x, p.y);
+    const bench = new THREE.Group();
+    const seat = new THREE.Mesh(benchSeatGeo, woodMat); seat.position.y = 0.28; bench.add(seat);
+    const back = new THREE.Mesh(benchBackGeo, woodMat); back.position.set(0, 0.5, -0.16); bench.add(back);
+    for (const lx of [-0.38, 0.38]) { const leg = new THREE.Mesh(legGeo, woodMat); leg.position.set(lx, 0.14, 0.1); bench.add(leg); }
+    bench.position.set(w.x, 0, w.z);
+    bench.rotation.y = p.r;
+    group.add(bench);
+    breakables.push({ mesh: bench, x: w.x, z: w.z, kind: 'pew' });
+  }
+
+  // altar: raised stone dais + a pair of candle flames (registered as real
+  // torch lights so they flicker/glow through the existing pooled system)
+  const altarW = tileToWorld(dungeon.altar.x, dungeon.altar.y);
+  const daisMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(theme.wall).multiplyScalar(0.85), roughness: 0.9 });
+  const dais = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.3, 1.0), daisMat);
+  dais.position.set(altarW.x, 0.15, altarW.z);
+  group.add(dais);
+  const altarTop = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.5, 0.7), daisMat);
+  altarTop.position.set(altarW.x, 0.55, altarW.z);
+  group.add(altarTop);
+  const flameGeo = new THREE.SphereGeometry(0.09, 8, 6);
+  const flameMat = new THREE.MeshBasicMaterial({ color: theme.accent });
+  for (const dx of [-0.45, 0.45]) {
+    const holder = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.3, 6), daisMat);
+    holder.position.set(altarW.x + dx, 0.95, altarW.z);
+    group.add(holder);
+    const flame = new THREE.Mesh(flameGeo, flameMat);
+    flame.position.set(altarW.x + dx, 1.14, altarW.z);
+    group.add(flame);
+    const flameGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture(), color: theme.accent, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.6,
+    }));
+    flameGlow.scale.setScalar(0.5); flameGlow.position.copy(flame.position); group.add(flameGlow);
+    torchPositions.push({ x: flame.position.x, y: flame.position.y, z: flame.position.z, flame, glow: flameGlow });
+  }
+
+  // a large glowing pointed-arch window on the wall behind the altar
+  const naveRoom = dungeon.naveRoom;
+  const wallTile = tileToWorld(dungeon.altar.x, naveRoom.y - 1);
+  const winShape = new THREE.Shape();
+  winShape.moveTo(-0.7, 0);
+  winShape.lineTo(-0.7, 1.6);
+  winShape.quadraticCurveTo(0, 2.6, 0.7, 1.6);
+  winShape.lineTo(0.7, 0);
+  winShape.closePath();
+  const winGeo = new THREE.ShapeGeometry(winShape);
+  const winMat = new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.85, side: THREE.DoubleSide, fog: false });
+  const windowMesh = new THREE.Mesh(winGeo, winMat);
+  windowMesh.position.set(wallTile.x, 1.0, wallTile.z + 0.95);
+  group.add(windowMesh);
+  const winLight = new THREE.PointLight(theme.accent, 8, 6, 2);
+  winLight.position.set(wallTile.x, 2.0, wallTile.z + 0.5);
+  group.add(winLight);
 }
 
 // Wall-hugging themed clutter. Braziers/candelabra register as torch lights so

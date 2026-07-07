@@ -4,7 +4,23 @@ export const VOID = 0, FLOOR = 1, WALL = 2, DOOR = 3, PIT = 4, CHASM = 5, BRIDGE
 // CHASM = impassable dark abyss; BRIDGE = walkable plank over a chasm;
 // RUBBLE = a broken/crumbled wall (still blocks, rendered as debris).
 
+import { floorRng } from './textures.js';
+
 const GRID = 48;
+
+// Not every floor should be the same brick-wall maze. An archetype is picked
+// deterministically per floor (so revisiting a floor keeps its character)
+// and only shapes room layout + dressing — corridors, doors, walls, and the
+// spawn/stairs pathing logic downstream are identical regardless of which
+// archetype carved the rooms.
+function pickArchetype(floor) {
+  const rng = floorRng(floor);
+  const roll = rng();
+  if (roll < 0.58) return 'standard';
+  if (roll < 0.74) return 'cavern';
+  if (roll < 0.88) return 'cathedral';
+  return 'courtyard';
+}
 
 function rand(min, max) { return min + Math.random() * (max - min); }
 function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
@@ -25,22 +41,11 @@ export function generateDungeon(floor) {
 
   const grid = Array.from({ length: GRID }, () => new Array(GRID).fill(VOID));
   const rooms = [];
-  const roomCount = randInt(8, 14);
-  let attempts = 0;
-  while (rooms.length < roomCount && attempts < 300) {
-    attempts++;
-    const w = randInt(5, 9), h = randInt(5, 9);
-    const room = { x: randInt(2, GRID - w - 3), y: randInt(2, GRID - h - 3), w, h };
-    if (rooms.some((r) => roomsOverlap(room, r))) continue;
-    rooms.push(room);
-  }
-
-  // Carve rooms
-  for (const r of rooms) {
-    for (let y = r.y; y < r.y + r.h; y++)
-      for (let x = r.x; x < r.x + r.w; x++)
-        grid[y][x] = FLOOR;
-  }
+  const archetype = pickArchetype(floor);
+  const decor = { archetype };
+  if (archetype === 'cavern') generateCavernRooms(grid, rooms, decor);
+  else if (archetype === 'cathedral') generateCathedralRooms(grid, rooms, decor);
+  else generateStandardRooms(grid, rooms);
 
   // Connect each room to the next (sorted for locality) with L corridors.
   const sorted = [...rooms].sort((a, b) => (a.x + a.y) - (b.x + b.y));
@@ -72,6 +77,22 @@ export function generateDungeon(floor) {
   const spawn = roomCenter(spawnRoom);
   const stairs = roomCenter(stairsRoom);
 
+  // Never drop the descend stairs on top of the spawn / return-to-town portal.
+  // Open archetypes (one big cavern hall) collapse the farthest-room pair to a
+  // single point, so if spawn and stairs land close, push the stairs to the
+  // farthest floor tile instead (the opposite end of the open space).
+  if (Math.hypot(spawn.x - stairs.x, spawn.y - stairs.y) < 10) {
+    let far = stairs, fd = -1;
+    for (let y = 1; y < GRID - 1; y++) {
+      for (let x = 1; x < GRID - 1; x++) {
+        if (grid[y][x] !== FLOOR) continue;
+        const d = (x - spawn.x) ** 2 + (y - spawn.y) ** 2;
+        if (d > fd) { fd = d; far = { x, y }; }
+      }
+    }
+    stairs.x = far.x; stairs.y = far.y;
+  }
+
   // Doors: narrow corridor tiles adjacent to a room edge (subset, for flavor).
   const doors = pickDoors(grid, doorSpots, spawn, stairs);
   for (const d of doors) grid[d.y][d.x] = DOOR;
@@ -79,7 +100,7 @@ export function generateDungeon(floor) {
   // Carve chasms with plank BRIDGES across a couple of large rooms — a dark
   // abyss below, crossed by a plus-shaped walkway so the room stays passable.
   const chasmRooms = rooms.filter((r) =>
-    r !== spawnRoom && r !== stairsRoom && r.w >= 7 && r.h >= 7);
+    r !== spawnRoom && r !== stairsRoom && r !== decor.naveRoom && r !== decor.hallRoom && r.w >= 7 && r.h >= 7);
   shuffle(chasmRooms);
   const chasmTiles = [], bridgeTiles = [];
   for (const r of chasmRooms.slice(0, floor >= 2 ? 2 : 1)) {
@@ -103,6 +124,30 @@ export function generateDungeon(floor) {
         // only crumble walls that border floor, for visible destruction
         const bordersFloor = [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) => grid[y+dy]?.[x+dx] === FLOOR || grid[y+dy]?.[x+dx] === BRIDGE);
         if (bordersFloor) { grid[y][x] = RUBBLE; rubbleWalls.push({ x, y }); }
+      }
+    }
+  }
+
+  // Ruined courtyard archetype: one room gets most of its perimeter walls
+  // crumbled to half-height rubble (still blocks movement, but the camera
+  // reads over it), so it feels like a broken-open ruin rather than a maze
+  // room. Extra interior rubble piles are added later once that array exists.
+  let courtyardRoom = null, courtyardExtraRubble = [];
+  if (archetype === 'courtyard') {
+    courtyardRoom = rooms.find((r) => r !== spawnRoom && r !== stairsRoom) || null;
+    if (courtyardRoom) {
+      const r = courtyardRoom;
+      for (let y = r.y - 1; y <= r.y + r.h; y++) {
+        for (let x = r.x - 1; x <= r.x + r.w; x++) {
+          if (grid[y]?.[x] !== WALL) continue;
+          const onPerimeter = y === r.y - 1 || y === r.y + r.h || x === r.x - 1 || x === r.x + r.w;
+          if (!onPerimeter) continue;
+          if (rand(0, 1) < 0.55) { grid[y][x] = RUBBLE; rubbleWalls.push({ x, y }); }
+        }
+      }
+      for (let i = 0; i < 6; i++) {
+        const rx = r.x + randInt(1, r.w - 2), ry = r.y + randInt(1, r.h - 2);
+        if (grid[ry]?.[rx] === FLOOR) courtyardExtraRubble.push({ x: rx, y: ry });
       }
     }
   }
@@ -187,6 +232,7 @@ export function generateDungeon(floor) {
   //  "shadows" not cast by anything. Floor variety comes from the texture,
   //  room rugs and props instead.)
   rubble.push(...take(8, 3));
+  rubble.push(...courtyardExtraRubble);
   // (pit-fall traps removed — they yanked you to the next floor)
 
   // Decorative props that HUG the walls: themed clutter so rooms feel lived-in.
@@ -215,7 +261,131 @@ export function generateDungeon(floor) {
   }
 
   return { grid, size: GRID, rooms, spawn, stairs, torches, chests, doors, enemies, boss: null,
-    scuffs, rubble, pits, props, chasmTiles, bridgeTiles, rubbleWalls };
+    scuffs, rubble, pits, props, chasmTiles, bridgeTiles, rubbleWalls,
+    archetype, columns: decor.columns || [], pews: decor.pews || [], altar: decor.altar || null,
+    naveRoom: decor.naveRoom || null };
+}
+
+// ---------------- Architecture archetypes ----------------
+
+// The familiar room-scatter maze: small-to-medium rooms placed without
+// overlap, connected by corridors afterward.
+function generateStandardRooms(grid, rooms) {
+  const roomCount = randInt(8, 14);
+  let attempts = 0;
+  while (rooms.length < roomCount && attempts < 300) {
+    attempts++;
+    const w = randInt(5, 9), h = randInt(5, 9);
+    const room = { x: randInt(2, GRID - w - 3), y: randInt(2, GRID - h - 3), w, h };
+    if (rooms.some((r) => roomsOverlap(room, r))) continue;
+    rooms.push(room);
+  }
+  for (const r of rooms) {
+    for (let y = r.y; y < r.y + r.h; y++)
+      for (let x = r.x; x < r.x + r.w; x++)
+        grid[y][x] = FLOOR;
+  }
+}
+
+// A large open hall (most of the grid) plus a few small alcove rooms so
+// spawn/stairs/chests still have distinct anchor points, with freestanding
+// columns scattered through the open floor for "sparse interior walls."
+// Columns are just isolated WALL tiles — they render for free through the
+// normal wall InstancedMesh and already block/path correctly.
+function generateCavernRooms(grid, rooms, decor) {
+  const hall = {
+    x: 4 + randInt(0, 2), y: 4 + randInt(0, 2),
+    w: GRID - 12 - randInt(0, 4), h: GRID - 12 - randInt(0, 4),
+  };
+  rooms.push(hall);
+  const alcoveCount = randInt(2, 3);
+  let attempts = 0;
+  while (rooms.length < 1 + alcoveCount && attempts < 200) {
+    attempts++;
+    const w = randInt(5, 8), h = randInt(5, 8);
+    const room = { x: randInt(2, GRID - w - 3), y: randInt(2, GRID - h - 3), w, h };
+    if (rooms.some((r) => roomsOverlap(room, r))) continue;
+    rooms.push(room);
+  }
+  for (const r of rooms) {
+    for (let y = r.y; y < r.y + r.h; y++)
+      for (let x = r.x; x < r.x + r.w; x++)
+        grid[y][x] = FLOOR;
+  }
+  const columns = [];
+  const columnTarget = Math.floor((hall.w * hall.h) / 30);
+  let cAttempts = 0;
+  while (columns.length < columnTarget && cAttempts < columnTarget * 10) {
+    cAttempts++;
+    const cx = hall.x + 3 + randInt(0, hall.w - 7);
+    const cy = hall.y + 3 + randInt(0, hall.h - 7);
+    if (grid[cy]?.[cx] !== FLOOR) continue;
+    if (columns.some((c) => Math.abs(c.x - cx) + Math.abs(c.y - cy) < 4)) continue;
+    grid[cy][cx] = WALL;
+    columns.push({ x: cx, y: cy });
+  }
+  decor.columns = columns;
+  decor.hallRoom = hall;
+}
+
+// A gothic cathedral: one long nave room with a colonnade down each side
+// (gaps let you cross into the "aisle"), breakable pew benches down the
+// centre, and an altar at the north end. A couple of smaller rooms elsewhere
+// keep spawn/stairs distinct from the nave itself.
+function generateCathedralRooms(grid, rooms, decor) {
+  const naveW = randInt(9, 11), naveH = randInt(20, 26);
+  const nave = {
+    x: randInt(4, GRID - naveW - 4),
+    y: randInt(3, GRID - naveH - 6),
+    w: naveW, h: naveH,
+  };
+  rooms.push(nave);
+  for (let y = nave.y; y < nave.y + nave.h; y++)
+    for (let x = nave.x; x < nave.x + nave.w; x++)
+      grid[y][x] = FLOOR;
+
+  const extraCount = randInt(2, 3);
+  let attempts = 0;
+  while (rooms.length < 1 + extraCount && attempts < 200) {
+    attempts++;
+    const w = randInt(5, 8), h = randInt(5, 8);
+    const room = { x: randInt(2, GRID - w - 3), y: randInt(2, GRID - h - 3), w, h };
+    if (rooms.some((r) => roomsOverlap(room, r))) continue;
+    rooms.push(room);
+  }
+  for (const r of rooms) {
+    if (r === nave) continue;
+    for (let y = r.y; y < r.y + r.h; y++)
+      for (let x = r.x; x < r.x + r.w; x++)
+        grid[y][x] = FLOOR;
+  }
+
+  // colonnades: a column two tiles in from each side wall, running the
+  // nave's length with a gap every 4th tile to cross into the side aisle
+  const columns = [];
+  const inset = 2;
+  for (let y = nave.y + 2; y < nave.y + nave.h - 2; y++) {
+    if ((y - nave.y) % 4 === 0) continue;
+    for (const cx of [nave.x + inset, nave.x + nave.w - 1 - inset]) {
+      grid[y][cx] = WALL;
+      columns.push({ x: cx, y });
+    }
+  }
+
+  // pew rows down the centre aisle, breakable like barrels/crates
+  const pews = [];
+  for (let y = nave.y + 3; y < nave.y + nave.h - 6; y += 2) {
+    for (const px of [nave.x + inset + 2, nave.x + nave.w - 1 - inset - 2]) {
+      pews.push({ x: px, y, r: (px < nave.x + nave.w / 2) ? 0 : Math.PI });
+    }
+  }
+
+  const altar = { x: nave.x + Math.floor(nave.w / 2), y: nave.y + 2 };
+
+  decor.columns = columns;
+  decor.pews = pews;
+  decor.altar = altar;
+  decor.naveRoom = nave;
 }
 
 function carveCorridor(grid, a, b, horizFirst, doorSpots) {
