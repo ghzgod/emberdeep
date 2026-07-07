@@ -44,6 +44,17 @@ export function normalizeForTTS(text) {
 // onnxruntime-web build is the *threaded* WASM, which needs SharedArrayBuffer
 // and silently stalls without it. We therefore force numThreads = 1 so ORT
 // loads the single-threaded WASM, and prefer WebGPU when present.
+//
+// proxy = true moves WASM inference (session create + every generate() run)
+// onto a dedicated Web Worker instead of the main thread. This does NOT need
+// SharedArrayBuffer -- that's only required for numThreads > 1 (real pthreads
+// sharing memory); the proxy worker just gets messages posted to it, same as
+// any other Worker. Verified against the real kokoro-js/onnxruntime-web build
+// in both `vite dev` and a `vite build` + `vite preview` bundle: the worker
+// loads and runs fine in both, and a multi-hundred-ms WASM inference that used
+// to freeze every rendered frame no longer drops a single one. Without this,
+// a single generate() call blocks the whole game for as long as it takes to
+// synthesize the line (multi-second on WASM q8 on slower machines).
 class NeuralVoice {
   constructor() {
     this.status = 'off';   // off | loading | ready | error
@@ -54,6 +65,7 @@ class NeuralVoice {
     this._current = null;
     this._busy = false;
     this._cache = new Map(); // key: voice|speed|text -> { audio, sr }
+    this._combatBusy = false; // set via reportCombatLoad(); gates fresh generation only
   }
 
   get ready() { return this.status === 'ready'; }
@@ -70,10 +82,11 @@ class NeuralVoice {
     try {
       const { KokoroTTS, env } = await import('kokoro-js');
 
-      // Single-threaded WASM: works everywhere, no SharedArrayBuffer needed.
+      // Single-threaded WASM, proxied to a Worker: works everywhere (no
+      // SharedArrayBuffer needed) and keeps generate() off the main thread.
       try {
         env.backends.onnx.wasm.numThreads = 1;
-        env.backends.onnx.wasm.proxy = false;
+        env.backends.onnx.wasm.proxy = true;
       } catch { /* env shape changed; best-effort */ }
 
       // WebGPU FIRST when available: generation is ~10x faster than WASM q8
@@ -138,6 +151,14 @@ class NeuralVoice {
     return Promise.resolve(this.ready);
   }
 
+  // Called by whoever tracks the fight (enemy count near the player) so speak()
+  // can defer fresh generation to a calmer moment instead of piling worker/tensor
+  // overhead onto an already-busy frame. Cached lines still play instantly either
+  // way -- only the (slow) model call is deferred.
+  reportCombatLoad(nearbyEnemyCount) {
+    this._combatBusy = nearbyEnemyCount > 8;
+  }
+
   async speak(text, { voice = 'af_heart', speed = 1 } = {}) {
     if (!this.ready) return false;
     const clean = normalizeForTTS(text);
@@ -148,6 +169,11 @@ class NeuralVoice {
     // This is what makes repeated barks/vendor lines feel snappy.
     const cached = this._cache.get(key);
     if (cached) return this._playPcm(cached.audio, cached.sr);
+
+    // A fresh line needs a real generate() call. Skip it (rather than pile onto
+    // an already-heavy fight) if the fight is heavy right now; the next calm
+    // moment will pick it back up for whatever line comes next.
+    if (this._combatBusy) return false;
 
     if (this._busy) return false; // a generation is already in flight
     this._busy = true;

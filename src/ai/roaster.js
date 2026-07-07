@@ -249,6 +249,13 @@ export class Roaster {
 
   update(dt, game) {
     if (!this.enabled || !game.player || game.inTown) return;
+    // Tell the neural voice how hot the fight is: it skips a fresh (expensive)
+    // TTS generation while a big melee is underway, deferring to a calm moment.
+    if (game.player) {
+      const pp = game.player.pos;
+      const near = game.enemies.reduce((n, e) => (!e.dead && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) <= 12 ? n + 1 : n), 0);
+      import('./neuralVoice.js').then(({ neuralVoice }) => neuralVoice.reportCombatLoad?.(near)).catch(() => {});
+    }
     // One-time foul greeting the moment you get near a mob leader (host talks).
     if (!net.active || net.isHost) {
       const p = game.player;
