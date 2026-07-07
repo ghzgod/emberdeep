@@ -25,6 +25,7 @@ import { ParticleSystem } from './combat/particles.js';
 import { UI } from './ui/ui.js';
 import { learner } from './ai/learner.js';
 import { roaster } from './ai/roaster.js';
+import { isMemoryConstrainedDevice } from './ai/neuralVoice.js';
 import { STORIES } from './story.js';
 import { generateTavernInterior, buildTavernInterior } from './world/tavern.js';
 import { Wanderer } from './entities/wanderer.js';
@@ -99,6 +100,13 @@ export class Game {
         sfxVolume: +db(-6).toFixed(2), musicVolume: +db(-12).toFixed(2), masterVolume: 0.85,
       });
     }
+    // Battery saver: skip the heavy in-browser ML (TensorFlow.js movement net)
+    // and the neural Kokoro TTS, using the browser's built-in speechSynthesis
+    // instead. Default ON for memory-constrained / mobile devices (which would
+    // OOM-crash on Kokoro anyway) when the player has never chosen a value.
+    if (typeof this.settings.batterySaver !== 'boolean') {
+      this.settings.batterySaver = isMemoryConstrainedDevice();
+    }
     // ensure keybinds exist on older saves
     this.settings.keybinds = Object.assign({ interact: 'KeyF', potion: 'KeyR', talk: 'KeyV', inventory: 'Tab', quests: 'KeyJ', mastery: 'KeyK' }, this.settings.keybinds || {});
     // restore the last camera zoom (clamped in case of a hand-edited value)
@@ -118,6 +126,7 @@ export class Game {
 
     this.playerModule = { xpForLevel };
     roaster.enabled = this.settings.taunts !== false;
+    roaster.batterySaver = this.settings.batterySaver === true;
     this.applyAudioSettings();
     this.particles = new ParticleSystem(this.scene);
     this._glowTex = makeGlowTexture(); // shared additive glow sprite (impact flashes, flames)
@@ -214,7 +223,8 @@ export class Game {
       await audio.loadAll((f) => this.ui.setLoadingProgress(0.4 + f * 0.3, 'Summoning sounds…'));
     }
     // Enemy movement-learning net loads in the background (non-blocking).
-    learner.init();
+    // Battery saver skips TensorFlow.js entirely; enemies fall back to base AI.
+    if (!this.settings.batterySaver) learner.init();
 
     // Neural character voices (Kokoro, ~90 MB) download as the FINAL loading
     // phase so their progress shows in the loading bar. Soft-capped at 30s: if
@@ -224,7 +234,11 @@ export class Game {
     // If a backend was pinned on a prior visit the model is already in the
     // browser cache, so this is a fast local LOAD, not a fresh download — say so
     // instead of alarming the player with "Downloading" on every refresh.
+    // Battery saver never touches Kokoro: no download, no main-thread inference,
+    // so the dungeon TTS freeze cannot happen. Characters speak via the built-in
+    // speechSynthesis path in roaster.js instead.
     try {
+      if (this.settings.batterySaver) throw new Error('battery-saver');
       const { neuralVoice } = await import('./ai/neuralVoice.js');
       // On phones the heavy model is skipped to avoid an out-of-memory crash,
       // so don't flash a misleading "Downloading" step there.

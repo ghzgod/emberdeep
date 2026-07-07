@@ -608,6 +608,19 @@ export class UI {
     shake.checked = s.screenShake;
     shake.onchange = () => { s.screenShake = shake.checked; this.game.saveSettings(); };
 
+    // Battery saver: skip Kokoro TTS + TensorFlow.js. Voice routing flips live
+    // (roaster switches to built-in speechSynthesis); the heavy loads are boot
+    // decisions, so those parts apply on the next reload.
+    const battery = $('set-battery');
+    battery.checked = s.batterySaver === true;
+    battery.onchange = async () => {
+      s.batterySaver = battery.checked;
+      this.game.saveSettings();
+      const { roaster } = await import('../ai/roaster.js');
+      roaster.batterySaver = battery.checked;
+      if (battery.checked) this.reflectNeuralStatus();
+    };
+
     const taunts = $('set-taunts');
     taunts.checked = s.taunts !== false;
     taunts.onchange = async () => {
@@ -912,6 +925,15 @@ export class UI {
   }
 
   reflectNeuralStatus() {
+    // Battery saver bypasses the neural engine entirely: show that instead of a
+    // load state, and don't offer a "retry neural voices" that would ignore it.
+    if (this.game.settings.batterySaver === true) {
+      $('voice-engine-status').classList.remove('hidden');
+      $('voice-engine-status').textContent = 'Battery saver on. Using your browser\'s built-in voices.';
+      $('voice-engine-bar').classList.add('hidden');
+      $('btn-voice-retry').classList.add('hidden');
+      return;
+    }
     import('../ai/neuralVoice.js').then(({ neuralVoice }) => {
       if (neuralVoice.status === 'ready') {
         $('voice-engine-status').classList.remove('hidden');

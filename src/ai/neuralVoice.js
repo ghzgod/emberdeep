@@ -61,7 +61,7 @@ export function normalizeForTTS(text) {
 // "A problem repeatedly occurred", killing/reloading the whole game. So on
 // phones we never even attempt it: we degrade to the browser's built-in
 // speechSynthesis, which roaster.js already uses when status === 'error'.
-function isMemoryConstrainedDevice() {
+export function isMemoryConstrainedDevice() {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
   // iPhone / iPod, and iPadOS Safari (which reports as "Macintosh" but has touch)
@@ -218,6 +218,14 @@ class NeuralVoice {
     if (this._busy) return false; // a generation is already in flight
     this._busy = true;
     try {
+      // Yield one full frame before kicking off generate(). The WASM backend is
+      // proxied to a Worker (env...wasm.proxy = true) so its inference never
+      // blocks the main thread, but the JS G2P/phonemize step and (on the
+      // WebGPU backend) the GPU dispatch still run on the main thread. Deferring
+      // to the next animation frame lets the in-flight render frame finish and
+      // paint first, so a fresh line can't stall the frame that requested it.
+      await new Promise((r) => (typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame(() => r()) : setTimeout(r, 0)));
       const result = await this.tts.generate(clean, { voice, speed });
       this._cache.set(key, { audio: result.audio, sr: result.sampling_rate });
       if (this._cache.size > 80) this._cache.delete(this._cache.keys().next().value);
