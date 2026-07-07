@@ -124,7 +124,14 @@ export class MovementLearner {
     const xs = tf.tensor2d(this.buffer.map((s) => s.x));
     const ys = tf.tensor2d(this.buffer.map((s) => s.y));
     try {
-      await this.model.fit(xs, ys, { epochs: 2, batchSize: 64, shuffle: true, verbose: 0 });
+      // yieldEvery: 'batch' hands control back to the browser (via tf.nextFrame())
+      // after every batch instead of running the whole fit() synchronously. The
+      // model is tiny (~350 params) so each batch is sub-millisecond; without this
+      // the default 'auto' yield threshold doesn't kick in for a job this short,
+      // and the entire multi-batch fit ran as one uninterrupted main-thread block
+      // (measured ~10-30ms per tick at a full 400-sample buffer -- enough to drop
+      // multiple frames, worse if it lands during a busy combat frame).
+      await this.model.fit(xs, ys, { epochs: 2, batchSize: 64, shuffle: true, verbose: 0, yieldEvery: 'batch' });
       this.trainCount++;
       this.ready = true;
       // persist every few training rounds so learning carries across sessions
