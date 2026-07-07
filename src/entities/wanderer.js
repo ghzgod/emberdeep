@@ -81,7 +81,7 @@ export class Wanderer {
     this.speakCooldown = 2.5;
     const line = this.composeLine(game);
     game.ui.showSubtitle('Old Fenwick', line, 5000);
-    roaster.speakAs(line, CAST);
+    roaster.speakAs(line, CAST, this.pos);
   }
 
   // Dynamic dialogue built from the player's actual state and habits.

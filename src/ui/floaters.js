@@ -15,6 +15,45 @@ export class Floaters {
     this.active = [];
     this._v = new THREE.Vector3();
     this._seq = 0;
+    // "Speaking soon" bubble: a single reused element floated above the head of
+    // whoever is currently generating a voice line (Kokoro inference in flight).
+    this._think = null;      // { el, x, y, z } | null
+    this._thinkPhase = 0;    // cycles the . / .. / ... animation
+  }
+
+  // Show an animated "..." above a character while their voice line is being
+  // synthesized (before audio starts). worldPos is a fixed anchor captured by
+  // value; call hideThinking() once audio starts or generation fails.
+  showThinking(worldPos) {
+    if (!worldPos) { this.hideThinking(); return; }
+    if (!this._think) {
+      const el = document.createElement('div');
+      el.className = 'floater speak-soon';
+      el.textContent = '.';
+      this.container.appendChild(el);
+      this._think = { el };
+    }
+    this._think.x = worldPos.x;
+    this._think.y = (worldPos.y ?? 0) + 2.0; // a touch above the name/head line
+    this._think.z = worldPos.z;
+    this._thinkPhase = 0;
+    this.placeThink();
+  }
+
+  hideThinking() {
+    if (this._think) { this._think.el.remove(); this._think = null; }
+  }
+
+  placeThink() {
+    const t = this._think;
+    if (!t) return;
+    this._v.set(t.x, t.y, t.z).project(this.camera);
+    // Hide when the anchor is behind the camera (project z > 1) so the bubble
+    // doesn't flip to the wrong side of the screen.
+    if (this._v.z > 1) { t.el.style.opacity = '0'; return; }
+    t.el.style.opacity = '1';
+    t.el.style.left = `${(this._v.x * 0.5 + 0.5) * window.innerWidth}px`;
+    t.el.style.top = `${(-this._v.y * 0.5 + 0.5) * window.innerHeight}px`;
   }
 
   spawn(worldPos, text, cssClass = '', dur = LIFE) {
@@ -71,10 +110,19 @@ export class Floaters {
       f.el.style.opacity = f.t < FADE ? (f.t / FADE).toFixed(2) : '1';
       this.place(f);
     }
+    // Drive the "speaking soon" bubble: cycle . / .. / ... about 3x a second and
+    // keep it pinned to its world anchor as the camera moves.
+    if (this._think) {
+      this._thinkPhase += dt;
+      const dots = 1 + (Math.floor(this._thinkPhase * 3) % 3);
+      this._think.el.textContent = '.'.repeat(dots);
+      this.placeThink();
+    }
   }
 
   clear() {
     for (const f of this.active) f.el.remove();
     this.active.length = 0;
+    this.hideThinking();
   }
 }

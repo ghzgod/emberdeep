@@ -77,6 +77,11 @@ export function isMemoryConstrainedDevice() {
   return iOS || android || coarse || lowMem;
 }
 
+// Seconds of silence after which the resident Kokoro model is disposed to stop
+// keeping the GPU/WASM session (and ~90 MB of weights) warm the whole session.
+// The next speak() lazily reloads it, accepting a short first-line delay.
+const IDLE_RELEASE_MS = 90000;
+
 class NeuralVoice {
   constructor() {
     this.status = 'off';   // off | loading | ready | error
@@ -84,11 +89,15 @@ class NeuralVoice {
     this.tts = null;
     this.progress = 0;
     this.onStatus = null;  // UI hook
+    this.onGenerating = null; // (active, anchor) hook: a fresh line is being synthesized
     this.lastError = '';
     this._current = null;
     this._busy = false;
     this._cache = new Map(); // key: voice|speed|text -> { audio, sr }
     this._combatBusy = false; // set via reportCombatLoad(); gates fresh generation only
+    this._idleTimer = null;   // disposes the model after IDLE_RELEASE_MS of silence
+    this._released = false;   // true when we freed the model and must lazily reload
+    this._loadOpts = null;    // remembers device/dtype so a lazy reload is exact + silent
   }
 
   get ready() { return this.status === 'ready'; }
@@ -127,20 +136,34 @@ class NeuralVoice {
       // instant. WebGPU session-create can occasionally hang on some GPUs, so it's
       // time-boxed — if it stalls we fall through to the universally-compatible
       // single-threaded WASM q8 path instead of stalling forever.
-      let attempts = [
-        ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32', timeout: 30000 }] : []),
-        { device: 'wasm', dtype: 'q8', timeout: 120000 },
-      ];
-      // Go straight to whichever backend worked last time. Without the pin,
-      // every refresh re-attempts WebGPU fp32 first, and fp32 is a DIFFERENT
-      // (far larger) set of weight files than the cached q8 ones, so machines
-      // that settled on WASM re-downloaded fp32 bytes they could never finish
-      // inside the timeout on every reload: the "it re-downloads the voices
-      // it already has" bug. The pin is cleared if it ever stops working.
+      //
+      // On battery (a laptop running unplugged), prefer the lighter WASM q8 path
+      // over WebGPU: keeping the GPU spun up for TTS is a real power draw. When
+      // plugged in, on a desktop, or when the Battery Status API is unavailable,
+      // keep the fast WebGPU-first order.
+      const onBattery = await this._onBattery();
+      let attempts = navigator.gpu && !onBattery
+        ? [{ device: 'webgpu', dtype: 'fp32', timeout: 30000 }, { device: 'wasm', dtype: 'q8', timeout: 120000 }]
+        : [{ device: 'wasm', dtype: 'q8', timeout: 120000 },
+          ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32', timeout: 30000 }] : [])];
+      // Go straight to whichever backend worked last time. This is what stops the
+      // "it re-downloads the voices it already has" bug: transformers.js caches
+      // model weights in the Cache Storage API keyed by file URL, and a given
+      // dtype maps to a DIFFERENT set of weight files (q8 -> model_quantized.onnx
+      // ~90 MB, fp32 -> model.onnx ~330 MB). A second load of the SAME dtype is a
+      // pure cache hit (verified: zero network requests). A re-download only
+      // happens when the backend FLIPS dtype between loads and pulls the other
+      // dtype's uncached files. The battery heuristic and WebGPU-first ordering
+      // above can both flip that order, so the pin must win outright: once a
+      // dtype has succeeded (and thus cached its weights), every later load uses
+      // exactly it, ignoring GPU/battery reordering, until it truly stops working.
       const pinned = localStorage.getItem('emberdeep-tts-backend');
       if (pinned) {
         const hit = attempts.find((a) => `${a.device}|${a.dtype}` === pinned);
-        if (hit) attempts = [hit, ...attempts.filter((a) => a !== hit)];
+        // Put the pinned backend first AND drop any other-dtype attempt ahead of
+        // it, so a pinned q8 never falls through to an uncached fp32 download
+        // (and vice versa) just because the GPU/battery order preferred it.
+        if (hit) attempts = [hit, ...attempts.filter((a) => a !== hit && a.dtype === hit.dtype)];
       }
       const progress_callback = (p) => {
         if ((p.status === 'progress' || p.status === 'download') && p.total) {
@@ -158,11 +181,17 @@ class NeuralVoice {
             new Promise((_, rej) => setTimeout(() => rej(new Error(`${opt.device} timed out`)), opt.timeout)),
           ]);
           localStorage.setItem('emberdeep-tts-backend', `${opt.device}|${opt.dtype}`);
+          this._loadOpts = { device: opt.device, dtype: opt.dtype };
+          this._released = false;
           this._set('ready');
           return true;
         } catch (err) {
           lastErr = err;
-          localStorage.removeItem('emberdeep-tts-backend');
+          // Only forget the pin when the PINNED backend itself failed (it truly
+          // stopped working). Clearing it on any probe failure (e.g. a WebGPU
+          // timeout while a q8 pin is what actually works) would let the next
+          // refresh re-order to the other dtype and re-download uncached weights.
+          if (pinned === `${opt.device}|${opt.dtype}`) localStorage.removeItem('emberdeep-tts-backend');
           console.warn(`[neural-tts] ${opt.device} attempt failed`, err);
         }
       }
@@ -178,6 +207,64 @@ class NeuralVoice {
   // True when this device would OOM on the neural model, so the UI can warn
   // before offering an explicit opt-in.
   get memoryConstrained() { return isMemoryConstrainedDevice(); }
+
+  // Prefer the lighter WASM backend when running on battery (laptop unplugged),
+  // to spare the GPU. Degrades gracefully to false (keep WebGPU) whenever the
+  // Battery Status API is missing, throws, or reports charging/plugged-in.
+  async _onBattery() {
+    try {
+      if (typeof navigator === 'undefined' || typeof navigator.getBattery !== 'function') return false;
+      const b = await navigator.getBattery();
+      // charging === true means plugged in; only treat "discharging" as battery.
+      return b && b.charging === false;
+    } catch { return false; }
+  }
+
+  // Reload the model after an idle release, using the exact device/dtype that
+  // worked before so it's silent (cached weights, no UI status churn) and
+  // idempotent (a concurrent call just awaits the same load()). Returns ready.
+  async _ensureLoaded() {
+    if (this.ready && this.tts) return true;
+    // Only silently reload a model we previously released. A never-loaded /
+    // errored engine goes through the normal load() path (with its UI status).
+    if (!this._released || !this._loadOpts) return this.ready;
+    if (this.status === 'loading') return this.load(); // dedupe an in-flight reload
+    this.status = 'loading';
+    try {
+      const { KokoroTTS, env } = await import('kokoro-js');
+      try {
+        env.backends.onnx.wasm.numThreads = 1;
+        env.backends.onnx.wasm.proxy = true;
+      } catch { /* env shape changed; best-effort */ }
+      this.tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX',
+        { device: this._loadOpts.device, dtype: this._loadOpts.dtype });
+      this._released = false;
+      this.status = 'ready';
+      return true;
+    } catch (err) {
+      console.warn('[neural-tts] lazy reload failed', err);
+      this.status = 'ready'; // keep prior semantics; caller falls back if tts null
+      return !!this.tts;
+    }
+  }
+
+  // Free the resident model after a spell of silence. Safe to call while a
+  // generate() is in flight: we only drop it once the current line settles.
+  _armIdleRelease() {
+    if (typeof setTimeout !== 'function') return;
+    clearTimeout(this._idleTimer);
+    this._idleTimer = setTimeout(() => this._releaseIdle(), IDLE_RELEASE_MS);
+  }
+
+  _releaseIdle() {
+    // Don't yank the model out from under an in-flight generate(); the finally
+    // in speak() re-arms the timer, so we'll get another chance once it settles.
+    if (this._busy || !this.tts || this._released) return;
+    try { this.tts?.dispose?.(); } catch { /* best-effort free */ }
+    this.tts = null;
+    this._released = true;
+    console.info('[neural-tts] released idle model; will reload on next line');
+  }
 
   // Allow a manual retry after a failure. force = true is the explicit user
   // opt-in that overrides the mobile skip (the caller must warn about the risk).
@@ -199,16 +286,21 @@ class NeuralVoice {
     this._combatBusy = nearbyEnemyCount > 8;
   }
 
-  async speak(text, { voice = 'af_heart', speed = 1 } = {}) {
+  // anchor: optional { x, y, z } world position of the speaking character, passed
+  // straight to onGenerating so the UI can float a "speaking soon" bubble on them.
+  async speak(text, { voice = 'af_heart', speed = 1, anchor = null } = {}) {
+    // ready === status 'ready' even after an idle release (tts is null then), so
+    // gate on the status, not on tts: a released model is reloaded below.
     if (!this.ready) return false;
     const clean = normalizeForTTS(text);
     if (!clean) return false;
     const key = `${voice}|${speed}|${clean}`;
 
     // Cached line → play instantly, skipping the (slow) model call entirely.
-    // This is what makes repeated barks/vendor lines feel snappy.
+    // This is what makes repeated barks/vendor lines feel snappy. Re-arm the
+    // idle timer so a steady stream of cached lines still counts as activity.
     const cached = this._cache.get(key);
-    if (cached) return this._playPcm(cached.audio, cached.sr);
+    if (cached) { this._armIdleRelease(); return this._playPcm(cached.audio, cached.sr); }
 
     // A fresh line needs a real generate() call. Skip it (rather than pile onto
     // an already-heavy fight) if the fight is heavy right now; the next calm
@@ -217,7 +309,15 @@ class NeuralVoice {
 
     if (this._busy) return false; // a generation is already in flight
     this._busy = true;
+    let signaled = false;
     try {
+      // Lazily reload the model if it was released while idle. This adds the
+      // first-line delay we accept in exchange for not keeping it resident.
+      if (this._released || !this.tts) await this._ensureLoaded();
+      if (!this.tts) return false;
+      // Signal "generating" so the UI can float a bubble on the speaker's head.
+      signaled = true;
+      try { this.onGenerating?.(true, anchor); } catch { /* UI hook is best-effort */ }
       // Yield one full frame before kicking off generate(). The WASM backend is
       // proxied to a Worker (env...wasm.proxy = true) so its inference never
       // blocks the main thread, but the JS G2P/phonemize step and (on the
@@ -235,6 +335,10 @@ class NeuralVoice {
       return false;
     } finally {
       this._busy = false;
+      // Clear the bubble once audio has started (or generation failed), and
+      // re-arm the idle-release countdown from this moment of activity.
+      if (signaled) { try { this.onGenerating?.(false, anchor); } catch { /* best-effort */ } }
+      this._armIdleRelease();
     }
   }
 
