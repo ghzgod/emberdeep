@@ -38,15 +38,33 @@ export class VoiceChat {
     this.threshold = threshold ?? this.threshold;
     if (mode === 'off') { this.disable(); return true; }
     if (this.stream) return true;
+    // Two callers can race here (e.g. the meter monitor and the session join
+    // both call enable() on the same gesture). Mobile Safari rejects a second
+    // concurrent getUserMedia for the mic, which surfaced as a bogus "no
+    // microphone" in auto mode. Share one in-flight request so both callers
+    // await the same acquisition instead of firing a doomed duplicate.
+    if (this._acquiring) return this._acquiring;
+    this._acquiring = (async () => {
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+        });
+      } catch (err) {
+        console.warn('[voice] microphone unavailable', err);
+        this.mode = 'off';
+        return false;
+      }
+      await this._setupMonitor();
+      return true;
+    })();
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-      });
-    } catch (err) {
-      console.warn('[voice] microphone unavailable', err);
-      this.mode = 'off';
-      return false;
+      return await this._acquiring;
+    } finally {
+      this._acquiring = null;
     }
+  }
+
+  async _setupMonitor() {
     this.track = this.stream.getAudioTracks()[0];
     this.track.enabled = false;
 
@@ -70,7 +88,6 @@ export class VoiceChat {
         if (sender && !sender.track) sender.replaceTrack(this.track);
       } catch { /* renegotiation not critical */ }
     }
-    return true;
   }
 
   // Settings "mic test": keep the mic un-muted so the level meter reads input
