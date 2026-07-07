@@ -64,7 +64,15 @@ export class Game {
     this._pmremGen = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = this._pmremGen.fromScene(new RoomEnvironment(), 0.04).texture;
 
-    this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
+    // baseFov is the field of view along the screen's SHORTER dimension
+    // (min-dimension / "hor+" style scaling). Vertical FOV is derived from
+    // it below and recomputed on every resize so that rotating the device
+    // between portrait and landscape keeps the same amount of world in
+    // view along the shorter axis, instead of the sudden zoom in/out that
+    // a fixed vertical FOV causes when the aspect ratio flips.
+    this.baseFov = 55;
+    this.camera = new THREE.PerspectiveCamera(this.baseFov, window.innerWidth / window.innerHeight, 0.1, 100);
+    this._applyFovForAspect(window.innerWidth / window.innerHeight);
     this.cameraOffset = new THREE.Vector3(0, 11, 9.5);
     this.camYaw = 0; // Q/E (or touch buttons) orbit the camera around the hero
     this.camZoom = 1; // wheel / pinch zoom, clamped; restored from settings below
@@ -2578,8 +2586,27 @@ export class Game {
     this.renderer.setPixelRatio(ratio);
   }
 
+  // Derives the vertical FOV so that this.baseFov is held constant along
+  // the screen's SHORTER dimension (min-dimension scaling): in portrait
+  // that's the width, so vFov is widened to compensate; in landscape (or
+  // square) the shorter dimension is already the height, so vFov stays at
+  // baseFov. This keeps the world reading at the same scale whichever way
+  // the device is held, since a plain aspect-only update leaves the
+  // vertical FOV fixed and lets the visible world grow/shrink with aspect.
+  _applyFovForAspect(aspect) {
+    if (aspect <= 1) {
+      const halfBase = THREE.MathUtils.degToRad(this.baseFov) / 2;
+      const vFov = 2 * Math.atan(Math.tan(halfBase) / aspect);
+      this.camera.fov = THREE.MathUtils.radToDeg(vFov);
+    } else {
+      this.camera.fov = this.baseFov;
+    }
+  }
+
   onResize() {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    const aspect = window.innerWidth / window.innerHeight;
+    this.camera.aspect = aspect;
+    this._applyFovForAspect(aspect);
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
