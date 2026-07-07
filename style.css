@@ -756,8 +756,37 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35);
 }
 #item-actions-info { font-size: 14px; margin-bottom: 14px; text-align: left; }
-#item-actions-info .tt-stat { color: #9fd89f; font-size: 12px; }
 .item-actions-btns { display: flex; gap: 10px; justify-content: center; }
+
+/* Item detail panel: a real layout, not one line of green text. */
+.item-panel { min-width: 300px; }
+.item-hero { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.item-pic {
+  width: 72px; height: 72px; flex: none; border-radius: 10px;
+  background: radial-gradient(circle at 40% 35%, #241d31, #100b18);
+  border: 2px solid var(--panel-border); box-shadow: inset 0 0 12px rgba(0,0,0,0.6);
+  image-rendering: auto;
+}
+.item-pic.emoji { display: flex; align-items: center; justify-content: center; font-size: 40px; }
+.item-pic.rarity-rare { border-color: #4f7bd9; box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 12px rgba(79,123,217,0.4); }
+.item-pic.rarity-epic { border-color: #b35eff; box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 14px rgba(179,94,255,0.45); }
+.item-pic.rarity-legendary { border-color: #ff9a3a; box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 16px rgba(255,154,58,0.5); }
+.item-head { flex: 1; min-width: 0; }
+.item-name { font-size: 19px; font-weight: bold; line-height: 1.15; margin-bottom: 4px; }
+.item-meta { font-size: 12px; opacity: 0.6; text-transform: capitalize; }
+.item-ilvl { color: var(--gold); opacity: 0.9; font-style: italic; }
+.item-stats {
+  display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
+  padding: 10px 4px; margin: 4px 0 10px; border-top: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.stat-row { display: contents; }
+.stat-val { color: #9fe89f; font-weight: bold; font-variant-numeric: tabular-nums; text-align: right; }
+.stat-name { color: var(--parchment); opacity: 0.85; font-size: 13px; align-self: center; }
+
+/* unique procedural item pictures inside inventory / equip slots */
+.inv-item-icon { width: 84%; height: 84%; object-fit: contain; pointer-events: none; }
+.inv-slot { display: flex; align-items: center; justify-content: center; }
 
 /* ---------- Touch controls ---------- */
 /* Above overlays (z 20) so the bag/pause buttons still work while the inventory is open. */

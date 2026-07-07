@@ -1,6 +1,7 @@
 import { CLASSES } from '../entities/classes.js';
 import { SKILLS } from '../entities/skills.js';
 import { RARITIES, statLabel, sellValue, buyPrice } from '../entities/loot.js';
+import { makeItemIcon } from '../entities/itemIcon.js';
 import { SaveManager } from '../core/save.js';
 import { Floaters } from './floaters.js';
 import { Minimap } from './minimap.js';
@@ -1238,7 +1239,8 @@ export class UI {
       const el = document.createElement('div');
       const offClass = item && item.affinity && item.affinity !== p.classId;
       el.className = `inv-slot equip ${item ? 'rarity-' + item.rarity : ''} ${offClass ? 'off-class' : ''}`;
-      el.innerHTML = `${item ? item.icon : '·'}<span class="slot-label">${slotName}</span>`;
+      const eqIcon = item ? (item.slot ? `<img class="inv-item-icon" src="${makeItemIcon(item)}" alt="">` : item.icon) : '·';
+      el.innerHTML = `${eqIcon}<span class="slot-label">${slotName}</span>`;
       if (item) {
         el.onmouseenter = (e) => this.showTooltip(item, e, true);
         el.onmouseleave = () => this.hideTooltip();
@@ -1259,7 +1261,9 @@ export class UI {
       const el = document.createElement('div');
       const marked = item && this.destroySel.has(item);
       el.className = `inv-slot ${item ? 'rarity-' + item.rarity : ''} ${marked ? 'marked' : ''}`;
-      el.textContent = item ? item.icon : '';
+      // gear gets its unique procedural picture; consumables keep their glyph
+      if (item && item.slot) el.innerHTML = `<img class="inv-item-icon" src="${makeItemIcon(item)}" alt="">`;
+      else el.textContent = item ? item.icon : '';
       if (item) {
         el.onmouseenter = (e) => this.showTooltip(item, e);
         el.onmouseleave = () => this.hideTooltip();
@@ -1370,13 +1374,22 @@ export class UI {
     return ({ damagePct: 'damage', maxHp: 'max HP', armor: 'armor', crit: 'crit', speed: 'move speed', regen: 'regen', cdr4: 'ult cooldown' })[k] || k;
   }
 
+  // Split a stat into a bold value and a readable name, for the two-column
+  // stat list in the item panel (value on the left, label on the right).
+  statParts(k, v) {
+    const pct = k === 'damagePct' || k === 'armor' || k === 'crit' || k === 'speed' || k === 'cdr4';
+    const name = ({ damagePct: 'Damage', maxHp: 'Max Health', armor: 'Armor', crit: 'Crit Chance', speed: 'Move Speed', regen: 'Resource Regen', cdr4: 'Ult Cooldown' })[k] || k;
+    const sign = k === 'cdr4' ? '-' : '+';
+    return { val: `${sign}${v}${pct ? '%' : ''}`, name };
+  }
+
   // Compare a gear item against what's equipped in its slot: per-stat deltas
   // (green gain / red loss, accounting for class affinity) + an overall verdict.
   compareNote(item) {
     if (!item || item.consumable || !item.slot) return '';
     const p = this.game.player;
     const equipped = p.equipped[item.slot];
-    if (!equipped) return `<div style="font-size:11px;margin-top:5px;color:#7ce87c">▲ ${item.slot} slot empty — straight upgrade</div>`;
+    if (!equipped) return `<div style="font-size:11px;margin-top:5px;color:#7ce87c">▲ ${item.slot} slot empty: straight upgrade</div>`;
     if (equipped === item) return '';
     const eff = (it) => {
       const scale = (it.affinity && it.affinity !== p.classId) ? 0.5 : 1;
@@ -1406,13 +1419,41 @@ export class UI {
     this.selectedItem = item;
     const panel = $('item-actions');
     panel.classList.remove('hidden');
-    const stats = item.consumable
-      ? `<span class="tt-stat">${item.effectLabel || 'Temporary boon'}</span>`
-      : Object.entries(item.stats).map(([k, v]) => `<span class="tt-stat">${statLabel(k, v)}</span>`).join(' · ');
     // comparing an equipped item against itself is noise; only compare pack items
     const compare = equippedSlot ? '' : this.compareNote(item);
-    $('item-actions-info').innerHTML =
-      `<h4 class="tt-${item.rarity}" style="display:inline">${item.icon} ${item.name}</h4><br>${stats}${this.affinityNote(item)}${compare}`;
+    const rarityName = RARITIES[item.rarity]?.name || item.rarity;
+    if (item.consumable) {
+      // consumables keep their glyph, shown large, with the effect spelled out
+      $('item-actions-info').innerHTML = `
+        <div class="item-panel">
+          <div class="item-hero">
+            <div class="item-pic emoji rarity-${item.rarity}">${item.icon}</div>
+            <div class="item-head">
+              <div class="item-name tt-${item.rarity}">${item.name}</div>
+              <div class="item-meta">${rarityName} elixir</div>
+            </div>
+          </div>
+          <div class="item-stats"><div class="stat-row"><span class="stat-name">${item.effectLabel || 'Temporary boon'}</span></div></div>
+        </div>`;
+    } else {
+      const ilvl = item.ilvl ?? Math.max(1, Math.round((item.value || 20) / 8));
+      const rows = Object.entries(item.stats).map(([k, v]) => {
+        const s = this.statParts(k, v);
+        return `<div class="stat-row"><span class="stat-val">${s.val}</span><span class="stat-name">${s.name}</span></div>`;
+      }).join('');
+      $('item-actions-info').innerHTML = `
+        <div class="item-panel">
+          <div class="item-hero">
+            <img class="item-pic rarity-${item.rarity}" src="${makeItemIcon(item, 96)}" alt="">
+            <div class="item-head">
+              <div class="item-name tt-${item.rarity}">${item.name}</div>
+              <div class="item-meta">${rarityName} ${item.slot} &middot; <span class="item-ilvl">iLvl ${ilvl}</span></div>
+            </div>
+          </div>
+          <div class="item-stats">${rows}</div>
+          ${this.affinityNote(item)}${compare}
+        </div>`;
+    }
     const equipBtn = $('btn-item-equip');
     equipBtn.textContent = item.consumable ? 'Drink' : equippedSlot ? 'Unequip' : 'Equip';
     equipBtn.onclick = equippedSlot
