@@ -186,18 +186,24 @@ export class Enemy {
   // gliding. Legs/arms swing hard while chasing, idle otherwise; wings and tails
   // always move. Child rotations are safe (the group's position is copied each
   // frame, its children's rotations are not).
-  _animateGait(dt) {
+  // Drive limbs from ACTUAL movement, not just the chase state: legs only
+  // stride when the body is really translating (no more walking in place),
+  // amplitude and frequency scale with speed, eased in and out smoothly.
+  _animateGait(dt, speed01 = 0) {
     const gait = this.mesh.userData?.gait;
     if (!gait || !gait.length) return;
     if (this._gt === undefined) this._gt = Math.random() * 6;
-    const chasing = this.state === 'chase';
-    this._gt += dt * (chasing ? 9 : 3);
+    this._gaitDrive = (this._gaitDrive ?? 0) + (speed01 - (this._gaitDrive ?? 0)) * Math.min(1, dt * 10);
+    const drive = this._gaitDrive;
+    this._gt += dt * (3 + drive * 9); // stride frequency rises with speed
     const t = this._gt;
     for (const p of gait) {
-      if (p.kind === 'leg') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp * (chasing ? 1 : 0.3);
-      else if (p.kind === 'arm') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp * (chasing ? 0.85 : 0.25);
+      // legs/arms swing only while moving; wings always flap (flight); tails
+      // keep a faint idle sway so a standing mob is not utterly frozen.
+      if (p.kind === 'leg') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp * drive;
+      else if (p.kind === 'arm') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp * drive * 0.85;
       else if (p.kind === 'wing') p.mesh.rotation.z = p.bz + Math.sin(t * 1.9 + p.phase) * p.amp;
-      else if (p.kind === 'tail') p.mesh.rotation.x = p.bx + Math.sin(t * 1.2 + p.phase) * p.amp;
+      else if (p.kind === 'tail') p.mesh.rotation.x = p.bx + Math.sin(t * 1.2 + p.phase) * p.amp * (0.25 + drive * 0.75);
     }
   }
 
@@ -207,7 +213,12 @@ export class Enemy {
 
     this.attackCd = Math.max(0, this.attackCd - dt);
     this.hitFlash = Math.max(0, this.hitFlash - dt);
-    this._animateGait(dt);
+    // real movement since last frame -> gait drive (0..1 of top speed)
+    const pxz = this._lastPos || (this._lastPos = { x: this.pos.x, z: this.pos.z });
+    const moved = Math.hypot(this.pos.x - pxz.x, this.pos.z - pxz.z);
+    pxz.x = this.pos.x; pxz.z = this.pos.z;
+    const topSpeed = (this.def?.speed || 2.2) * dt;
+    this._animateGait(dt, topSpeed > 0 ? Math.min(1, moved / topSpeed) : 0);
     // Wraiths leave a wispy stream behind them as they drift (self-fading, so
     // it's RAM-bounded via the particle system's own lifetimes).
     if (this.typeId === 'ghost' && this.state === 'chase') {
@@ -276,7 +287,8 @@ export class Enemy {
         const inRange = atk.kind === 'ranged'
           ? distToPlayer < atk.range && game.hasLineOfSight(this.pos, tPos)
           : distToPlayer < atk.range;
-        if (inRange && this.attackCd <= 0) {
+        // never wind up on a target sheltering in the portal safe zone
+        if (inRange && this.attackCd <= 0 && !game.inSafeZone(tPos)) {
           this.state = 'windup';
           this.stateTimer = atk.windup;
           if (atk.kind === 'slam') audio.play(this.def.sounds.special, { pos: this.pos, volume: 0.6 });
