@@ -35,7 +35,7 @@ const DROP_LEGENDARIES = [
 function makeLegendary(def, floor) {
   return {
     id: nextItemId++, slot: def.slot, rarity: 'legendary', name: def.name,
-    icon: def.icon, stats: def.stats(floor), value: 500 + floor * 40, unique: true,
+    icon: def.icon, ilvl: floor, stats: def.stats(floor), value: 500 + floor * 40, unique: true,
   };
 }
 
@@ -183,7 +183,7 @@ export function generateGear(floor, forcedRarity = null, classId = 'knight') {
   const value = Math.round((14 + floor * 6) * RARITIES[rarity].mult);
   // weapons carry the class that can wield them; shared gear carries affinity
   const forClass = isWeapon ? classId : null;
-  return { id: nextItemId++, slot, rarity, name, icon: def.icon, stats, value, forClass, affinity };
+  return { id: nextItemId++, slot, rarity, name, icon: def.icon, ilvl: floor, stats, value, forClass, affinity };
 }
 
 // Gold received when selling (items from old saves may lack a stored value).
