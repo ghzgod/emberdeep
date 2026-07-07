@@ -202,6 +202,14 @@ function applyCosmetics(mesh, name, skinToneHex = null) {
   if (capeMesh) {
     capeMesh.material = capeMesh.material.clone();
     jitterColor(capeMesh.material, rng, 0.22);
+    // The baked cape (Mage_Cape/Rogue_Cape/Knight_Cape) is cut wide/long
+    // enough that it swings into the forearms and the held weapon at the
+    // game's action poses. Narrow it and pull it in toward the back (local
+    // -Z, since the rig faces +Z) so it hangs down the back only and stays
+    // clear of the front-held weapon and arms, without deleting or hiding it.
+    capeMesh.scale.x *= 0.72;
+    capeMesh.scale.y *= 0.94;
+    capeMesh.position.z -= 0.06;
   }
   if (trimMesh && rng() < 0.7) {
     trimMesh.material = trimMesh.material.clone();
@@ -216,20 +224,6 @@ function applyCosmetics(mesh, name, skinToneHex = null) {
   } else if (headMesh && rng() < 0.6) {
     headMesh.material = headMesh.material.clone();
     jitterColor(headMesh.material, rng, 0.08);
-  }
-  if (headMesh && rng() < 0.5) {
-    headMesh.geometry.computeBoundingBox();
-    const size = new THREE.Vector3();
-    headMesh.geometry.boundingBox.getSize(size);
-    const center = new THREE.Vector3();
-    headMesh.geometry.boundingBox.getCenter(center);
-    const scar = new THREE.Mesh(
-      new THREE.BoxGeometry(size.x * 0.35, size.y * 0.06, size.z * 0.08),
-      new THREE.MeshStandardMaterial({ color: 0x3a1c18, roughness: 0.9 })
-    );
-    scar.position.set(center.x + size.x * 0.18, center.y, center.z + size.z * 0.4);
-    scar.rotation.z = 0.5;
-    headMesh.add(scar);
   }
 }
 
@@ -342,22 +336,57 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
     mesh.scale.z *= 0.94;
     mesh.scale.y *= 1.03;
   }
-  let hoodedHead = null, headMesh = null;
+  let hoodedHead = null, headMesh = null, bakedHat = null;
   mesh.traverse((o) => {
     if (o.isMesh) {
       o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
-      // Headgear is gear-driven: hide the model's baked-on hat/helmet so an
-      // equipped helmet is the ONLY hat, and taking it off leaves a bare head.
-      if (/_(Hat|Helmet)$/.test(o.name)) o.visible = false;
+      // Headgear is gear-driven: the model's baked-on hat/helmet (KayKit's
+      // own authored geometry - e.g. Mage_Hat, Knight_Helmet - fitted to that
+      // model's own head/hair) starts hidden and is shown+rarity-tinted by
+      // updateHeroGear only when a helmet is actually equipped, so a bare
+      // head has no hat and an equipped helmet is the ONLY hat. Kept on
+      // userData.bakedHat (rather than only hiding it) so updateHeroGear can
+      // toggle and tint the SAME mesh instead of drawing a procedural stand-in
+      // - this is the authored asset, already sized/seated to fit the head
+      // with no clipping.
+      if (/_(Hat|Helmet)$/.test(o.name)) { o.visible = false; bakedHat = o; }
+      // The mage rig ships a baked offhand Spellbook mesh that renders as a
+      // blocky brick clipping at the hip and adds nothing (the mage already
+      // reads by its wand/staff in the main hand for attacks). Hide it, mage
+      // only, same treatment as the baked hat above.
+      if (classId === 'mage' && /Spellbook|Book/i.test(o.name)) o.visible = false;
       // Track the head so we can (a) anchor equipped helmets to its actual top
       // and (b) split the rogue's welded-in hood off below.
       if (/Head/i.test(o.name)) headMesh = o;
       if (o.isSkinnedMesh && /Head.*Hood|Hood.*Head|Hooded/i.test(o.name)) hoodedHead = o;
     }
   });
+  // The KayKit rigs bake EVERY weapon/shield variant for a class into the
+  // hand bones at once (e.g. the knight ships 1H_Sword, 2H_Sword AND
+  // 1H_Sword_Offhand plus four different shields, all simultaneously
+  // visible), so a fresh hero shows several overlapping blades/shields
+  // clipping through each other. Keep exactly one sensible held-loadout per
+  // class and hide the rest - the kept pieces are baked to fit the hand pose
+  // together, so once the duplicates are gone there is nothing left to clip.
+  const HELD_LOADOUT = {
+    knight: ['1H_Sword', 'Round_Shield'],
+    mage: ['2H_Staff'],
+    ranger: ['2H_Crossbow'],
+  };
+  const keepHeld = new Set(HELD_LOADOUT[classId] || []);
+  const HELD_PATTERN = /Sword|Shield|Wand|Staff|Crossbow|Bow|Knife|Axe|Hammer|Mace|Dagger|Spear|Throwable/i;
+  mesh.traverse((o) => {
+    if (o.isMesh && HELD_PATTERN.test(o.name) && !keepHeld.has(o.name)) o.visible = false;
+  });
   // Separate the rogue hood so a helmet can replace it (see splitRogueHood).
   // Stored on userData so updateHeroGear can toggle it with the head slot.
+  // Its show/hide semantics are its own (default ON, hidden when a helmet
+  // is equipped - see updateHeroGear) and stay separate from bakedHat below,
+  // which is KayKit's proper Mage_Hat/Knight_Helmet mesh: default OFF, shown
+  // only when a helmet is actually equipped. The ranger has no baked hat
+  // asset of its own, so its "equipped helmet" look stays the hood toggle.
   if (hoodedHead) mesh.userData.hood = splitRogueHood(hoodedHead);
+  mesh.userData.bakedHat = bakedHat;
   // Record where the top of the VISIBLE head sits in the model's local space so
   // updateHeroGear can seat a helmet on the crown. Each class model is a
   // different height (head tops range ~1.9 to 2.3 local units), so a fixed
