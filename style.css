@@ -150,6 +150,19 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #hud-clear.open { color: #7ce87c; }
 #hud-quest { font-size: 12px; opacity: 0.7; text-shadow: 0 1px 2px #000; max-width: 200px; }
 
+/* Minimap: tap opens a big centered discovered-map view either way. On touch
+   devices it also idles down to barely-visible so it doesn't clutter the
+   view, brightening on interaction; desktop keeps it visible at all times. */
+#minimap { pointer-events: auto; cursor: pointer; transition: opacity 0.5s ease, width 0.25s ease, height 0.25s ease; }
+body.touch-mode #minimap { opacity: 0.35; }
+body.touch-mode #minimap.mm-active { opacity: 1; }
+#minimap.expanded {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(88vw, 88vh); height: min(88vw, 88vh);
+  opacity: 1; z-index: 50;
+  box-shadow: 0 0 0 4px #14101c, 0 0 0 6px var(--panel-border), 0 20px 60px rgba(0,0,0,0.7);
+}
+
 /* ---------- Notice board ---------- */
 #notices-list { display: flex; flex-direction: column; gap: 12px; width: min(90vw, 480px); max-height: 58vh; overflow-y: auto; }
 .notice-paper {
@@ -246,7 +259,14 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 @media (max-width: 520px) { #quest-stats { grid-template-columns: 1fr; } }
 #minimap { border: 1px solid var(--panel-border); border-radius: 6px; background: rgba(0,0,0,0.7); }
 
-#boss-bar-wrap { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); width: 460px; text-align: center; }
+/* Centered, but constrained and pushed below the top HUD row so it never
+   overlaps the top-left player bars or the top-right minimap/quest cluster
+   in any layout -- the mobile media queries below only need to tune the
+   offset for their shorter/taller HUD stacks, not the base positioning. */
+#boss-bar-wrap {
+  position: absolute; top: 206px; left: 50%; transform: translateX(-50%);
+  width: min(46vw, 520px); text-align: center;
+}
 #boss-name { font-size: 16px; color: #d9a0ff; text-shadow: 0 1px 2px #000; letter-spacing: 2px; }
 .bar-wrap.boss { height: 16px; margin-top: 4px; }
 
@@ -973,6 +993,16 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 }
 #touch-rotl:active, #touch-rotr:active, #touch-menu-toggle:active { border-color: var(--gold); color: var(--gold); }
 #touch-mic:active { border-color: #7ce87c; background: rgba(40, 80, 40, 0.85); transform: scale(1.08); }
+/* red potion flask icon (shared by the touch corner-hub button and the
+   desktop action-bar button): sized to fill most of its round button. */
+.potion-icon { width: 26px; height: 26px; }
+#action-bar #ab-potion .potion-icon { width: 22px; height: 22px; }
+/* Empty/unusable state: the slot stays put (never disappears) but reads as
+   inert - desaturated and dimmed, tap is a no-op (see the JS handlers). */
+#touch-potion.disabled, #ab-potion.disabled {
+  opacity: 0.4; filter: grayscale(1); cursor: default;
+}
+#touch-potion.disabled:active { transform: none; }
 #touch-menu-toggle {
   display: none; position: absolute; pointer-events: auto; right: 14px; bottom: 14px;
   width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--panel-border);
@@ -1012,35 +1042,49 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
    they can never disagree, and touch.js re-toggles the class on
    resize/orientationchange so it cannot get stuck either. */
 body.touch-mode {
-  #touch-menu-toggle { display: flex; transition: border-color 0.2s ease, color 0.2s ease; }
+  #touch-menu-toggle {
+    display: flex;
+    transition: border-color 0.2s ease, color 0.2s ease,
+                right 0.35s ease, left 0.35s ease, bottom 0.35s ease;
+  }
   #touch-ui.menu-open #touch-menu-toggle { border-color: var(--gold); color: var(--gold); }
   /* the ::before glyph swaps to a close mark when open (defined in the base
      rule). No rotation of the icon. */
   #touch-ui.menu-open #touch-menu-toggle::before { content: '\2715'; }
 
-  /* Abilities as a QUARTER-ARC WHEEL hugging the bottom-right corner: the four
-     buttons fan around the thumb pivot from the bottom edge (slot 1) up to the
-     right edge (slot 4), instead of a flat 2x2 pad. The container is a zero-size
-     anchor at the corner and is click-through, so taps that land in the gaps
-     between buttons still reach the tap-to-attack handler; only the buttons
+  /* Abilities as a QUARTER-ARC WHEEL fanned around the right thumb's natural
+     pivot: the four buttons sweep from the bottom edge (slot 1) up to the
+     right edge (slot 4), instead of a flat 2x2 pad. The pivot is INSET from
+     the literal screen corner (not flush at 0,0) so it sits where a thumb
+     actually rests when gripping the lower-right of the device, not out at
+     the dead corner past its comfortable reach. The container is a zero-size
+     anchor and is click-through, so taps that land in the gaps between
+     buttons still reach the tap-to-attack handler; only the buttons
      themselves capture touches. */
   #hotbar {
-    left: auto; top: auto; right: 0; bottom: 0; transform: none;
+    left: auto; top: auto; right: 14px; bottom: 14px; transform: none;
     display: block; width: auto; height: auto; gap: 0; pointer-events: none;
   }
-  .ability-wheel { width: 196px; height: 196px; display: block; pointer-events: none; }
+  .ability-wheel { width: 160px; height: 160px; display: block; pointer-events: none; }
+
+  /* Potion lives permanently in the wheel's own hub gap (the big empty
+     quarter-disc at the pivot, radius R0 in buildRadialHotbar) instead of the
+     utility drawer, so healing is always one tap away without opening the
+     menu. It tracks the wheel's inset pivot, not the screen corner. */
+  #touch-potion {
+    right: 22px; bottom: 22px; width: 52px; height: 52px; z-index: 3;
+  }
 
   /* --- Utility menu: the buttons are ALWAYS rendered so opening/closing can
      ANIMATE. Closed, each one is collapsed onto the toggle (scaled down, faded,
      non-interactive); open, it slides out to its slot. A per-button delay makes
      the cluster grow out smoothly instead of popping in. --- */
-  #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic {
+  #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic {
     left: auto; opacity: 0; transform: scale(0.35); pointer-events: none;
     transition: right 0.30s cubic-bezier(.34,1.35,.5,1), bottom 0.30s cubic-bezier(.34,1.35,.5,1),
                 left 0.30s cubic-bezier(.34,1.35,.5,1), opacity 0.20s ease, transform 0.22s ease;
   }
   #touch-mic.hidden { display: none !important; }
-  #touch-ui.menu-open #touch-potion,
   #touch-ui.menu-open #touch-inv,
   #touch-ui.menu-open #touch-pause,
   #touch-ui.menu-open #touch-rotl,
@@ -1055,31 +1099,52 @@ body.touch-mode {
      wheel's horizontal space, so this direction is always safe regardless of
      width and needs no .menu-side/.menu-up gating - the width-aware direction
      switch (see chooseMenuDirection in touch.js) only matters for the
-     landscape short-screen layout below, where the drawer fans sideways. */
+     landscape short-screen layout below, where the drawer fans sideways.
+     Slots close up flush behind the toggle now that potion no longer takes
+     one - inv is the first stop, then pause/rotl/rotr/mic follow evenly. */
   #touch-menu-toggle { right: 14px; bottom: 230px; }
-  #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { right: 14px; bottom: 230px; }
-  #touch-ui.menu-open #touch-potion { bottom: 296px; transition-delay: 0s; }
-  #touch-ui.menu-open #touch-inv    { bottom: 360px; transition-delay: 0.03s; }
-  #touch-ui.menu-open #touch-pause  { bottom: 424px; transition-delay: 0.06s; }
-  #touch-ui.menu-open #touch-rotl   { bottom: 488px; transition-delay: 0.09s; }
-  #touch-ui.menu-open #touch-rotr   { bottom: 552px; transition-delay: 0.12s; }
-  #touch-ui.menu-open #touch-mic    { bottom: 616px; transition-delay: 0.15s; }
+  #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { right: 14px; bottom: 230px; }
+  #touch-ui.menu-open #touch-inv    { bottom: 296px; transition-delay: 0s; }
+  #touch-ui.menu-open #touch-pause  { bottom: 360px; transition-delay: 0.03s; }
+  #touch-ui.menu-open #touch-rotl   { bottom: 424px; transition-delay: 0.06s; }
+  #touch-ui.menu-open #touch-rotr   { bottom: 488px; transition-delay: 0.09s; }
+  #touch-ui.menu-open #touch-mic    { bottom: 552px; transition-delay: 0.12s; }
 }
 
-/* one-time controls hint */
-#touch-hint {
-  position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
-  background: rgba(4, 2, 8, 0.8); backdrop-filter: blur(2px);
+/* First-time 3-step contextual tutorial (Embervale, first touch visit only):
+   one small pulsing ring + short label at a time, each sitting right over the
+   zone it's teaching. pointer-events: none throughout so none of them ever
+   steal a real touch from the joystick/attack/wheel underneath. touch.js
+   shows exactly one step's element at once and advances/hides it for good
+   the moment the player performs that action. */
+#touch-tut { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+#touch-tut.hidden { display: none; }
+.tut-step {
+  position: absolute; display: none; flex-direction: column; align-items: center; gap: 8px;
+  opacity: 1; transition: opacity 0.6s ease; pointer-events: none;
 }
-#touch-hint.hidden { display: none; }
-#touch-hint-card {
-  max-width: 82vw; padding: 22px 26px; text-align: left; color: var(--parchment);
-  background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98));
-  border: 2px solid var(--gold); border-radius: 14px; box-shadow: 0 0 30px rgba(232,192,90,0.3);
+.tut-step.visible { display: flex; }
+.tut-step.fading { opacity: 0; }
+.tut-ring {
+  width: 88px; height: 88px; border-radius: 50%;
+  border: 2px solid rgba(232, 192, 90, 0.55);
+  animation: tut-ring-pulse 1.6s ease-in-out infinite;
 }
-#touch-hint-card h3 { color: var(--gold); margin-bottom: 10px; text-align: center; }
-#touch-hint-card p { font-size: 14px; margin: 5px 0; opacity: 0.9; }
-#touch-hint-card .menu-btn { margin: 14px auto 0; display: block; }
+.tut-label {
+  font-size: 12px; letter-spacing: 1px; color: var(--parchment);
+  background: rgba(10, 8, 14, 0.55); padding: 3px 10px; border-radius: 10px;
+  text-shadow: 0 1px 2px #000; white-space: nowrap;
+}
+@keyframes tut-ring-pulse {
+  0%, 100% { transform: scale(0.88); opacity: 0.55; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+/* Step 1: over the left-thumb move zone, clear of the rotate buttons. */
+#touch-tut-move { left: 14vw; bottom: 22vh; }
+/* Step 2: over the right-side aim/attack zone, roughly mirroring step 1. */
+#touch-tut-attack { right: 16vw; bottom: 30vh; }
+/* Step 3: over the ability wheel's arc, above the wheel's inset pivot. */
+#touch-tut-ability { right: 14vw; bottom: 34vh; }
 /* Mobile portrait: lift the MP chat clear of the bottom-left rotate buttons
    (which sit at bottom:96) and compact it so it stays out of the way. */
 @media (pointer: coarse) {
@@ -1143,6 +1208,7 @@ body.touch-mode {
   /* short screen: smaller controls, and a tighter menu that still tucks to the
      right (all positions stay LEFT of the shrunken minimap). */
   #touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr, #touch-menu-toggle { width: 46px; height: 46px; font-size: 19px; }
+  #touch-potion .potion-icon { width: 21px; height: 21px; }
   #touch-rotl, #touch-rotr { font-size: 27px; }
   #touch-menu-toggle::before { font-size: 22px; }
   #chat { bottom: 128px; width: min(44vw, 300px); }
@@ -1163,10 +1229,20 @@ body.touch-mode {
   #hud-quest { grid-area: quest; max-width: 42vw; }
   #minimap { grid-area: map; align-self: start; }
   .hotbar-slot { width: 50px; height: 50px; }
-  /* landscape wheel: smaller buttons on a tighter arc so it stays clear of the
-     minimap up top while still hugging the bottom-right thumb. */
-  #hotbar { right: 0; bottom: 0; }
-  .ability-wheel { width: 150px; height: 150px; }
+  /* boss-bar-wrap's touch-device clearance is set once, below, by the
+     (max-width: 860px), (pointer: coarse) block - that query also matches
+     every short-height landscape phone here, and its value already clears
+     this layout's shallower ~104px-tall compact top HUD, so it is not
+     repeated in this block. */
+  /* Landscape thumb ergonomics: gripping a phone/tablet in landscape, the
+     right thumb pivots from the lower-right EDGE, not the dead corner - its
+     comfortable arc sits inset from the corner. Push the wheel's pivot inward
+     and up into that arc instead of jamming it flush into the corner, so all
+     four wedges stay reachable without shifting the grip. Also keeps it clear
+     of the minimap up top. */
+  #hotbar { right: 34px; bottom: 34px; }
+  .ability-wheel { width: 124px; height: 124px; }
+  #touch-potion { right: 46px; bottom: 46px; }
 }
 /* LANDSCAPE touch (short screen + touch-mode only): the ability wheel owns the
    bottom-right, so the toggle goes to the bottom-LEFT corner and the utilities
@@ -1179,23 +1255,31 @@ body.touch-mode {
 @media (max-height: 540px) {
   body.touch-mode {
     #touch-menu-toggle { left: 12px; right: auto; bottom: 12px; }
-    #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { left: 12px; right: auto; bottom: 12px; }
-    #touch-ui.menu-open.menu-side #touch-potion { left: 66px;  right: auto; bottom: 12px; transition-delay: 0s; }
-    #touch-ui.menu-open.menu-side #touch-inv    { left: 120px; right: auto; bottom: 12px; transition-delay: 0.03s; }
-    #touch-ui.menu-open.menu-side #touch-pause  { left: 174px; right: auto; bottom: 12px; transition-delay: 0.06s; }
-    #touch-ui.menu-open.menu-side #touch-rotl   { left: 228px; right: auto; bottom: 12px; transition-delay: 0.09s; }
-    #touch-ui.menu-open.menu-side #touch-rotr   { left: 282px; right: auto; bottom: 12px; transition-delay: 0.12s; }
-    #touch-ui.menu-open.menu-side #touch-mic    { left: 336px; right: auto; bottom: 12px; transition-delay: 0.15s; }
+    /* potion keeps its fixed spot in the wheel's hub gap, bottom-right, in
+       every orientation - it is not part of the drawer fan/stack any more. */
+    #touch-potion { left: auto; right: 8px; bottom: 8px; }
+    #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { left: 12px; right: auto; bottom: 12px; }
+    #touch-ui.menu-open.menu-side #touch-inv    { left: 66px;  right: auto; bottom: 12px; transition-delay: 0s; }
+    #touch-ui.menu-open.menu-side #touch-pause  { left: 120px; right: auto; bottom: 12px; transition-delay: 0.03s; }
+    #touch-ui.menu-open.menu-side #touch-rotl   { left: 174px; right: auto; bottom: 12px; transition-delay: 0.06s; }
+    #touch-ui.menu-open.menu-side #touch-rotr   { left: 228px; right: auto; bottom: 12px; transition-delay: 0.09s; }
+    #touch-ui.menu-open.menu-side #touch-mic    { left: 282px; right: auto; bottom: 12px; transition-delay: 0.12s; }
     /* not enough width to fan right without reaching the wheel: stack upward
        from the bottom-left corner instead. */
-    #touch-ui.menu-open.menu-up #touch-potion { left: 12px; right: auto; bottom: 66px;  transition-delay: 0s; }
-    #touch-ui.menu-open.menu-up #touch-inv    { left: 12px; right: auto; bottom: 120px; transition-delay: 0.03s; }
-    #touch-ui.menu-open.menu-up #touch-pause  { left: 12px; right: auto; bottom: 174px; transition-delay: 0.06s; }
-    #touch-ui.menu-open.menu-up #touch-rotl   { left: 12px; right: auto; bottom: 228px; transition-delay: 0.09s; }
-    #touch-ui.menu-open.menu-up #touch-rotr   { left: 12px; right: auto; bottom: 282px; transition-delay: 0.12s; }
-    #touch-ui.menu-open.menu-up #touch-mic    { left: 12px; right: auto; bottom: 336px; transition-delay: 0.15s; }
+    #touch-ui.menu-open.menu-up #touch-inv    { left: 12px; right: auto; bottom: 66px;  transition-delay: 0s; }
+    #touch-ui.menu-open.menu-up #touch-pause  { left: 12px; right: auto; bottom: 120px; transition-delay: 0.03s; }
+    #touch-ui.menu-open.menu-up #touch-rotl   { left: 12px; right: auto; bottom: 174px; transition-delay: 0.06s; }
+    #touch-ui.menu-open.menu-up #touch-rotr   { left: 12px; right: auto; bottom: 228px; transition-delay: 0.09s; }
+    #touch-ui.menu-open.menu-up #touch-mic    { left: 12px; right: auto; bottom: 282px; transition-delay: 0.12s; }
   }
 }
+/* In town the ability wheel fades away entirely (see .in-town #hotbar below),
+   so the toggle's normal spot (above the wheel in portrait, bottom-left away
+   from the wheel in landscape) is no longer the natural thumb position. Slide
+   it down into the bottom-right corner in EITHER orientation while in town,
+   and slide it back to its dungeon spot the moment play resumes. The drawer
+   itself still opens relative to wherever the toggle currently sits. */
+body.touch-mode.in-town #touch-menu-toggle { left: auto; right: 14px; bottom: 14px; }
 /* the wheel container is click-through; only its buttons capture touches, so
    attack taps that fall between the arc buttons still reach the game. */
 .touch-mode #hotbar { pointer-events: none; transition: opacity 0.3s ease; }
@@ -1236,7 +1320,14 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
   #hud-quest { font-size: 10px; }
   #hud-clear { font-size: 11px; }
   .hotbar-slot { width: 62px; height: 62px; }
-  #boss-bar-wrap { width: 84vw; }
+  /* Push the boss bar down clear of BOTH the top-left player bars and the
+     top-right cluster - on narrow/portrait widths that cluster stacks the
+     floor name, clear-status and quest line ABOVE the minimap in a column,
+     so the minimap's actual bottom edge sits well below its own top:16px.
+     190px clears that full stack (floor + clear + a wrapped quest line +
+     110px minimap) with room to spare, and the width is capped so it can't
+     run under the minimap either. */
+  #boss-bar-wrap { top: 190px; width: min(84vw, 380px); }
   .menu-btn { font-size: 17px; padding: 12px 22px; }
   .inv-grid { grid-template-columns: repeat(4, 56px); }
   .inv-slot { width: 56px; height: 56px; }

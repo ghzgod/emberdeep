@@ -22,6 +22,7 @@ export class TouchControls {
     this.fadeTimer = 4; // touch buttons dim after a few idle seconds
     this._joyId = null;
     this._aimId = null;
+    this._menuAutoCloseTimer = null; // auto-collapses the utility drawer after ~3s idle
 
     // body.touch-mode is the flag both CSS and JS key off; re-evaluated below
     // on resize/orientationchange so a mid-session pointer/viewport change
@@ -57,8 +58,23 @@ export class TouchControls {
       const el = document.getElementById(id);
       if (el) el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); fn(); });
     };
-    const closeMenu = () => document.getElementById('touch-ui')?.classList.remove('menu-open');
-    bind('touch-potion', () => { game.player?.drinkPotion(game); closeMenu(); });
+    const closeMenu = () => {
+      document.getElementById('touch-ui')?.classList.remove('menu-open');
+      clearTimeout(this._menuAutoCloseTimer);
+    };
+    // any interaction with the drawer while it's open pushes the auto-close
+    // out another ~3s, so it doesn't vanish mid-fumble but still tidies
+    // itself up once the player stops touching it.
+    const bumpMenuTimer = () => {
+      clearTimeout(this._menuAutoCloseTimer);
+      const ui = document.getElementById('touch-ui');
+      if (!ui?.classList.contains('menu-open')) return;
+      this._menuAutoCloseTimer = setTimeout(closeMenu, 3000);
+    };
+    bind('touch-potion', () => {
+      if (document.getElementById('touch-potion')?.classList.contains('disabled')) return;
+      game.player?.drinkPotion(game); closeMenu();
+    });
     bind('touch-inv', () => { game.toggleInventory(); closeMenu(); });
     bind('touch-pause', () => { game.togglePause(true); closeMenu(); });
 
@@ -73,16 +89,58 @@ export class TouchControls {
       const opening = !ui.classList.contains('menu-open');
       if (opening) this.chooseMenuDirection(ui);
       ui.classList.toggle('menu-open', opening);
+      if (opening) bumpMenuTimer(); else clearTimeout(this._menuAutoCloseTimer);
     });
+    // rotate/mic buttons are held, not tapped, but touching them should still
+    // count as "using the drawer" and push the auto-close timer out.
+    for (const id of ['touch-rotl', 'touch-rotr', 'touch-mic']) {
+      document.getElementById(id)?.addEventListener('pointerdown', bumpMenuTimer);
+    }
+    this._closeDrawer = closeMenu;
 
-    // one-time controls hint, first mobile play only
-    const hint = document.getElementById('touch-hint');
-    const hintBtn = document.getElementById('btn-touch-hint');
-    if (hintBtn) hintBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); hint.classList.add('hidden'); });
+    // First-time 3-step contextual tutorial, first Embervale visit only:
+    // move -> attack -> ability, each a small subtle hint that auto-advances
+    // to the next step the moment the player performs that action. Replaces
+    // the old "Got it" wall-of-text modal entirely - nothing to read, nothing
+    // to tap through, just do the thing and it gets out of the way. Fully
+    // non-blocking: every step is pointer-events:none in CSS.
+    const tutRoot = document.getElementById('touch-tut');
+    const tutSteps = {
+      move: document.getElementById('touch-tut-move'),
+      attack: document.getElementById('touch-tut-attack'),
+      ability: document.getElementById('touch-tut-ability'),
+    };
+    const TUT_ORDER = ['move', 'attack', 'ability'];
+    this._tutStep = null;
+    const showTutStep = (step) => {
+      this._tutStep = step;
+      for (const [k, el] of Object.entries(tutSteps)) {
+        el?.classList.toggle('visible', k === step);
+        el?.classList.remove('fading');
+      }
+    };
+    // advance from `step` to whatever comes next, or finish the tutorial for
+    // good once the last step is cleared.
+    const advanceTut = (step) => {
+      if (this._tutStep !== step) return; // already moved on / not this step
+      const el = tutSteps[step];
+      el?.classList.add('fading');
+      setTimeout(() => el?.classList.remove('visible', 'fading'), 650);
+      const next = TUT_ORDER[TUT_ORDER.indexOf(step) + 1];
+      if (next) {
+        this._tutStep = next;
+        setTimeout(() => showTutStep(next), 650);
+      } else {
+        this._tutStep = null;
+        localStorage.setItem('emberdeep-move-hint', '1');
+        setTimeout(() => tutRoot?.classList.add('hidden'), 650);
+      }
+    };
+    this._advanceTut = advanceTut;
     this.maybeShowHint = () => {
-      if (!this.enabled || localStorage.getItem('emberdeep-touch-hint')) return;
-      localStorage.setItem('emberdeep-touch-hint', '1');
-      hint?.classList.remove('hidden');
+      if (!this.enabled || localStorage.getItem('emberdeep-move-hint')) return;
+      tutRoot?.classList.remove('hidden');
+      showTutStep('move');
     };
 
     // hold-to-rotate camera buttons
@@ -106,17 +164,27 @@ export class TouchControls {
       mic.addEventListener('pointerleave', () => { game.touchPtt = false; });
     }
 
-    // hotbar taps
+    // hotbar taps (row slots on desktop-style layouts, or wedge taps on the
+    // touch radial wheel) - either one means the player is casting, so close
+    // the drawer immediately, same as moving/attacking.
     document.getElementById('hotbar').addEventListener('pointerdown', (e) => {
       const slot = e.target.closest('.hotbar-slot');
       if (!slot || !game.player) return;
+      closeMenu();
+      this._advanceTut?.('ability');
       const idx = [...slot.parentNode.children].indexOf(slot);
       game.player.tryAbility(idx, game);
+    });
+    document.getElementById('hotbar').addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.wheel-slot')) { closeMenu(); this._advanceTut?.('ability'); }
     });
   }
 
   onDown(e) {
     if (e.pointerType === 'mouse' && !location.search.includes('touch')) return;
+    // moving or attacking means the player is done with the drawer - close it
+    // immediately instead of waiting out the idle timer.
+    this._closeDrawer?.();
     if (e.clientX < window.innerWidth * 0.42 && this._joyId === null) {
       this._joyId = e.pointerId;
       this.joyActive = true;
@@ -125,11 +193,13 @@ export class TouchControls {
       this.joyBase.style.left = `${e.clientX}px`;
       this.joyBase.style.top = `${e.clientY}px`;
       this.joyKnob.style.transform = 'translate(-50%,-50%)';
+      this._advanceTut?.('move');
     } else if (this._aimId === null) {
       this._aimId = e.pointerId;
       this.attacking = true;
       this.game.input.mouse.x = e.clientX;
       this.game.input.mouse.y = e.clientY;
+      this._advanceTut?.('attack');
     }
   }
 
