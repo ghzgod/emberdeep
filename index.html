@@ -146,6 +146,13 @@
       <div id="confirm-card">
         <h2 id="confirm-title"></h2>
         <p id="confirm-message"></p>
+        <label id="confirm-dontask-row" class="toggle-row hidden">Do not ask again
+          <span class="toggle"><input type="checkbox" id="confirm-dontask"><span class="toggle-track"><span class="toggle-knob"></span></span></span>
+        </label>
+        <div id="confirm-progress-row" class="hidden">
+          <div class="loading-bar-outer"><div id="confirm-progress-bar" class="loading-bar-inner"></div></div>
+          <p id="confirm-progress-text" class="hint"></p>
+        </div>
         <div class="buy-actions">
           <button id="btn-confirm-ok" class="menu-btn">OK</button>
           <button id="btn-confirm-cancel" class="menu-btn">Cancel</button>
@@ -337,26 +344,34 @@
         <label>NPC Speech <input type="range" id="set-speech" min="0" max="100" value="90"><span id="set-speech-val"></span></label>
         <button id="btn-auto-level" class="menu-btn small" type="button">⚖️ Auto-Balance Audio</button>
         <label>Graphics Quality
-          <select id="set-quality">
-            <option value="low">Low - fewer torch lights (best FPS)</option>
-            <option value="medium" selected>Medium - balanced</option>
-            <option value="high">High - most torch lights (best looks)</option>
-          </select>
+          <span class="cselect" id="cs-set-quality">
+            <select id="set-quality" class="cselect-native">
+              <option value="low">Low - fewer torch lights (best FPS)</option>
+              <option value="medium" selected>Medium - balanced</option>
+              <option value="high">High - most torch lights (best looks)</option>
+            </select>
+            <button type="button" class="cselect-trigger"><span class="cselect-label"></span><span class="cselect-arrow">▾</span></button>
+            <div class="cselect-list hidden"></div>
+          </span>
         </label>
         <p class="hint">Controls how many dynamic torch lights are lit at once. Lower it if the game runs slowly.</p>
-        <label>Screen Shake <input type="checkbox" id="set-shake" checked></label>
-        <label>Battery Saver <input type="checkbox" id="set-battery"></label>
-        <p class="hint">Skips the neural voice download and enemy movement-learning AI to save memory and battery. Characters use your browser's built-in voices. Recommended on phones. Takes effect after a reload.</p>
-        <label>Enemy Taunts (spoken) <input type="checkbox" id="set-taunts" checked></label>
+        <label>Screen Shake <span class="toggle"><input type="checkbox" id="set-shake" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
+        <button id="btn-ai-voice-mode" class="menu-btn small" type="button">🔋 AI & Voice Mode</button>
+        <p id="battery-status-hint" class="hint"></p>
+        <label>Enemy Taunts (spoken) <span class="toggle"><input type="checkbox" id="set-taunts" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <p id="voice-engine-status" class="hint hidden"></p>
         <div id="voice-engine-bar" class="hidden"><div id="voice-engine-fill"></div></div>
         <button id="btn-voice-retry" class="menu-btn small hidden" type="button">↻ Retry neural voices</button>
         <label>Voice Chat (multiplayer)
-          <select id="set-voice">
-            <option value="off">Off</option>
-            <option value="ptt" selected>Push-to-talk (hold V / 🎤)</option>
-            <option value="auto">Voice activated</option>
-          </select>
+          <span class="cselect" id="cs-set-voice">
+            <select id="set-voice" class="cselect-native">
+              <option value="off">Off</option>
+              <option value="ptt" selected>Push-to-talk (hold V / 🎤)</option>
+              <option value="auto">Voice activated</option>
+            </select>
+            <button type="button" class="cselect-trigger"><span class="cselect-label"></span><span class="cselect-arrow">▾</span></button>
+            <div class="cselect-list hidden"></div>
+          </span>
         </label>
         <label id="voice-thresh-row" class="hidden">Voice Trigger Level
           <span id="voice-slider-wrap"><span id="voice-level-fill"></span><input type="range" id="set-voice-thresh" min="3" max="60" value="12"></span><span id="set-voice-thresh-val"></span>
