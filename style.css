@@ -843,32 +843,45 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 @media (pointer: coarse) {
   #touch-menu-toggle { display: flex; }
   #touch-ui.menu-open #touch-menu-toggle { border-color: var(--gold); color: var(--gold); }
+  #touch-ui.menu-open #touch-menu-toggle { transform: rotate(90deg); transition: transform 0.28s ease; }
+  #touch-menu-toggle { transition: transform 0.28s ease, border-color 0.2s ease, color 0.2s ease; }
   /* Abilities as a 2x2 pad hugging the bottom-right corner, right under the
      thumb instead of reaching toward the middle of the screen. */
   #hotbar {
     left: auto; right: 12px; bottom: 12px; transform: none;
     display: grid; grid-template-columns: repeat(2, auto); gap: 8px; width: max-content;
   }
-  /* the menu toggle sits just to the left of the ability pad */
-  #touch-menu-toggle { right: 156px; bottom: 12px; }
-  /* utilities hidden until the menu is opened; clear the desktop left-anchor on
-     the rotate pair so their right-edge menu position takes effect */
-  #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { display: none; }
-  #touch-rotl, #touch-rotr { left: auto; right: 220px; }
+
+  /* --- Utility menu: the buttons are ALWAYS rendered so opening/closing can
+     ANIMATE. Closed, each one is collapsed onto the toggle (scaled down, faded,
+     non-interactive); open, it slides out to its slot. A per-button delay makes
+     the cluster grow out smoothly instead of popping in. --- */
+  #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic {
+    left: auto; opacity: 0; transform: scale(0.35); pointer-events: none;
+    transition: right 0.30s cubic-bezier(.34,1.35,.5,1), bottom 0.30s cubic-bezier(.34,1.35,.5,1),
+                left 0.30s cubic-bezier(.34,1.35,.5,1), opacity 0.20s ease, transform 0.22s ease;
+  }
+  #touch-mic.hidden { display: none !important; }
   #touch-ui.menu-open #touch-potion,
   #touch-ui.menu-open #touch-inv,
   #touch-ui.menu-open #touch-pause,
   #touch-ui.menu-open #touch-rotl,
-  #touch-ui.menu-open #touch-rotr { display: flex; }
-  #touch-ui.menu-open #touch-mic:not(.hidden) { display: flex; }
-  /* Open menu: a 2-column cluster stacking up from the toggle, kept LEFT of the
-     top-right minimap so it never hides behind it in landscape. */
-  #touch-ui.menu-open #touch-potion { right: 156px; bottom: 76px; }
-  #touch-ui.menu-open #touch-inv    { right: 156px; bottom: 140px; }
-  #touch-ui.menu-open #touch-pause  { right: 156px; bottom: 204px; }
-  #touch-ui.menu-open #touch-rotl   { right: 220px; bottom: 76px; }
-  #touch-ui.menu-open #touch-rotr   { right: 220px; bottom: 140px; }
-  #touch-ui.menu-open #touch-mic    { right: 220px; bottom: 204px; }
+  #touch-ui.menu-open #touch-rotr,
+  #touch-ui.menu-open #touch-mic:not(.hidden) {
+    opacity: 1; transform: scale(1); pointer-events: auto;
+  }
+
+  /* PORTRAIT default: toggle sits left of the ability pad; every utility is
+     stacked ON the toggle when closed, and rises straight up in ONE clean column
+     when open. */
+  #touch-menu-toggle { right: 150px; bottom: 12px; }
+  #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { right: 150px; bottom: 12px; }
+  #touch-ui.menu-open #touch-potion { bottom: 78px;  transition-delay: 0s, 0s, 0s, 0s, 0s; }
+  #touch-ui.menu-open #touch-inv    { bottom: 140px; transition-delay: 0.03s; }
+  #touch-ui.menu-open #touch-pause  { bottom: 202px; transition-delay: 0.06s; }
+  #touch-ui.menu-open #touch-rotl   { bottom: 264px; transition-delay: 0.09s; }
+  #touch-ui.menu-open #touch-rotr   { bottom: 326px; transition-delay: 0.12s; }
+  #touch-ui.menu-open #touch-mic    { bottom: 388px; transition-delay: 0.15s; }
 }
 
 /* one-time controls hint */
@@ -948,13 +961,18 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   /* short screen: smaller controls, and a tighter menu that still tucks to the
      right (all positions stay LEFT of the shrunken minimap). */
   #touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr, #touch-menu-toggle { width: 46px; height: 46px; font-size: 19px; }
-  #touch-menu-toggle { right: 128px; bottom: 12px; }
-  #touch-ui.menu-open #touch-potion { right: 128px; bottom: 64px; }
-  #touch-ui.menu-open #touch-inv    { right: 128px; bottom: 116px; }
-  #touch-ui.menu-open #touch-pause  { right: 128px; bottom: 168px; }
-  #touch-ui.menu-open #touch-rotl   { right: 182px; bottom: 64px; }
-  #touch-ui.menu-open #touch-rotr   { right: 182px; bottom: 116px; }
-  #touch-ui.menu-open #touch-mic    { right: 182px; bottom: 168px; }
+  /* LANDSCAPE: the ability pad owns the bottom-right, so the toggle goes to the
+     bottom-LEFT corner and the utilities fan out to the RIGHT along the bottom
+     edge - well clear of the abilities. Each one is collapsed on the toggle when
+     closed and slides right (staggered) when open. */
+  #touch-menu-toggle { left: 12px; right: auto; bottom: 12px; }
+  #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { left: 12px; right: auto; bottom: 12px; }
+  #touch-ui.menu-open #touch-potion { left: 66px;  right: auto; bottom: 12px; transition-delay: 0s; }
+  #touch-ui.menu-open #touch-inv    { left: 120px; right: auto; bottom: 12px; transition-delay: 0.03s; }
+  #touch-ui.menu-open #touch-pause  { left: 174px; right: auto; bottom: 12px; transition-delay: 0.06s; }
+  #touch-ui.menu-open #touch-rotl   { left: 228px; right: auto; bottom: 12px; transition-delay: 0.09s; }
+  #touch-ui.menu-open #touch-rotr   { left: 282px; right: auto; bottom: 12px; transition-delay: 0.12s; }
+  #touch-ui.menu-open #touch-mic    { left: 336px; right: auto; bottom: 12px; transition-delay: 0.15s; }
   #chat { bottom: 128px; width: min(44vw, 300px); }
   #chat-recent { max-height: 32vh; }
   #minimap { width: 84px; height: 84px; }
