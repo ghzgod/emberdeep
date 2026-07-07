@@ -2736,20 +2736,23 @@ export class Game {
     // nudge the decal back toward the attacker so it sits proud of the wall
     // face instead of z-fighting with it
     const px = x - nx * 0.05, pz = z - nz * 0.05;
-    const baseColor = new THREE.Color(0x201a16);
-    if (opts.tint) baseColor.lerp(new THREE.Color(opts.tint), 0.35);
-    const size = 0.4 + Math.random() * 0.15;
+    // Read as a dark scorch scuff, not a bright coloured card: mostly charcoal
+    // with only a hint of the projectile colour, subtle, and quick to fade so a
+    // long fight does not paper the walls with litter.
+    const baseColor = new THREE.Color(0x18120d);
+    if (opts.tint) baseColor.lerp(new THREE.Color(opts.tint), 0.12);
+    const size = 0.26 + Math.random() * 0.1;
     const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(size, size * 1.15),
-      new THREE.MeshBasicMaterial({ color: baseColor, transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide })
+      new THREE.PlaneGeometry(size, size * 1.1),
+      new THREE.MeshBasicMaterial({ color: baseColor, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide })
     );
     plane.position.set(px, y, pz);
     plane.rotation.y = rotY;
     this.scene.add(plane);
     const meshes = [plane];
-    const opacities = [0.75];
-    // a couple of small dark stone-chip flecks scattered around the impact
-    const chipCount = 2 + Math.floor(Math.random() * 2);
+    const opacities = [0.45];
+    // one or two small dark stone-chip flecks scattered around the impact
+    const chipCount = 1 + Math.floor(Math.random() * 2);
     const chipMat = new THREE.MeshBasicMaterial({ color: 0x18120f, transparent: true, opacity: 0.85 });
     for (let i = 0; i < chipCount; i++) {
       const s = 0.05 + Math.random() * 0.05;
@@ -2764,7 +2767,7 @@ export class Game {
       meshes.push(chip);
       opacities.push(0.85);
     }
-    this.pushMarkEntry(meshes, opacities, opts.fadeAfter ?? 20);
+    this.pushMarkEntry(meshes, opacities, opts.fadeAfter ?? 8);
   }
 
   // Shared pool bookkeeping for both ground decals and wall-impact marks:
@@ -2772,7 +2775,7 @@ export class Game {
   // each entry fades out over ~fadeAfter seconds via updateWallMarks().
   pushMarkEntry(meshes, baseOpacities, fadeAfter) {
     if (!this.wallMarks) this.wallMarks = [];
-    if (this.wallMarks.length >= 40) this.disposeMarkEntry(this.wallMarks.shift());
+    if (this.wallMarks.length >= 22) this.disposeMarkEntry(this.wallMarks.shift());
     this.wallMarks.push({ meshes, baseOpacities, age: 0, fadeAfter });
   }
 
