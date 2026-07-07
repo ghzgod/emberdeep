@@ -564,7 +564,20 @@ export class UI {
     // neural character voices (Kokoro) — the only voice engine; no user toggle.
     $('btn-voice-retry').onclick = async () => {
       const { neuralVoice } = await import('../ai/neuralVoice.js');
-      neuralVoice.retry();
+      // On phones the model is skipped by default because instantiating it
+      // OOM-crashes mobile Safari. Only try if the player explicitly opts in
+      // after a clear warning; otherwise re-run the normal retry.
+      if (neuralVoice.memoryConstrained) {
+        const ok = await this.confirmModal({
+          title: 'Download neural voices?',
+          message: 'Neural voices are a large download (about 90 MB) and can crash the browser on phones and low-memory devices. Standard voices are used otherwise. Try anyway?',
+          confirmText: 'Download', cancelText: 'Keep standard', danger: true,
+        });
+        if (!ok) return;
+        neuralVoice.retry(true);
+      } else {
+        neuralVoice.retry();
+      }
       this.startNeuralVoices();
     };
     // reflect current load state (downloading / ready / failed) whenever settings open
@@ -594,14 +607,19 @@ export class UI {
       s.voiceMode = vSel.value;
       this.game.saveSettings();
       syncVoiceRows();
-      if (s.voiceMode !== 'off') this.armMicMonitor();
       const { voice } = await import('../net/voice.js');
       const { net } = await import('../net/net.js');
-      if (s.voiceMode === 'off') voice.disable();
-      else if (net.active) {
-        const ok = await voice.enable(s.voiceMode, s.voiceThreshold);
+      if (s.voiceMode === 'off') {
+        voice.disable();
+      } else {
+        // Acquire the mic on this user gesture (mobile requires a gesture) and
+        // report failure only when it genuinely can't be opened. Both auto and
+        // ptt probe the same way now; the shared in-flight guard in enable()
+        // stops the meter monitor and the session join racing each other.
+        const ok = await this.armMicMonitor();
         if (!ok) {
-          vSel.value = 'off'; s.voiceMode = 'off'; syncVoiceRows();
+          voice.disable();
+          vSel.value = 'off'; s.voiceMode = 'off'; this.game.saveSettings(); syncVoiceRows();
           await this.confirmModal({ title: 'No microphone', message: 'Microphone unavailable or permission denied.', notice: true });
         }
       }
@@ -654,10 +672,11 @@ export class UI {
   // outside a multiplayer session; release it again on close if not in a room.
   async armMicMonitor() {
     const s = this.game.settings;
-    if (s.voiceMode === 'off') return;
+    if (s.voiceMode === 'off') return false;
     const { voice } = await import('../net/voice.js');
-    await voice.enable(s.voiceMode, s.voiceThreshold);
+    const ok = await voice.enable(s.voiceMode, s.voiceThreshold);
     voice.setMonitor(true); // keep mic live for the meter while settings open
+    return ok;
   }
 
   async disarmMicMonitor() {
@@ -824,8 +843,11 @@ export class UI {
         setTimeout(() => bar.classList.add('hidden'), 1200);
         retry.classList.add('hidden');
       } else if (st === 'error') {
-        vStatus.textContent = `Couldn't load neural voices (${err || 'unknown'}). Using standard voices for now.`;
+        vStatus.textContent = neuralVoice.skipped
+          ? 'Neural voices are off on this device (large download can crash mobile browsers). Using standard voices.'
+          : `Couldn't load neural voices (${err || 'unknown'}). Using standard voices for now.`;
         bar.classList.add('hidden');
+        retry.textContent = neuralVoice.memoryConstrained ? 'Enable neural voices' : 'Retry';
         retry.classList.remove('hidden');
       }
     };
