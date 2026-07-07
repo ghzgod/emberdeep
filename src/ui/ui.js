@@ -69,14 +69,10 @@ export class UI {
   // OK/confirm, false on cancel, outside-click, or Esc. Pass notice: true for
   // a single-button acknowledgement (no cancel button). danger: true reuses
   // the destroy-modal's red styling on the card and confirm button.
-  // dontAsk: true adds a "Do not ask again" toggle row inside the card; when
-  // used, the promise resolves { confirmed, dontAsk } instead of a plain
-  // boolean so callers can persist the choice.
-  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false, dontAsk = false } = {}) {
+  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false } = {}) {
     return new Promise((resolve) => {
       const modal = $('confirm-modal'), card = $('confirm-card');
       const okBtn = $('btn-confirm-ok'), cancelBtn = $('btn-confirm-cancel');
-      const dontAskRow = $('confirm-dontask-row'), dontAskBox = $('confirm-dontask');
       $('confirm-title').textContent = title;
       $('confirm-message').textContent = message;
       card.classList.toggle('danger', !!danger);
@@ -84,8 +80,6 @@ export class UI {
       okBtn.classList.toggle('danger', !!danger);
       cancelBtn.classList.toggle('hidden', !!notice);
       cancelBtn.textContent = cancelText;
-      dontAskRow.classList.toggle('hidden', !dontAsk);
-      dontAskBox.checked = false;
       modal.classList.remove('hidden');
       audio.play('ui_open');
       const cleanup = (confirmed) => {
@@ -93,7 +87,7 @@ export class UI {
         okBtn.onclick = null; cancelBtn.onclick = null;
         modal.removeEventListener('click', onBackdrop);
         document.removeEventListener('keydown', onKey);
-        resolve(dontAsk ? { confirmed, dontAsk: dontAskBox.checked } : confirmed);
+        resolve(confirmed);
       };
       const onBackdrop = (e) => { if (e.target === modal) cleanup(false); };
       const onKey = (e) => { if (e.key === 'Escape') cleanup(false); };
@@ -105,9 +99,13 @@ export class UI {
   }
 
   // Shared explainer for the battery-saver tradeoff, used both for the
-  // one-time first-launch prompt (game.js boot()) and the on-demand
-  // "AI & Voice Mode" button in Settings. Applies the choice and persists
-  // batterySaverDontAsk when the player opts out of ever seeing it again.
+  // one-time first-launch prompt (game.js boot()) and the "Full AI & Natural
+  // Voices" toggle in Settings. A plain Confirm/Cancel modal explains what
+  // will happen; Confirm applies the requested state, Cancel reverts to
+  // whatever was active before.
+  //
+  // turningOn: true means the player wants full AI ON (battery saver OFF);
+  // false means they want to go back to battery saver ON.
   //
   // Turning battery saver OFF requires the neural (Kokoro) voices. If they
   // were never downloaded/cached, this drives the download itself, right
@@ -115,17 +113,30 @@ export class UI {
   // applies instantly with no download step. Cancelling mid-download reverts
   // to battery saver ON, since the voices non-battery-saver mode needs never
   // finished loading.
-  async promptBatterySaverChoice() {
+  //
+  // toggleEl, if given, is the checkbox that triggered this (Settings' live
+  // toggle) so it can be flipped back to reflect a cancelled/reverted choice.
+  async promptBatterySaverChoice(turningOn = true, toggleEl = null) {
     const s = this.game.settings;
-    const result = await this.confirmModal({
-      title: 'AI & Voice Mode',
-      message: 'OFF: smarter bosses that learn over time, and natural neural voices. ON: basic built-in voices, no learning AI, to save battery and memory.',
-      confirmText: 'Turn OFF (full AI)', cancelText: 'Keep Battery Saver ON', dontAsk: true,
+    const wasOn = s.batterySaver !== true; // full-AI state before this prompt
+    const confirmed = await this.confirmModal({
+      title: 'Full AI & Natural Voices',
+      message: turningOn
+        ? 'Turning this ON enables smarter bosses that learn over time and natural neural voices. Uses more battery and memory, and may download voices once.'
+        : 'Turning this OFF switches to basic built-in voices with no learning AI, to save battery and memory.',
+      confirmText: 'Confirm', cancelText: 'Cancel',
     });
-    if (result.dontAsk) { s.batterySaverDontAsk = true; this.game.saveSettings(); }
 
-    if (!result.confirmed) {
-      // Explicitly kept battery saver ON: nothing to download, just persist.
+    if (!confirmed) {
+      // Cancelled: revert to whatever was active before, no change applied.
+      if (toggleEl) toggleEl.checked = wasOn;
+      this.reflectBatteryStatus();
+      if (this.screens.settings.classList.contains('visible')) this.reflectNeuralStatus();
+      return;
+    }
+
+    if (!turningOn) {
+      // Confirmed turning full AI OFF: nothing to download, just persist.
       s.batterySaver = true;
       this.game.saveSettings();
       const { roaster } = await import('../ai/roaster.js');
@@ -135,8 +146,9 @@ export class UI {
       return;
     }
 
-    // Player asked for full AI. Warn first on a device that would OOM on the
-    // heavy download, same safeguard the "Retry neural voices" button uses.
+    // Player confirmed turning full AI ON. Warn first on a device that would
+    // OOM on the heavy download, same safeguard the "Retry neural voices"
+    // button uses.
     const { neuralVoice } = await import('../ai/neuralVoice.js');
     if (neuralVoice.memoryConstrained && neuralVoice.status !== 'ready') {
       const ok = await this.confirmModal({
@@ -144,7 +156,7 @@ export class UI {
         message: 'Neural voices are a large download (about 90 MB) and can crash the browser on phones and low-memory devices. Try anyway?',
         confirmText: 'Download', cancelText: 'Keep standard', danger: true,
       });
-      if (!ok) { this.reflectBatteryStatus(); return; } // stays on battery saver ON
+      if (!ok) { if (toggleEl) toggleEl.checked = wasOn; this.reflectBatteryStatus(); return; } // stays as it was
       neuralVoice._optIn = true;
     }
 
@@ -164,6 +176,7 @@ export class UI {
     this.game.saveSettings();
     const { roaster } = await import('../ai/roaster.js');
     roaster.batterySaver = s.batterySaver;
+    if (toggleEl) toggleEl.checked = !s.batterySaver;
     this.reflectBatteryStatus();
     if (this.screens.settings.classList.contains('visible')) this.reflectNeuralStatus();
   }
@@ -177,12 +190,10 @@ export class UI {
     return new Promise((resolve) => {
       const modal = $('confirm-modal'), card = $('confirm-card');
       const okBtn = $('btn-confirm-ok'), cancelBtn = $('btn-confirm-cancel');
-      const dontAskRow = $('confirm-dontask-row');
       const progRow = $('confirm-progress-row'), progBar = $('confirm-progress-bar'), progText = $('confirm-progress-text');
       $('confirm-title').textContent = 'Downloading neural voices…';
       $('confirm-message').textContent = 'This is a one-time ~90 MB download, cached afterwards. Cancelling keeps Battery Saver on.';
       card.classList.remove('danger');
-      dontAskRow.classList.add('hidden');
       progRow.classList.remove('hidden');
       progBar.style.width = '0%';
       progText.textContent = 'Starting…';
@@ -829,11 +840,13 @@ export class UI {
     shake.checked = s.screenShake;
     shake.onchange = () => { s.screenShake = shake.checked; this.game.saveSettings(); };
 
-    // Battery saver / AI & Voice Mode: no inline toggle in Settings; the
-    // themed confirmModal explainer (also shown once on first launch) is the
-    // sole interface, reachable here via a button that reopens it on demand.
+    // Full AI & Natural Voices: checked = NOT battery saver (checked = full AI on).
+    // Flipping it opens a plain Confirm/Cancel explainer; Cancel reverts the
+    // toggle, Confirm applies the new state (see promptBatterySaverChoice).
+    const aiVoice = $('set-ai-voice');
+    aiVoice.checked = s.batterySaver !== true;
+    aiVoice.onchange = () => this.promptBatterySaverChoice(aiVoice.checked, aiVoice);
     this.reflectBatteryStatus();
-    $('btn-ai-voice-mode').onclick = () => this.promptBatterySaverChoice();
 
     const taunts = $('set-taunts');
     taunts.checked = s.taunts !== false;
@@ -1208,6 +1221,7 @@ export class UI {
     $('set-quality').value = s.quality;
     this._syncQualitySelect?.();
     $('set-shake').checked = s.screenShake;
+    $('set-ai-voice').checked = s.batterySaver !== true;
   }
 
   // ---------- hotbar ----------
