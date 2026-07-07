@@ -414,14 +414,19 @@ export class UI {
       : 'No points to spend — level up to earn more';
     const grid = $('skills-grid');
     grid.innerHTML = '';
-    let branch = '';
+    let branch = '', groupEl = null;
     for (const sk of SKILLS) {
       if (sk.branch !== branch) {
+        // Each branch is its own column-block so the tree lays out as several
+        // side-by-side columns instead of one tall scrolling list.
         branch = sk.branch;
+        groupEl = document.createElement('div');
+        groupEl.className = 'skill-group';
         const h = document.createElement('div');
         h.className = 'skills-branch';
         h.textContent = branch;
-        grid.appendChild(h);
+        groupEl.appendChild(h);
+        grid.appendChild(groupEl);
       }
       const rank = p.skillRank(sk.id);
       const row = document.createElement('div');
@@ -435,7 +440,7 @@ export class UI {
         <button class="skill-buy menu-btn small" ${pts <= 0 || rank >= sk.max ? 'disabled' : ''}>+</button>
       `;
       row.querySelector('.skill-buy').onclick = () => this.game.buySkill(sk.id);
-      grid.appendChild(row);
+      groupEl.appendChild(row);
     }
     this.show('skills');
   }
