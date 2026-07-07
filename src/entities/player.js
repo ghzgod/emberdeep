@@ -205,7 +205,7 @@ export class Player {
     for (const b of this.buffs) if (b.damageTakenMult) mult *= b.damageTakenMult;
     const final = Math.max(1, Math.round(amount * mult));
     this.hp -= final;
-    audio.play('player_hurt', { throttleMs: 200 });
+    audio.classHurt(this.classId); // per-class vocal grunt (throttled internally)
     game.ui.floaters.spawn(this.pos, `-${final}`, 'player-dmg');
     game.particles.burst(this.pos.x, 1.0, this.pos.z, 10, 0xd94a4a, { speed: 3.5, life: 0.35, size: 0.11 });
     game.shake(0.25);
