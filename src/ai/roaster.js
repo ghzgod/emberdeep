@@ -134,6 +134,10 @@ const MALE_HINT = /male|daniel|alex|fred|arthur|george|aaron|guy|david|mark|jame
 export class Roaster {
   constructor() {
     this.enabled = true;
+    // When true, never touch Kokoro: speak through the browser's built-in
+    // speechSynthesis (distinct male/female system voices per cast). Set from
+    // the game's Battery Saver setting; default reflects mobile/low-memory.
+    this.batterySaver = false;
     this.timer = 5;
     this.voices = [];
     this.lastCategory = null;
@@ -182,6 +186,9 @@ export class Roaster {
   // Prefers the neural Kokoro engine when it's loaded; Web Speech otherwise.
   speakAs(text, cast) {
     if (!this.enabled) return;
+    // Battery saver: skip Kokoro completely (no heavy import, no main-thread
+    // inference) and use the built-in voices, cast male vs female per `cast`.
+    if (this.batterySaver) { this._speakWebSpeech(text, cast); return; }
     import('./neuralVoice.js').then(async ({ neuralVoice }) => {
       if (neuralVoice.ready) {
         const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1 });
