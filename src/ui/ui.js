@@ -900,7 +900,14 @@ export class UI {
     const bar = $('hotbar');
     bar.innerHTML = '';
     this.hotbarSlots = [];
+    this.radial = null;
     const order = player.abilityOrder || [0, 1, 2, 3];
+    // On touch devices the abilities render as a quarter-pie radial wheel in the
+    // bottom-right corner (built + updated separately); desktop keeps the row.
+    if (matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window) {
+      this.buildRadialHotbar(player, order);
+      return;
+    }
     order.forEach((abIndex, i) => {
       const ab = player.classDef.abilities[abIndex];
       const slot = document.createElement('div');
@@ -916,6 +923,91 @@ export class UI {
       this.hotbarSlots.push(slot);
     });
     this.wireHotbarInput(player);
+  }
+
+  // SVG annular-sector path (a pie slice with a hole at the pivot), pivot fixed
+  // at the bottom-right corner (100,100) of a 0..100 viewBox.
+  _wedgePath(a1, a2, r0, r1) {
+    const pt = (a, r) => [
+      (100 + r * Math.cos((a * Math.PI) / 180)).toFixed(2),
+      (100 + r * Math.sin((a * Math.PI) / 180)).toFixed(2),
+    ];
+    const [x1, y1] = pt(a1, r1), [x2, y2] = pt(a2, r1), [x3, y3] = pt(a2, r0), [x4, y4] = pt(a1, r0);
+    return `M${x1} ${y1} A${r1} ${r1} 0 0 1 ${x2} ${y2} L${x3} ${y3} A${r0} ${r0} 0 0 0 ${x4} ${y4} Z`;
+  }
+
+  // Touch abilities: a quarter-pie wheel of four wedges (pineapple slices) in
+  // the bottom-right corner, sweeping from the bottom edge (slot 1) up to the
+  // right edge (slot 4) around the thumb pivot. Each wedge is a tap target that
+  // casts its ability; cooldown drains a dark overlay across the slice.
+  buildRadialHotbar(player, order) {
+    const bar = $('hotbar');
+    const NS = 'http://www.w3.org/2000/svg';
+    const R0 = 36, R = 98, GAP = 3;
+    const pt = (a, r) => [
+      (100 + r * Math.cos((a * Math.PI) / 180)).toFixed(2),
+      (100 + r * Math.sin((a * Math.PI) / 180)).toFixed(2),
+    ];
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('class', 'ability-wheel');
+    this.radial = [];
+    order.forEach((abIndex, i) => {
+      const ab = player.classDef.abilities[abIndex];
+      const base = 180 + i * 22.5;
+      const a1 = base + GAP / 2, a2 = base + 22.5 - GAP / 2, mid = (a1 + a2) / 2;
+      const g = document.createElementNS(NS, 'g');
+      g.setAttribute('class', 'wheel-slot ready');
+      const wedge = document.createElementNS(NS, 'path');
+      wedge.setAttribute('d', this._wedgePath(a1, a2, R0, R));
+      wedge.setAttribute('class', 'wheel-wedge');
+      const cd = document.createElementNS(NS, 'path');
+      cd.setAttribute('class', 'wheel-cd');
+      cd.setAttribute('d', '');
+      const [ix, iy] = pt(mid, (R0 + R) / 2 + 3);
+      const icon = document.createElementNS(NS, 'text');
+      icon.setAttribute('x', ix); icon.setAttribute('y', iy);
+      icon.setAttribute('class', 'wheel-icon');
+      icon.setAttribute('text-anchor', 'middle');
+      icon.setAttribute('dominant-baseline', 'central');
+      icon.textContent = ab.icon;
+      const [nx, ny] = pt(mid, R0 + 8);
+      const num = document.createElementNS(NS, 'text');
+      num.setAttribute('x', nx); num.setAttribute('y', ny);
+      num.setAttribute('class', 'wheel-num');
+      num.setAttribute('text-anchor', 'middle');
+      num.setAttribute('dominant-baseline', 'central');
+      num.textContent = i + 1;
+      g.append(wedge, cd, icon, num);
+      svg.appendChild(g);
+      const fire = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (this.game.state === 'playing') this.game.player?.tryAbility(i, this.game);
+      };
+      g.addEventListener('pointerup', fire);
+      this.radial.push({ i, g, wedge, cd, icon, a1, a2 });
+    });
+    bar.appendChild(svg);
+  }
+
+  updateRadialHotbar(player) {
+    const order = player.abilityOrder || [0, 1, 2, 3];
+    this.radial.forEach((s, i) => {
+      const abIndex = order[i];
+      const ab = player.classDef.abilities[abIndex];
+      if (!ab) return;
+      const cd = player.abilityCds[abIndex];
+      const max = player.abilityCdMax?.[abIndex] || ab.cd;
+      const onCd = cd > 0;
+      const frac = onCd ? Math.max(0, Math.min(1, cd / max)) : 0;
+      // dark overlay drains from the leading edge as the cooldown recovers
+      s.cd.setAttribute('d', frac > 0 ? this._wedgePath(s.a1, s.a1 + (s.a2 - s.a1) * frac, 36, 98) : '');
+      const canAfford = player.resource >= ab.cost;
+      s.g.classList.toggle('cooling', onCd);
+      s.g.classList.toggle('ready', !onCd && canAfford);
+      s.g.classList.toggle('no-resource', !onCd && !canAfford);
+      if (s.icon.textContent !== ab.icon) s.icon.textContent = ab.icon;
+    });
   }
 
   // One pointer-based interaction path covers both mouse and touch: a quick
@@ -984,7 +1076,7 @@ export class UI {
   }
 
   flashNoResource(slot) {
-    const el = this.hotbarSlots[slot];
+    const el = this.radial ? this.radial[slot]?.g : this.hotbarSlots[slot];
     if (!el) return;
     el.classList.add('no-resource');
     setTimeout(() => el.classList.remove('no-resource'), 300);
@@ -1026,14 +1118,24 @@ export class UI {
     if (this.game.inTown || !this.game.dungeon?.stairs) {
       clearEl.textContent = '';
     } else if (this.game.stairsLocked()) {
+      // Show how many are LEFT to clear before the stairs down open, so the
+      // objective reads as a countdown to the next floor rather than a tally.
+      const left = Math.max(0, this.game.stairsClearNeed() - this.game.floorKills);
       const eliteLeft = this.game.enemies.some((e) => !e.dead && e.elite);
-      clearEl.textContent = `🔒 ${this.game.floorKills}/${this.game.stairsClearNeed()} culled${eliteLeft ? ' · Elite alive' : ''}`;
+      const parts = [];
+      if (left > 0) parts.push(`${left} to slay`);
+      if (eliteLeft) parts.push('elite alive');
+      clearEl.textContent = parts.length ? `🔒 ${parts.join(' · ')} to open the stairs` : '🔒 clear the floor';
       clearEl.className = 'sealed';
     } else {
-      clearEl.textContent = '🔓 Stairs open';
+      clearEl.textContent = '🔓 Stairs open, descend when ready';
       clearEl.className = 'open';
     }
     $('hud-quest').textContent = this.game.currentObjectiveText();
+    // Touch ability wheel is a dungeon tool: fade it in town (no combat there)
+    // and while an interact/descend prompt is up so it never sits under it.
+    document.body.classList.toggle('in-town', !!this.game.inTown);
+    document.body.classList.toggle('show-interact', !$('interact-prompt').classList.contains('hidden'));
 
     // anti-cheat lockout countdown banner
     const cl = $('cheat-lock');
@@ -1046,6 +1148,8 @@ export class UI {
       cl.classList.add('hidden');
     }
 
+    if (this.radial) { this.updateRadialHotbar(player); }
+    else {
     const abilityOrder = player.abilityOrder || [0, 1, 2, 3];
     abilityOrder.forEach((abIndex, i) => {
       const ab = player.classDef.abilities[abIndex];
@@ -1066,6 +1170,7 @@ export class UI {
       // full-colour button is never secretly uncastable
       slot.classList.toggle('no-resource', !onCd && !canAfford);
     });
+    }
 
     const bossWrap = $('boss-bar-wrap');
     if (boss && !boss.dead) {
