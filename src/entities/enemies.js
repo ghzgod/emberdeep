@@ -854,6 +854,12 @@ export function buildBossMesh(glow = 0xb35eff) {
   const cloakMat = new THREE.MeshStandardMaterial({ color: 0x1c1526, roughness: 0.85, side: THREE.DoubleSide });
   const glowMat = new THREE.MeshBasicMaterial({ color: glow });
 
+  // Same limb-registration pattern the per-type mobs use so Enemy._animateGait
+  // strides the boss instead of letting it slide rigidly.
+  const gait = [];
+  const reg = (mesh, kind, phase = 0, amp = 0.3) =>
+    gait.push({ mesh, kind, phase, amp, bx: mesh.rotation.x, bz: mesh.rotation.z });
+
   // tattered cloak silhouette behind torso (wide cone, jagged via low radial segs)
   const cloak = new THREE.Mesh(new THREE.ConeGeometry(1.15, 2.6, 7, 1, true), cloakMat);
   cloak.position.set(0, 1.4, -0.35); cloak.rotation.x = Math.PI;
@@ -895,8 +901,10 @@ export function buildBossMesh(glow = 0xb35eff) {
     clawsL.add(c);
   }
   const clawsR = clawsL.clone(); clawsR.position.x = 2.4;
-  const legs = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.9, 0.9), dark);
-  legs.position.y = 0.45;
+  // Split legs (was one block) so a left/right walk cycle reads when it strides.
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.9), dark);
+  legL.position.set(-0.34, 0.45, 0);
+  const legR = legL.clone(); legR.position.x = 0.34;
   // glowing chest core (layered for depth)
   const chestCore = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), glowMat);
   chestCore.position.set(0, 1.9, 0.58);
@@ -905,7 +913,14 @@ export function buildBossMesh(glow = 0xb35eff) {
 
   g.add(cloak, cloak2, torso, head, eyeL, eyeR, hornL, hornR, hornCL, hornCR,
     pauldronL, pauldronR, armL, armR, gauntletL, gauntletR, clawsL, clawsR,
-    legs, chestCore, chestRing);
+    legL, legR, chestCore, chestRing);
+  // legs stride out of phase; arms + gauntlets counter-swing (small amp so the
+  // hulking silhouette lumbers rather than jogs). Gauntlets share their arm's
+  // phase so the whole limb swings as one.
+  reg(legL, 'leg', 0, 0.32); reg(legR, 'leg', Math.PI, 0.32);
+  reg(armL, 'arm', Math.PI, 0.24); reg(armR, 'arm', 0, 0.24);
+  reg(gauntletL, 'arm', Math.PI, 0.2); reg(gauntletR, 'arm', 0, 0.2);
+  g.userData.gait = gait;
   // boss is noticeably larger than a golem — scale whole rig up
   g.scale.setScalar(1.35);
   addShadowBlob(g, 1.5);
