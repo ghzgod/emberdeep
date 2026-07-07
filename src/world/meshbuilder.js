@@ -637,25 +637,53 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
     group.add(portalMesh);
   }
 
-  // --- Stairs down ---
+  // --- Stairs down: a SQUARE floor hatch over a dark stairwell recess ---
+  // Closed while the floor objective holds; the lid tilts UP to reveal the
+  // steps descending into darkness once the seal breaks. Everything is tagged
+  // in userData so game.js can drive the open animation + glow colour.
   let stairsMesh = null;
   if (dungeon.stairs) {
     const w = tileToWorld(dungeon.stairs.x, dungeon.stairs.y);
     stairsMesh = new THREE.Group();
-    const stepMat = new THREE.MeshStandardMaterial({ color: 0x222228, roughness: 0.9 });
-    for (let i = 0; i < 4; i++) {
-      const step = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 0.35), stepMat);
-      step.position.set(0, -i * 0.14, -0.5 + i * 0.35);
+    const HATCH = 1.6;                 // square hatch side (sits inside the 2-unit tile)
+    const half = HATCH / 2;
+
+    // Dark stairwell recess: a sunken square well with steps descending into it.
+    const recessMat = new THREE.MeshStandardMaterial({ color: 0x07070a, roughness: 1 });
+    const recess = new THREE.Mesh(new THREE.BoxGeometry(HATCH, 1.6, HATCH), recessMat);
+    recess.position.y = -0.8; // top of the well sits just under floor level
+    stairsMesh.add(recess);
+    const stepMat = new THREE.MeshStandardMaterial({ color: 0x1c1c22, roughness: 0.95 });
+    for (let i = 0; i < 5; i++) {
+      const step = new THREE.Mesh(new THREE.BoxGeometry(HATCH, 0.12, 0.28), stepMat);
+      step.position.set(0, -0.1 - i * 0.22, half - 0.18 - i * 0.26);
       stairsMesh.add(step);
     }
-    // glowing portal ring to make it unmissable
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(0.9, 0.06, 8, 24),
-      new THREE.MeshBasicMaterial({ color: theme.accent })
-    );
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 0.08;
+
+    // Square hatch lid on a hinge pivot at the far edge, so it swings up-and-back.
+    const lidPivot = new THREE.Group();
+    lidPivot.position.set(0, 0.06, -half);
+    lidPivot.userData.stairsLid = true;
+    const lidMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 0.85 });
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(HATCH, 0.12, HATCH), lidMat);
+    lid.position.set(0, 0, half); // offset so the pivot edge is the hinge
+    lidPivot.add(lid);
+    stairsMesh.add(lidPivot);
+
+    // Square glowing ring outlining the hatch: four thin bars, dim when sealed.
+    const ringMat = new THREE.MeshBasicMaterial({ color: theme.accent });
+    const barLong = new THREE.BoxGeometry(HATCH + 0.16, 0.06, 0.08);
+    const barSide = new THREE.BoxGeometry(0.08, 0.06, HATCH + 0.16);
+    const ring = new THREE.Group();
+    ring.userData.stairsRing = true;
+    const north = new THREE.Mesh(barLong, ringMat); north.position.set(0, 0, -half - 0.04);
+    const south = new THREE.Mesh(barLong, ringMat); south.position.set(0, 0, half + 0.04);
+    const west = new THREE.Mesh(barSide, ringMat); west.position.set(-half - 0.04, 0, 0);
+    const east = new THREE.Mesh(barSide, ringMat); east.position.set(half + 0.04, 0, 0);
+    ring.add(north, south, west, east);
+    ring.position.y = 0.14;
     stairsMesh.add(ring);
+
     stairsMesh.position.set(w.x, 0, w.z);
     group.add(stairsMesh);
   }
