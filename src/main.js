@@ -13,8 +13,21 @@ try {
     document.getElementById('action-bar')?.classList.add('hidden');
   }
   if (typeof __BUILD_DATE__ !== 'undefined') {
+    // Human-readable "how long ago this build was made", computed at page load
+    // from the baked-in build timestamp.
+    const timeAgo = (ms) => {
+      const secs = Math.max(0, Math.round((Date.now() - ms) / 1000));
+      const units = [['year', 31536000], ['month', 2592000], ['day', 86400], ['hour', 3600], ['minute', 60]];
+      for (const [name, size] of units) {
+        const n = Math.floor(secs / size);
+        if (n >= 1) return `${n} ${name}${n === 1 ? '' : 's'} ago`;
+      }
+      return 'just now';
+    };
+    const id = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev';
+    const ago = typeof __BUILD_TIME__ !== 'undefined' ? ` (${timeAgo(__BUILD_TIME__)})` : '';
     document.getElementById('build-info').textContent =
-      `Updated ${__BUILD_DATE__} · build ${typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev'}`;
+      `Updated ${__BUILD_DATE__}${ago} · build ${id}`;
   }
 } catch { /* cosmetic */ }
 
