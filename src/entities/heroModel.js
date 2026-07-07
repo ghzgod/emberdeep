@@ -146,6 +146,68 @@ function applyCosmetics(mesh, name) {
   }
 }
 
+// The rogue model ships with its hood welded into the head mesh (one skinned
+// primitive, one texture atlas, no material seam), so there is no scalp geometry
+// underneath: the crown and back of the skull exist ONLY as hood cloth. To let a
+// helmet visibly replace the hood, we split that cloth off into its own skinned
+// mesh at load time so it can be toggled independently. The cloth lives in a
+// single tile of the atlas (UV cell x:[0.125,0.25) y:[0.25,0.375)); every skin
+// tile is elsewhere, so a per-triangle UV test separates them cleanly. The
+// removed triangles leave a gap at the crown, which is why the hood is the
+// rogue's DEFAULT head covering and is only hidden when a helmet (which covers
+// the same area) is equipped - it is never removed to bare skin, since none
+// exists there. Returns the new hood SkinnedMesh (already parented + bound) or
+// null if this model has no separable hood.
+function splitRogueHood(headMesh) {
+  if (!headMesh?.isSkinnedMesh) return null;
+  const geo = headMesh.geometry;
+  const src = geo.index ? geo.toNonIndexed() : geo.clone();
+  const uv = src.getAttribute('uv');
+  if (!uv) return null;
+  const names = ['position', 'normal', 'uv', 'skinIndex', 'skinWeight', 'tangent', 'color']
+    .filter((n) => src.getAttribute(n));
+  const headArr = {}, hoodArr = {};
+  for (const n of names) { headArr[n] = []; hoodArr[n] = []; }
+  const isHood = (i) => Math.floor(uv.getX(i) * 8) === 1 && Math.floor(uv.getY(i) * 8) === 2;
+  const triCount = src.getAttribute('position').count / 3;
+  let hoodTris = 0;
+  for (let t = 0; t < triCount; t++) {
+    const a = t * 3, b = a + 1, c = a + 2;
+    const votes = (isHood(a) ? 1 : 0) + (isHood(b) ? 1 : 0) + (isHood(c) ? 1 : 0);
+    const dst = votes >= 2 ? (hoodTris++, hoodArr) : headArr;
+    for (const vi of [a, b, c]) {
+      for (const n of names) {
+        const at = src.getAttribute(n);
+        for (let k = 0; k < at.itemSize; k++) dst[n].push(at.array[vi * at.itemSize + k]);
+      }
+    }
+  }
+  if (!hoodTris) return null; // nothing matched: not a hooded model, leave as-is
+  const build = (arrs) => {
+    const g = new THREE.BufferGeometry();
+    for (const n of names) {
+      const at = src.getAttribute(n);
+      g.setAttribute(n, new THREE.BufferAttribute(new at.array.constructor(arrs[n]), at.itemSize, at.normalized));
+    }
+    return g;
+  };
+  const headGeo = build(headArr);
+  const hoodGeo = build(hoodArr);
+  geo.dispose();
+  headMesh.geometry = headGeo;
+  const hood = new THREE.SkinnedMesh(hoodGeo, headMesh.material);
+  hood.name = 'Rogue_Hood';
+  hood.frustumCulled = false;
+  hood.castShadow = false;
+  hood.receiveShadow = false;
+  headMesh.parent.add(hood);
+  hood.position.copy(headMesh.position);
+  hood.quaternion.copy(headMesh.quaternion);
+  hood.scale.copy(headMesh.scale);
+  hood.bind(headMesh.skeleton, headMesh.bindMatrix);
+  return hood;
+}
+
 const CLIP_PATTERNS = {
   idle: [/^idle$/i, /idle_?a/i, /idle/i],
   run: [/^running_a$/i, /run/i, /walk/i],
@@ -165,15 +227,21 @@ export function buildAnimatedHero(classId, name = '') {
 
   const mesh = skeletonClone(data.scene);
   mesh.scale.setScalar(data.scale);
+  let hoodedHead = null;
   mesh.traverse((o) => {
     if (o.isMesh) {
       o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
       // Headgear is gear-driven: hide the model's baked-on hat/helmet so an
       // equipped helmet is the ONLY hat, and taking it off leaves a bare head.
-      // (The rogue's hood is fused into its head mesh, so it stays.)
       if (/_(Hat|Helmet)$/.test(o.name)) o.visible = false;
+      // The rogue's hood is welded into its head mesh instead of being a
+      // separate node, so remember it here and split it off below.
+      if (o.isSkinnedMesh && /Head.*Hood|Hood.*Head|Hooded/i.test(o.name)) hoodedHead = o;
     }
   });
+  // Separate the rogue hood so a helmet can replace it (see splitRogueHood).
+  // Stored on userData so updateHeroGear can toggle it with the head slot.
+  if (hoodedHead) mesh.userData.hood = splitRogueHood(hoodedHead);
   applyCosmetics(mesh, name);
 
   // fake blob shadow
