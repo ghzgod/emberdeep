@@ -1522,6 +1522,10 @@ export class Game {
     if (mesh.userData.gearSig === sig) return;
     mesh.userData.gearSig = sig;
     if (mesh.userData.gearVisual) { mesh.remove(mesh.userData.gearVisual); mesh.userData.gearVisual = null; }
+    // The rogue's hood is its default headgear (split off from the head mesh so
+    // it can toggle). A helmet covers the same crown, so hide the hood when one
+    // is equipped and show it again when it comes off.
+    if (mesh.userData.hood) mesh.userData.hood.visible = !equipped.helmet;
     const grp = new THREE.Group();
     const mat = (rarity) => {
       const c = RARITIES[rarity]?.color ?? 0x8a8a8a;
