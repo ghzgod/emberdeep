@@ -755,8 +755,15 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98));
   border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35);
 }
-#item-actions-info { font-size: 14px; margin-bottom: 14px; text-align: left; }
+/* Default every bit of modal text to parchment so nothing falls back to the
+   browser's black (which was invisible on the dark card). */
+#item-actions-info { font-size: 14px; margin-bottom: 14px; text-align: left; color: var(--parchment); }
 .item-actions-btns { display: flex; gap: 10px; justify-content: center; }
+/* the name is a div, not an h4, so the h4.tt-* rules did not reach it */
+.item-name.tt-common { color: #d4d4d4; }
+.item-name.tt-rare { color: #6fa8ff; }
+.item-name.tt-epic { color: #c77aff; }
+.item-name.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 
 /* Item detail panel: a real layout, not one line of green text. */
 .item-panel { min-width: 300px; }
@@ -773,7 +780,7 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 .item-pic.rarity-legendary { border-color: #ff9a3a; box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 16px rgba(255,154,58,0.5); }
 .item-head { flex: 1; min-width: 0; }
 .item-name { font-size: 19px; font-weight: bold; line-height: 1.15; margin-bottom: 4px; }
-.item-meta { font-size: 12px; opacity: 0.6; text-transform: capitalize; }
+.item-meta { font-size: 12px; color: var(--parchment); opacity: 0.72; text-transform: capitalize; }
 .item-ilvl { color: var(--gold); opacity: 0.9; font-style: italic; }
 .item-stats {
   display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
