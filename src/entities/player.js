@@ -46,6 +46,7 @@ export class Player {
     this.abilityOrder = [0, 1, 2, 3];
     this.footstepTimer = 0;
     this.attackAnim = 0;
+    this.comboIndex = 0;      // advances per basic-attack swing (melee variation cycle); resets after a short idle
     this.dead = false;
     this.invulnTimer = 0;
     this.aiming = false;      // set by the game while attack input is held
@@ -302,11 +303,23 @@ export class Player {
     this.attackCd = basic.cooldown;
     this.attackAnim = 0.22;
     this.faceAimTimer = 0.8;
-    this._lastAttackAt = performance.now();
-    if (this.anim) this.anim.playAttack();
+    const now = performance.now();
+    // Combo cycle: pick the next melee variation, resetting to the first swing
+    // if it's been a beat since the last attack so the combo doesn't carry
+    // across separate fights. Only the knight's melee basic has variations;
+    // other classes' basics ignore this and just play their one attack clip.
+    let variation = null;
+    if (basic.variations && basic.variations.length) {
+      const idleMs = basic.idleResetMs ?? 1200;
+      if (!this._lastAttackAt || now - this._lastAttackAt > idleMs) this.comboIndex = 0;
+      variation = basic.variations[this.comboIndex % basic.variations.length];
+      this.comboIndex++;
+    }
+    this._lastAttackAt = now;
+    if (this.anim) this.anim.playAttack(variation?.clip);
     audio.play(basic.sound);
     if (basic.kind === 'melee') {
-      game.meleeAttack(this, basic);
+      game.meleeAttack(this, basic, variation);
     } else {
       game.spawnProjectile({
         x: this.pos.x, z: this.pos.z, dir: this.aimDir, speed: basic.speed,
