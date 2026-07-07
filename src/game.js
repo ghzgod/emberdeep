@@ -1018,6 +1018,8 @@ export class Game {
     this.floorKills = 0;
     this._stairsWasLocked = this.stairsLocked();
     this._sealNoticeT = 0;
+    // Sealed hatch reads as a dim, locked square glow; open reads bright green.
+    this.setStairsRingColor(this._stairsWasLocked ? 0x3a3a44 : 0x54e87a);
 
     this.setupTorchLights(theme);
     this.ui.minimap.setDungeon(this.dungeon);
@@ -2661,14 +2663,18 @@ export class Game {
     }
   }
 
-  // Just animates the descend-stairs ring; actual descent is an interact
-  // prompt built in updateTownInteractions (so nothing triggers on contact).
+  // Animates the descend-stairs hatch: the square lid tilts UP to reveal the
+  // dark stairwell once the seal breaks. Actual descent is an interact prompt
+  // built in updateTownInteractions (so nothing triggers on contact).
   updateStairs(dt) {
     this.stairsCooldown = Math.max(0, this.stairsCooldown - dt);
-    if (this.dungeonMeshes?.stairsMesh) {
-      this.dungeonMeshes.stairsMesh.children.forEach((ch) => {
-        if (ch.geometry?.type === 'TorusGeometry') ch.rotation.z += dt * 1.5;
-      });
+    const sm = this.dungeonMeshes?.stairsMesh;
+    if (!sm) return;
+    const lid = sm.children.find((ch) => ch.userData?.stairsLid);
+    if (lid) {
+      // Sealed: lid lies flat (0). Open: hinges up and back (~120°).
+      const target = (this.inTown || !this.stairsLocked()) ? -Math.PI * 0.66 : 0;
+      lid.rotation.x += (target - lid.rotation.x) * Math.min(1, dt * 4);
     }
   }
 
@@ -2741,9 +2747,8 @@ export class Game {
   }
 
   setStairsRingColor(hex) {
-    this.dungeonMeshes?.stairsMesh?.children.forEach((ch) => {
-      if (ch.geometry?.type === 'TorusGeometry') ch.material.color.setHex(hex);
-    });
+    const ring = this.dungeonMeshes?.stairsMesh?.children.find((ch) => ch.userData?.stairsRing);
+    if (ring) ring.children.forEach((bar) => bar.material.color.setHex(hex));
   }
 
   // Pit holes: fall through to the next floor (solo) — it hurts.
