@@ -826,9 +826,12 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 #touch-menu-toggle {
   display: none; position: absolute; pointer-events: auto; right: 14px; bottom: 14px;
   width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--panel-border);
-  background: var(--panel); font-size: 26px; color: var(--parchment); padding: 0;
-  align-items: center; justify-content: center; z-index: 2;
+  background: var(--panel); font-size: 0; color: var(--parchment); padding: 0;
+  align-items: center; justify-content: center; line-height: 1; z-index: 2;
 }
+/* the glyph lives in ::before so it can SWAP (hamburger to close) without any
+   rotation, and stays perfectly centred by the flex box */
+#touch-menu-toggle::before { content: '\2630'; font-size: 26px; line-height: 1; }
 
 /* Desktop default positions (declared BEFORE the coarse media query so the
    mobile overrides below win on touch devices). */
@@ -837,24 +840,38 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 #touch-mic { right: 14px; bottom: 300px; }
 #touch-mic.hidden { display: none !important; }
 #touch-pause { right: 14px; bottom: 232px; }
-#touch-rotl { left: 14px; bottom: 96px; font-size: 28px; }
-#touch-rotr { left: 82px; bottom: 96px; font-size: 28px; }
+/* rotate-camera glyphs run larger than the other utilities: the curved-arrow
+   characters read small at a normal size, and they must be legible as a
+   rotate affordance. Centred by the shared flex rule above. */
+#touch-rotl { left: 14px; bottom: 96px; font-size: 34px; }
+#touch-rotr { left: 82px; bottom: 96px; font-size: 34px; }
 
 /* Mobile layout: left thumb moves, abilities live under the right thumb, and
    every utility (potion, bag, pause, mic, camera rotate) tucks into one menu
    opened from the bottom-right toggle, so nothing overlaps the abilities or the
    status banner any more. */
 @media (pointer: coarse) {
-  #touch-menu-toggle { display: flex; }
+  #touch-menu-toggle { display: flex; transition: border-color 0.2s ease, color 0.2s ease; }
   #touch-ui.menu-open #touch-menu-toggle { border-color: var(--gold); color: var(--gold); }
-  #touch-ui.menu-open #touch-menu-toggle { transform: rotate(90deg); transition: transform 0.28s ease; }
-  #touch-menu-toggle { transition: transform 0.28s ease, border-color 0.2s ease, color 0.2s ease; }
-  /* Abilities as a 2x2 pad hugging the bottom-right corner, right under the
-     thumb instead of reaching toward the middle of the screen. */
+  /* the ::before glyph swaps to a close mark when open (defined in the base
+     rule). No rotation of the icon. */
+  #touch-ui.menu-open #touch-menu-toggle::before { content: '\2715'; }
+
+  /* Abilities as a QUARTER-ARC WHEEL hugging the bottom-right corner: the four
+     buttons fan around the thumb pivot from the bottom edge (slot 1) up to the
+     right edge (slot 4), instead of a flat 2x2 pad. The container is a zero-size
+     anchor at the corner and is click-through, so taps that land in the gaps
+     between buttons still reach the tap-to-attack handler; only the buttons
+     themselves capture touches. */
   #hotbar {
-    left: auto; right: 12px; bottom: 12px; transform: none;
-    display: grid; grid-template-columns: repeat(2, auto); gap: 8px; width: max-content;
+    left: auto; top: auto; right: 6px; bottom: 6px; transform: none;
+    display: block; width: 0; height: 0; gap: 0; pointer-events: none;
   }
+  #hotbar .hotbar-slot { position: absolute; margin: 0; }
+  #hotbar .hotbar-slot:nth-child(1) { right: 148px; bottom: 16px; }
+  #hotbar .hotbar-slot:nth-child(2) { right: 130px; bottom: 82px; }
+  #hotbar .hotbar-slot:nth-child(3) { right: 82px;  bottom: 130px; }
+  #hotbar .hotbar-slot:nth-child(4) { right: 16px;  bottom: 148px; }
 
   /* --- Utility menu: the buttons are ALWAYS rendered so opening/closing can
      ANIMATE. Closed, each one is collapsed onto the toggle (scaled down, faded,
@@ -875,17 +892,17 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
     opacity: 1; transform: scale(1); pointer-events: auto;
   }
 
-  /* PORTRAIT default: toggle sits left of the ability pad; every utility is
-     stacked ON the toggle when closed, and rises straight up in ONE clean column
-     when open. */
-  #touch-menu-toggle { right: 150px; bottom: 12px; }
-  #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { right: 150px; bottom: 12px; }
-  #touch-ui.menu-open #touch-potion { bottom: 78px;  transition-delay: 0s, 0s, 0s, 0s, 0s; }
-  #touch-ui.menu-open #touch-inv    { bottom: 140px; transition-delay: 0.03s; }
-  #touch-ui.menu-open #touch-pause  { bottom: 202px; transition-delay: 0.06s; }
-  #touch-ui.menu-open #touch-rotl   { bottom: 264px; transition-delay: 0.09s; }
-  #touch-ui.menu-open #touch-rotr   { bottom: 326px; transition-delay: 0.12s; }
-  #touch-ui.menu-open #touch-mic    { bottom: 388px; transition-delay: 0.15s; }
+  /* PORTRAIT default: the toggle sits flush to the right edge, just ABOVE the
+     ability wheel, and the utilities rise straight up from it in one clean
+     flush-right column when open. */
+  #touch-menu-toggle { right: 14px; bottom: 230px; }
+  #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { right: 14px; bottom: 230px; }
+  #touch-ui.menu-open #touch-potion { bottom: 296px; transition-delay: 0s; }
+  #touch-ui.menu-open #touch-inv    { bottom: 360px; transition-delay: 0.03s; }
+  #touch-ui.menu-open #touch-pause  { bottom: 424px; transition-delay: 0.06s; }
+  #touch-ui.menu-open #touch-rotl   { bottom: 488px; transition-delay: 0.09s; }
+  #touch-ui.menu-open #touch-rotr   { bottom: 552px; transition-delay: 0.12s; }
+  #touch-ui.menu-open #touch-mic    { bottom: 616px; transition-delay: 0.15s; }
 }
 
 /* one-time controls hint */
@@ -965,9 +982,11 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   /* short screen: smaller controls, and a tighter menu that still tucks to the
      right (all positions stay LEFT of the shrunken minimap). */
   #touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr, #touch-menu-toggle { width: 46px; height: 46px; font-size: 19px; }
-  /* LANDSCAPE: the ability pad owns the bottom-right, so the toggle goes to the
+  #touch-rotl, #touch-rotr { font-size: 27px; }
+  #touch-menu-toggle::before { font-size: 22px; }
+  /* LANDSCAPE: the ability wheel owns the bottom-right, so the toggle goes to the
      bottom-LEFT corner and the utilities fan out to the RIGHT along the bottom
-     edge - well clear of the abilities. Each one is collapsed on the toggle when
+     edge - well clear of the wheel. Each one is collapsed on the toggle when
      closed and slides right (staggered) when open. */
   #touch-menu-toggle { left: 12px; right: auto; bottom: 12px; }
   #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { left: 12px; right: auto; bottom: 12px; }
@@ -981,10 +1000,32 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   #chat-recent { max-height: 32vh; }
   #minimap { width: 84px; height: 84px; }
   #hud-topleft { width: 170px; }
-  .hotbar-slot { width: 52px; height: 52px; }
-  #hotbar { bottom: 12px; }
+  /* Compact top-right for a short landscape screen: put the location name and
+     quest line to the LEFT of the minimap (grid) instead of stacked above it, so
+     the whole cluster is only as tall as the map and never reaches down into the
+     ability wheel below it. */
+  #hud-topright {
+    display: grid; grid-template-columns: auto auto;
+    grid-template-areas: "floor map" "clear map" "quest map";
+    justify-items: end; align-items: start; gap: 1px 8px; min-height: 88px; max-width: 80vw;
+  }
+  #hud-floor { grid-area: floor; }
+  #hud-clear { grid-area: clear; }
+  #hud-quest { grid-area: quest; max-width: 42vw; }
+  #minimap { grid-area: map; align-self: start; }
+  .hotbar-slot { width: 50px; height: 50px; }
+  /* landscape wheel: smaller buttons on a tighter arc so it stays clear of the
+     minimap up top while still hugging the bottom-right thumb. */
+  #hotbar { right: 6px; bottom: 6px; }
+  #hotbar .hotbar-slot:nth-child(1) { right: 127px; bottom: 15px; }
+  #hotbar .hotbar-slot:nth-child(2) { right: 112px; bottom: 71px; }
+  #hotbar .hotbar-slot:nth-child(3) { right: 71px;  bottom: 112px; }
+  #hotbar .hotbar-slot:nth-child(4) { right: 15px;  bottom: 127px; }
 }
-.touch-mode #hotbar { pointer-events: auto; }
+/* the wheel container is click-through; only its buttons capture touches, so
+   attack taps that fall between the arc buttons still reach the game. */
+.touch-mode #hotbar { pointer-events: none; }
+.touch-mode #hotbar .hotbar-slot { pointer-events: auto; }
 
 /* ---------- Small screens ---------- */
 @media (max-width: 860px), (pointer: coarse) {
