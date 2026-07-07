@@ -3251,9 +3251,9 @@ export class Game {
     const near = (wx, wz, r = 1.8) => Math.hypot(p.pos.x - wx, p.pos.z - wz) < r;
     let candidate = null;
 
-    // spin the portal rings for life
-    if (this.dungeonMeshes.returnPortalMesh) this.dungeonMeshes.returnPortalMesh.rotation.y += dt * 1.2;
-    if (this.dungeonMeshes.portalMesh) this.dungeonMeshes.portalMesh.rotation.y += dt * 0.6;
+    // advance the portal spheres' swirl shader + orbiting particles
+    if (this.dungeonMeshes.returnPortalMesh) this.dungeonMeshes.returnPortalMesh.userData.portalUpdate?.(dt);
+    if (this.dungeonMeshes.portalMesh) this.dungeonMeshes.portalMesh.userData.portalUpdate?.(dt);
 
     // ---- DUNGEON: descend stairs (gold ring) + return-to-town portal ----
     if (!this.inTown) {
