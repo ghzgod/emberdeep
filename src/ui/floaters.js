@@ -31,45 +31,44 @@ export class Floaters {
     el.style.animation = 'none';      // we drive opacity/position ourselves
     el.style.willChange = 'transform, opacity';
     this.container.appendChild(el);
+    // Each floater locks to a FIXED world anchor captured here by value, so it
+    // stays put in the world as the camera moves. baseY is a fixed spawn offset
+    // that keeps messages landing on the same world spot from overlapping.
+    let baseY = 0;
+    for (const o of this.active) {
+      if (o.x === worldPos.x && o.z === worldPos.z) baseY += LINE;
+    }
     const f = {
       el, text, cssClass, seq: now,
       x: worldPos.x, y: (worldPos.y ?? 0) + 1.6, z: worldPos.z,
-      t: Math.max(LIFE, dur), life: Math.max(LIFE, dur), stackY: 0,
+      t: Math.max(LIFE, dur), life: Math.max(LIFE, dur), baseY,
     };
     this.active.push(f);
     this.place(f);
   }
 
   place(f) {
+    // Project the fixed world anchor to screen every frame. The vertical offset
+    // (baseY + age-based rise) is screen-space only and never touches the anchor,
+    // so the floater tracks its world point as the camera pans.
     this._v.set(f.x, f.y, f.z).project(this.camera);
     const sx = (this._v.x * 0.5 + 0.5) * window.innerWidth;
-    const sy = (-this._v.y * 0.5 + 0.5) * window.innerHeight - f.stackY;
+    const age = f.life - f.t;
+    const rise = Math.min(age, 1.2) * 24;   // gentle upward drift over ~1.2s, then holds
+    const sy = (-this._v.y * 0.5 + 0.5) * window.innerHeight - f.baseY - rise;
     f.el.style.left = `${sx}px`;
     f.el.style.top = `${sy}px`;
   }
 
   update(dt) {
-    // Assign non-overlapping vertical slots per screen-column cluster: newest
-    // sits at the base, older ones are pushed upward by one line each.
-    const clusters = new Map();
-    for (const f of this.active) {
-      this._v.set(f.x, f.y, f.z).project(this.camera);
-      const bucket = Math.round(((this._v.x * 0.5 + 0.5) * window.innerWidth) / 70);
-      (clusters.get(bucket) || clusters.set(bucket, []).get(bucket)).push(f);
-    }
-    for (const group of clusters.values()) {
-      group.sort((a, b) => a.seq - b.seq);          // oldest first
-      const n = group.length;
-      group.forEach((f, i) => { f.stackY = (n - 1 - i) * LINE; }); // newest -> 0
-    }
+    // Every floater is anchored to its own fixed world point and rises/fades on
+    // its own timeline. No camera-dependent clustering, so panning the camera
+    // never shuffles a floater's screen slot: it just tracks its world anchor.
     for (let i = this.active.length - 1; i >= 0; i--) {
       const f = this.active[i];
       f.t -= dt;
       if (f.t <= 0) { f.el.remove(); this.active.splice(i, 1); continue; }
-      const age = f.life - f.t;
       f.el.style.opacity = f.t < FADE ? (f.t / FADE).toFixed(2) : '1';
-      // a small rise over the whole life, on top of the stack offset
-      f.stackY += Math.min(age, 1.2) * 6;
       this.place(f);
     }
   }
