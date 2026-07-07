@@ -37,9 +37,24 @@ export class TouchControls {
       const el = document.getElementById(id);
       if (el) el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); fn(); });
     };
-    bind('touch-potion', () => game.player?.drinkPotion(game));
-    bind('touch-inv', () => game.toggleInventory());
-    bind('touch-pause', () => game.togglePause(true));
+    const closeMenu = () => document.getElementById('touch-ui')?.classList.remove('menu-open');
+    bind('touch-potion', () => { game.player?.drinkPotion(game); closeMenu(); });
+    bind('touch-inv', () => { game.toggleInventory(); closeMenu(); });
+    bind('touch-pause', () => { game.togglePause(true); closeMenu(); });
+
+    // the utility menu toggle collapses potion/bag/pause/mic/rotate out of the
+    // way so they never overlap the abilities or the status banner
+    bind('touch-menu-toggle', () => document.getElementById('touch-ui')?.classList.toggle('menu-open'));
+
+    // one-time controls hint, first mobile play only
+    const hint = document.getElementById('touch-hint');
+    const hintBtn = document.getElementById('btn-touch-hint');
+    if (hintBtn) hintBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); hint.classList.add('hidden'); });
+    this.maybeShowHint = () => {
+      if (!this.enabled || localStorage.getItem('emberdeep-touch-hint')) return;
+      localStorage.setItem('emberdeep-touch-hint', '1');
+      hint?.classList.remove('hidden');
+    };
 
     // hold-to-rotate camera buttons
     const bindRotate = (id, dir) => {

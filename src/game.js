@@ -316,6 +316,7 @@ export class Game {
     this.ui.hideAll();
     this.ui.showHud(true);
     this.touch.setVisible(true);
+    this.touch.maybeShowHint?.();
     this.ui.showChatBar(net.active);
     audio.resume();
   }
@@ -2846,7 +2847,7 @@ export class Game {
         if (near(w.x, w.z, 1.9)) {
           const locked = this.stairsLocked();
           candidate = locked
-            ? { label: `Stairs sealed — ${this.floorKills}/${this.stairsClearNeed()} slain`, icon: '🔒', action: () => this.descendStairs() }
+            ? { label: `Stairs sealed: ${this.floorKills}/${this.stairsClearNeed()} slain`, icon: '🔒', action: () => this.descendStairs() }
             : { label: 'Descend to the next floor', icon: '⬇️', action: () => this.descendStairs() };
         }
       }

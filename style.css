@@ -817,17 +817,74 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   font-size: 24px; color: var(--parchment); padding: 0;
   display: flex; align-items: center; justify-content: center; line-height: 1;
 }
-/* camera rotate pair, left edge above the hotbar */
-#touch-rotl { left: 14px; bottom: 96px; font-size: 28px; }
-#touch-rotr { left: 82px; bottom: 96px; font-size: 28px; }
-#touch-rotl:active, #touch-rotr:active { border-color: var(--gold); color: var(--gold); }
-/* One vertical stack on the right edge, bottom-up: potion, bag, pause. */
+#touch-rotl:active, #touch-rotr:active, #touch-menu-toggle:active { border-color: var(--gold); color: var(--gold); }
+#touch-mic:active { border-color: #7ce87c; background: rgba(40, 80, 40, 0.85); transform: scale(1.08); }
+#touch-menu-toggle {
+  display: none; position: absolute; pointer-events: auto; right: 14px; bottom: 14px;
+  width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--panel-border);
+  background: var(--panel); font-size: 26px; color: var(--parchment); padding: 0;
+  align-items: center; justify-content: center; z-index: 2;
+}
+
+/* Desktop default positions (declared BEFORE the coarse media query so the
+   mobile overrides below win on touch devices). */
 #touch-potion { right: 14px; bottom: 96px; }
 #touch-inv { right: 14px; bottom: 164px; }
 #touch-mic { right: 14px; bottom: 300px; }
-#touch-mic.hidden { display: none; }
-#touch-mic:active { border-color: #7ce87c; background: rgba(40, 80, 40, 0.85); transform: scale(1.08); }
+#touch-mic.hidden { display: none !important; }
 #touch-pause { right: 14px; bottom: 232px; }
+#touch-rotl { left: 14px; bottom: 96px; font-size: 28px; }
+#touch-rotr { left: 82px; bottom: 96px; font-size: 28px; }
+
+/* Mobile layout: left thumb moves, abilities live under the right thumb, and
+   every utility (potion, bag, pause, mic, camera rotate) tucks into one menu
+   opened from the bottom-right toggle, so nothing overlaps the abilities or the
+   status banner any more. */
+@media (pointer: coarse) {
+  #touch-menu-toggle { display: flex; }
+  #touch-ui.menu-open #touch-menu-toggle { border-color: var(--gold); color: var(--gold); }
+  /* Abilities as a 2x2 pad hugging the bottom-right corner, right under the
+     thumb instead of reaching toward the middle of the screen. */
+  #hotbar {
+    left: auto; right: 12px; bottom: 12px; transform: none;
+    display: grid; grid-template-columns: repeat(2, auto); gap: 8px; width: max-content;
+  }
+  /* the menu toggle sits just to the left of the ability pad */
+  #touch-menu-toggle { right: 156px; bottom: 12px; }
+  /* utilities hidden until the menu is opened; clear the desktop left-anchor on
+     the rotate pair so their right-edge menu position takes effect */
+  #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { display: none; }
+  #touch-rotl, #touch-rotr { left: auto; right: 220px; }
+  #touch-ui.menu-open #touch-potion,
+  #touch-ui.menu-open #touch-inv,
+  #touch-ui.menu-open #touch-pause,
+  #touch-ui.menu-open #touch-rotl,
+  #touch-ui.menu-open #touch-rotr { display: flex; }
+  #touch-ui.menu-open #touch-mic:not(.hidden) { display: flex; }
+  /* Open menu: a 2-column cluster stacking up from the toggle, kept LEFT of the
+     top-right minimap so it never hides behind it in landscape. */
+  #touch-ui.menu-open #touch-potion { right: 156px; bottom: 76px; }
+  #touch-ui.menu-open #touch-inv    { right: 156px; bottom: 140px; }
+  #touch-ui.menu-open #touch-pause  { right: 156px; bottom: 204px; }
+  #touch-ui.menu-open #touch-rotl   { right: 220px; bottom: 76px; }
+  #touch-ui.menu-open #touch-rotr   { right: 220px; bottom: 140px; }
+  #touch-ui.menu-open #touch-mic    { right: 220px; bottom: 204px; }
+}
+
+/* one-time controls hint */
+#touch-hint {
+  position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
+  background: rgba(4, 2, 8, 0.8); backdrop-filter: blur(2px);
+}
+#touch-hint.hidden { display: none; }
+#touch-hint-card {
+  max-width: 82vw; padding: 22px 26px; text-align: left; color: var(--parchment);
+  background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98));
+  border: 2px solid var(--gold); border-radius: 14px; box-shadow: 0 0 30px rgba(232,192,90,0.3);
+}
+#touch-hint-card h3 { color: var(--gold); margin-bottom: 10px; text-align: center; }
+#touch-hint-card p { font-size: 14px; margin: 5px 0; opacity: 0.9; }
+#touch-hint-card .menu-btn { margin: 14px auto 0; display: block; }
 /* Mobile portrait: lift the MP chat clear of the bottom-left rotate buttons
    (which sit at bottom:96) and compact it so it stays out of the way. */
 @media (pointer: coarse) {
@@ -888,15 +945,16 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 
 /* Landscape phones: shorter screen — shrink the stack and minimap so nothing collides. */
 @media (max-height: 540px) and (pointer: coarse), (max-height: 540px) and (max-width: 1000px) {
-  #touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr { width: 46px; height: 46px; font-size: 19px; }
-  #touch-potion { bottom: 74px; }
-  #touch-inv { bottom: 128px; }
-  #touch-pause { bottom: 182px; }
-  /* landscape: push-to-talk lives bottom-left by the movement thumb */
-  #touch-mic { left: 14px; right: auto; bottom: 74px; }
-  #touch-rotl { left: 14px; bottom: 20px; font-size: 22px; }
-  #touch-rotr { left: 70px; bottom: 20px; font-size: 22px; }
-  /* landscape: bottom-left is rotate (b20) + mic (b74); sit chat above them */
+  /* short screen: smaller controls, and a tighter menu that still tucks to the
+     right (all positions stay LEFT of the shrunken minimap). */
+  #touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr, #touch-menu-toggle { width: 46px; height: 46px; font-size: 19px; }
+  #touch-menu-toggle { right: 128px; bottom: 12px; }
+  #touch-ui.menu-open #touch-potion { right: 128px; bottom: 64px; }
+  #touch-ui.menu-open #touch-inv    { right: 128px; bottom: 116px; }
+  #touch-ui.menu-open #touch-pause  { right: 128px; bottom: 168px; }
+  #touch-ui.menu-open #touch-rotl   { right: 182px; bottom: 64px; }
+  #touch-ui.menu-open #touch-rotr   { right: 182px; bottom: 116px; }
+  #touch-ui.menu-open #touch-mic    { right: 182px; bottom: 168px; }
   #chat { bottom: 128px; width: min(44vw, 300px); }
   #chat-recent { max-height: 32vh; }
   #minimap { width: 84px; height: 84px; }
