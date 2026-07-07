@@ -229,6 +229,22 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 .bar-wrap.boss { height: 16px; margin-top: 4px; }
 
 #hotbar { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: auto; }
+/* Touch ability wheel: a quarter-pie of four wedges in the bottom-right corner.
+   The <svg> box is click-through; only the wedge paths capture taps, so attack
+   taps landing in the empty part of the box still reach the game. */
+.ability-wheel .wheel-slot { pointer-events: none; }
+.ability-wheel .wheel-wedge {
+  fill: rgba(22,17,32,0.72); stroke: rgba(150,120,205,0.5); stroke-width: 1.1;
+  pointer-events: auto; cursor: pointer; transition: fill 0.12s ease;
+}
+.ability-wheel .wheel-slot.ready .wheel-wedge { stroke: rgba(184,150,236,0.95); }
+.ability-wheel .wheel-slot.ready .wheel-wedge:active { fill: rgba(120,90,180,0.9); }
+.ability-wheel .wheel-slot.no-resource .wheel-wedge { fill: rgba(58,22,22,0.74); stroke: rgba(200,90,90,0.85); }
+.ability-wheel .wheel-slot.cooling .wheel-wedge { fill: rgba(14,11,20,0.78); stroke: rgba(110,90,140,0.5); }
+.ability-wheel .wheel-cd { fill: rgba(0,0,0,0.5); pointer-events: none; }
+.ability-wheel .wheel-icon { font-size: 15px; pointer-events: none; }
+.ability-wheel .wheel-slot.cooling .wheel-icon { opacity: 0.42; }
+.ability-wheel .wheel-num { font-size: 6.5px; fill: rgba(232,222,248,0.72); pointer-events: none; font-family: inherit; }
 .hotbar-slot {
   position: relative; width: 66px; height: 66px; border: 2px solid var(--panel-border);
   border-radius: 8px; background: var(--panel); display: flex; align-items: center; justify-content: flex-start;
@@ -831,7 +847,10 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 }
 /* the glyph lives in ::before so it can SWAP (hamburger to close) without any
    rotation, and stays perfectly centred by the flex box */
-#touch-menu-toggle::before { content: '\2630'; font-size: 26px; line-height: 1; }
+/* menu launcher glyph: a kebab (more-options) mark, the standard mobile
+   affordance for "open a menu of extra controls". Swaps to a close mark when
+   the drawer is open (see the coarse-pointer block). */
+#touch-menu-toggle::before { content: '\22EE'; font-size: 30px; line-height: 1; letter-spacing: 2px; }
 
 /* Desktop default positions (declared BEFORE the coarse media query so the
    mobile overrides below win on touch devices). */
@@ -864,14 +883,10 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
      between buttons still reach the tap-to-attack handler; only the buttons
      themselves capture touches. */
   #hotbar {
-    left: auto; top: auto; right: 6px; bottom: 6px; transform: none;
-    display: block; width: 0; height: 0; gap: 0; pointer-events: none;
+    left: auto; top: auto; right: 0; bottom: 0; transform: none;
+    display: block; width: auto; height: auto; gap: 0; pointer-events: none;
   }
-  #hotbar .hotbar-slot { position: absolute; margin: 0; }
-  #hotbar .hotbar-slot:nth-child(1) { right: 148px; bottom: 16px; }
-  #hotbar .hotbar-slot:nth-child(2) { right: 130px; bottom: 82px; }
-  #hotbar .hotbar-slot:nth-child(3) { right: 82px;  bottom: 130px; }
-  #hotbar .hotbar-slot:nth-child(4) { right: 16px;  bottom: 148px; }
+  .ability-wheel { width: 196px; height: 196px; display: block; pointer-events: none; }
 
   /* --- Utility menu: the buttons are ALWAYS rendered so opening/closing can
      ANIMATE. Closed, each one is collapsed onto the toggle (scaled down, faded,
@@ -1016,16 +1031,22 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   .hotbar-slot { width: 50px; height: 50px; }
   /* landscape wheel: smaller buttons on a tighter arc so it stays clear of the
      minimap up top while still hugging the bottom-right thumb. */
-  #hotbar { right: 6px; bottom: 6px; }
-  #hotbar .hotbar-slot:nth-child(1) { right: 127px; bottom: 15px; }
-  #hotbar .hotbar-slot:nth-child(2) { right: 112px; bottom: 71px; }
-  #hotbar .hotbar-slot:nth-child(3) { right: 71px;  bottom: 112px; }
-  #hotbar .hotbar-slot:nth-child(4) { right: 15px;  bottom: 127px; }
+  #hotbar { right: 0; bottom: 0; }
+  .ability-wheel { width: 150px; height: 150px; }
 }
 /* the wheel container is click-through; only its buttons capture touches, so
    attack taps that fall between the arc buttons still reach the game. */
-.touch-mode #hotbar { pointer-events: none; }
+.touch-mode #hotbar { pointer-events: none; transition: opacity 0.3s ease; }
 .touch-mode #hotbar .hotbar-slot { pointer-events: auto; }
+/* The ability wheel is a dungeon combat tool: fade it right out in town, and
+   while an interact/descend prompt is up so it never sits under that button. */
+.touch-mode.in-town #hotbar,
+.touch-mode.show-interact #hotbar { opacity: 0; pointer-events: none; }
+.touch-mode.in-town .ability-wheel .wheel-wedge,
+.touch-mode.show-interact .ability-wheel .wheel-wedge { pointer-events: none; }
+/* When any full-screen menu/overlay is open, hide the touch controls so the
+   joystick and menu launcher never float on top of the inventory or settings. */
+body:has(.overlay.visible) #touch-ui { display: none !important; }
 
 /* ---------- Small screens ---------- */
 @media (max-width: 860px), (pointer: coarse) {
