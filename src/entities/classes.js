@@ -69,7 +69,7 @@ export const CLASSES = {
         id: 'war_cry', name: 'War Cry', icon: '📣', cd: 14, cost: 35,
         desc: '+50% damage for 6 seconds and nearby enemies stagger in fear.',
         exec(game, p) {
-          audio.play('war_cry');
+          audio.play('war_cry', { pos: p.pos, gender: p.gender });
           p.addBuff({ id: 'warcry', duration: 6, damageMult: 1.5 });
           game.stunEnemiesNear(p.pos.x, p.pos.z, 5, 1.2);
           game.particles.ring(p.pos.x, 1.2, p.pos.z, 5, 0xffb04a);
