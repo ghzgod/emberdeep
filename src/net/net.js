@@ -8,6 +8,32 @@ import Peer from 'peerjs';
 const MAX_GUESTS = 3; // host + 3 = 4 players
 const ROOM_PREFIX = 'emberdeep-room-';
 
+// How long we wait for any single handshake stage before giving up. Without
+// this a failed join (dead room id, ICE that never connects on a phone's
+// carrier-grade NAT) leaves the player stuck on "Connecting to room" forever.
+const HANDSHAKE_TIMEOUT_MS = 15000;
+
+// Explicit ICE servers. PeerJS only ships one STUN server by default, which is
+// not enough for mobile networks behind symmetric NAT. Several public STUN
+// servers plus a public TURN relay give the offer/answer a real chance to
+// complete instead of silently stalling with no error and no timeout.
+const PEER_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+  ],
+};
+
 export class Net {
   constructor() {
     this.mode = 'off';        // off | host | guest
@@ -34,12 +60,22 @@ export class Net {
 
   _claimOrJoin() {
     return new Promise((resolve) => {
-      const hostPeer = new Peer(this.roomId);
+      const hostPeer = new Peer(this.roomId, { config: PEER_CONFIG });
       let settled = false;
+
+      // If the broker never answers (offline, blocked, or the socket stalls),
+      // neither 'open' nor 'error' may ever fire. Fail fast instead of hanging.
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { hostPeer.destroy(); } catch {}
+        resolve({ mode: 'error', error: 'timeout' });
+      }, HANDSHAKE_TIMEOUT_MS);
 
       hostPeer.on('open', () => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         this.mode = 'host';
         this.peer = hostPeer;
         hostPeer.on('connection', (conn) => this._acceptGuest(conn));
@@ -50,10 +86,12 @@ export class Net {
         if (settled) return;
         if (err.type === 'unavailable-id') {
           settled = true;
+          clearTimeout(timer);
           hostPeer.destroy();
           this._joinAsGuest(this.roomId).then(resolve);
         } else {
           settled = true;
+          clearTimeout(timer);
           resolve({ mode: 'error', error: err.type });
         }
       });
@@ -128,7 +166,23 @@ export class Net {
 
   _joinAsGuest(roomId) {
     return new Promise((resolve) => {
-      const peer = new Peer();
+      const peer = new Peer(undefined, { config: PEER_CONFIG });
+      let settled = false;
+
+      // The join can stall silently at two points: waiting for our own peer to
+      // open against the broker, and waiting for the data channel to the host
+      // to open. PeerJS often emits no 'error' when the host id is unreachable
+      // or ICE never connects, so without this timeout the guest is stuck on
+      // "Connecting to room" forever. This is the reported bug.
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (result.mode !== 'guest') { try { peer.destroy(); } catch {} }
+        resolve(result);
+      };
+      const timer = setTimeout(() => finish({ mode: 'error', error: 'timeout' }), HANDSHAKE_TIMEOUT_MS);
+
       peer.on('open', () => {
         const conn = peer.connect(roomId, { reliable: true });
         conn.on('open', () => {
@@ -136,7 +190,7 @@ export class Net {
           this.peer = peer;
           this.hostConn = conn;
           this.playerCount = 2;
-          resolve({ mode: 'guest' });
+          finish({ mode: 'guest' });
         });
         conn.on('data', (msg) => {
           if (msg.t === 'room_full') {
@@ -146,9 +200,14 @@ export class Net {
           this.emitLocal(msg.t, msg, 'host');
         });
         conn.on('close', () => this.emitLocal('host_left', {}));
-        conn.on('error', () => this.emitLocal('host_left', {}));
+        conn.on('error', () => {
+          // Before the channel opens this means the join failed; after it opens
+          // it means we lost the host. 'settled' tells the two cases apart.
+          if (settled) this.emitLocal('host_left', {});
+          else finish({ mode: 'error', error: 'connect-failed' });
+        });
       });
-      peer.on('error', (err) => resolve({ mode: 'error', error: err.type }));
+      peer.on('error', (err) => finish({ mode: 'error', error: err.type }));
     });
   }
 

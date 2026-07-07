@@ -120,7 +120,9 @@ export class UI {
       $('mp-status').textContent = 'Connecting to room…';
       const result = await this.game.startMultiplayer(room);
       if (result.mode === 'error') {
-        $('mp-status').textContent = `Connection failed (${result.error}). Try again.`;
+        $('mp-status').textContent = result.error === 'timeout'
+          ? 'Could not reach the room (timed out). Check your connection and try again.'
+          : `Connection failed (${result.error}). Try again.`;
       } else if (result.mode === 'full') {
         $('mp-status').textContent = 'That room already has 4 heroes.';
       } else {
