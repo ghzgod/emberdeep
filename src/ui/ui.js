@@ -41,9 +41,40 @@ export class UI {
     this.wireMenus();
     this.wireActionBar();
     this.wireSettings();
+    this.wireMinimap();
     this.buildClassCards();
     this.initChat();
     this.addUiSounds();
+  }
+
+  // Minimap: barely-visible by default so it doesn't clutter the view, tap to
+  // expand into a big readable view of everything discovered on the floor so
+  // far, tap again to shrink. Idle-fades back to the transparent resting
+  // state a few seconds after the player stops interacting with it.
+  wireMinimap() {
+    const canvas = $('minimap');
+    if (!canvas) return;
+    const NORMAL_RES = 180, EXPANDED_RES = 480;
+    let idleTimer = null;
+    const settle = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => canvas.classList.remove('mm-active'), 2500);
+    };
+    const wake = () => { canvas.classList.add('mm-active'); settle(); };
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const expanding = !canvas.classList.contains('expanded');
+      canvas.classList.toggle('expanded', expanding);
+      // bump the drawing resolution up while expanded so the enlarged view
+      // stays crisp instead of just stretching the small bitmap.
+      const res = expanding ? EXPANDED_RES : NORMAL_RES;
+      if (canvas.width !== res) { canvas.width = res; canvas.height = res; }
+      wake();
+    });
+    // any pointer activity elsewhere on the map keeps it awake while open;
+    // once collapsed it just relies on the tap handler above.
+    canvas.addEventListener('pointermove', wake);
+    wake();
   }
 
   // ---------- screens ----------
@@ -1206,7 +1237,7 @@ export class UI {
     $('ab-inv').onclick = () => g.toggleInventory();
     $('ab-quests').onclick = () => { if (g.state === 'playing') g.toggleQuestLog(); };
     $('ab-skills').onclick = () => { if (g.state === 'playing') g.toggleSkills(); };
-    $('ab-potion').onclick = () => { if (g.state === 'playing') g.player?.drinkPotion(g); };
+    $('ab-potion').onclick = () => { if (g.state === 'playing' && !$('ab-potion').classList.contains('disabled')) g.player?.drinkPotion(g); };
     $('ab-pause').onclick = () => g.togglePause(true);
   }
 
@@ -1278,7 +1309,7 @@ export class UI {
   buildRadialHotbar(player, order) {
     const bar = $('hotbar');
     const NS = 'http://www.w3.org/2000/svg';
-    const R0 = 36, R = 98, GAP = 3;
+    const R0 = 46, R = 98, GAP = 3;
     const pt = (a, r) => [
       (100 + r * Math.cos((a * Math.PI) / 180)).toFixed(2),
       (100 + r * Math.sin((a * Math.PI) / 180)).toFixed(2),
@@ -1336,7 +1367,7 @@ export class UI {
       const onCd = cd > 0;
       const frac = onCd ? Math.max(0, Math.min(1, cd / max)) : 0;
       // dark overlay drains from the leading edge as the cooldown recovers
-      s.cd.setAttribute('d', frac > 0 ? this._wedgePath(s.a1, s.a1 + (s.a2 - s.a1) * frac, 36, 98) : '');
+      s.cd.setAttribute('d', frac > 0 ? this._wedgePath(s.a1, s.a1 + (s.a2 - s.a1) * frac, 46, 98) : '');
       const canAfford = player.resource >= ab.cost;
       s.g.classList.toggle('cooling', onCd);
       s.g.classList.toggle('ready', !onCd && canAfford);
@@ -1432,10 +1463,12 @@ export class UI {
     $('hud-level').textContent = pts > 0 ? `Lv ${player.level} ✦${pts}` : `Lv ${player.level}`;
     $('hud-gold').innerHTML = `${player.gold} <span class="coin-stack"><span class="coin"></span><span class="coin c2"></span></span>`;
     $('hud-potions').textContent = `${player.potions} 🧪`;
-    // potion buttons only matter when you're actually hurt
-    const needPotion = player.hp < player.maxHp - 1 && player.potions > 0;
-    $('touch-potion')?.classList.toggle('hidden', !needPotion);
-    $('ab-potion')?.classList.toggle('hidden', !needPotion);
+    // potion buttons stay visible always; grayed out (and inert) when there's
+    // no potion to drink or drinking one would do nothing, so the slot never
+    // vanishes -- the player always knows where it is, just not usable yet.
+    const canDrink = player.hp < player.maxHp - 1 && player.potions > 0;
+    $('touch-potion')?.classList.toggle('disabled', !canDrink);
+    $('ab-potion')?.classList.toggle('disabled', !canDrink);
     // multiplayer: show how many heroes share the room (works in both orientations)
     const playersEl = $('hud-players');
     const count = this.game.roomPlayerCount();
