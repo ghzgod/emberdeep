@@ -85,7 +85,7 @@ export const CLASSES = {
         exec(game, p) {
           audio.play('fireball_cast');
           game.spawnProjectile({
-            x: p.pos.x, z: p.pos.z, dir: p.aimDir, speed: 13, radius: 0.4,
+            x: p.pos.x, z: p.pos.z, dir: p.facingDir(), speed: 13, radius: 0.4,
             damage: p.damage * 2.2, friendly: true, color: 0xff6a2a, size: 0.32,
             aoe: 2.4, status: { burn: { dps: p.damage * 0.5, duration: 3 } },
             hitSound: 'explosion', trail: 0xff8a3a,
@@ -105,7 +105,7 @@ export const CLASSES = {
       },
       {
         id: 'blink', name: 'Blink', icon: '✨', cd: 6, cost: 20,
-        desc: 'Teleport a short distance toward your cursor.',
+        desc: 'Teleport a short distance in the direction you face.',
         exec(game, p) {
           audio.play('blink');
           game.particles.burst(p.pos.x, 1, p.pos.z, 20, 0xc09aff, { speed: 3, life: 0.4 });
@@ -144,7 +144,7 @@ export const CLASSES = {
         exec(game, p) {
           audio.play('multishot');
           for (let i = -2; i <= 2; i++) {
-            const a = p.aimAngle + i * 0.16;
+            const a = p.visualAngle + i * 0.16;
             game.spawnProjectile({
               x: p.pos.x, z: p.pos.z, dir: { x: Math.cos(a), z: Math.sin(a) },
               speed: 22, radius: 0.3, damage: p.damage * 1.1, friendly: true,
