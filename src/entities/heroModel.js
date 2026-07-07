@@ -97,7 +97,88 @@ export function jitterColor(mat, rng, amount = 0.12) {
 const SHIRT_COLORS = [0x9a3b3b, 0x35548f, 0x3a7048, 0x8a6a2a, 0x6a3b7a, 0x2a6a72, 0x7a4632, 0x4a4a5a, 0x8a4a5c, 0x556a34, 0x3b6a6a, 0x8a5a2a];
 const PANTS_COLORS = [0x35353f, 0x463628, 0x2a3636, 0x413228, 0x30303a, 0x3a2a2a, 0x2f3a2c, 0x2a2f3a];
 
-function applyCosmetics(mesh, name) {
+// Player-chosen skin tones for character creation. Keep it a short, readable
+// spread from very light to deep so each pick reads clearly at the game's
+// overhead camera distance. Exported so the char-select UI can render the same
+// swatches it will store, keeping picker and model in sync.
+export const SKIN_TONES = [
+  { id: 'light', label: 'Light', hex: 0xf3c9a6 },
+  { id: 'fair', label: 'Fair', hex: 0xe4a878 },
+  { id: 'tan', label: 'Tan', hex: 0xc68642 },
+  { id: 'brown', label: 'Brown', hex: 0x8d5524 },
+  { id: 'deep', label: 'Deep', hex: 0x5a3720 },
+];
+
+export const GENDERS = [
+  { id: 'male', label: 'Male' },
+  { id: 'female', label: 'Female' },
+];
+
+export function skinToneById(id) {
+  return SKIN_TONES.find((t) => t.id === id) || null;
+}
+
+// All three KayKit rigs share one texture atlas laid out as an 8-column palette
+// grid, and the top-left tile (UV x:[0,0.125) y:[0.875,1)) is always the skin
+// swatch (head + hands sample only that tile; everything else lives in other
+// tiles). So to recolor ONLY the skin, we clone the shared texture, repaint
+// just that one tile to the chosen tone, and hand the clone back as a fresh
+// material map. Cloth/armor tiles are untouched, so a dark-skinned hero still
+// wears the same bright tunic. Returns a new THREE.Texture or null if the
+// source image is not yet decoded.
+function makeSkinTintedTexture(srcTex, hex) {
+  const img = srcTex.image;
+  if (!img || !img.width) return null;
+  const w = img.width, h = img.height;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+  // Skin tile: top-left cell of the 8x8 grid. Image space y grows downward, so
+  // UV y:[0.875,1] is the TOP row of pixels.
+  const tw = Math.ceil(w / 8), th = Math.ceil(h / 8);
+  const data = ctx.getImageData(0, 0, tw, th);
+  const px = data.data;
+  const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255;
+  // Preserve the tile's baked shading (its light-to-dark gradient) by using each
+  // source pixel's luminance to modulate the target tone, so the recolored skin
+  // keeps its form instead of going flat.
+  for (let i = 0; i < px.length; i += 4) {
+    const lum = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) / 255;
+    const shade = 0.55 + lum * 0.6; // keep some floor so deep tones don't crush to black
+    px[i] = Math.min(255, r * shade);
+    px[i + 1] = Math.min(255, g * shade);
+    px[i + 2] = Math.min(255, b * shade);
+  }
+  ctx.putImageData(data, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.flipY = srcTex.flipY;
+  tex.colorSpace = srcTex.colorSpace;
+  tex.wrapS = srcTex.wrapS;
+  tex.wrapT = srcTex.wrapT;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// Repaint the skin tile on every mesh that uses the model's shared atlas
+// material. One tinted texture is built once and shared across the hero's
+// meshes (cloned material per mesh so it never bleeds to other characters).
+function applySkinTone(mesh, hex) {
+  let tinted = null, srcMat = null;
+  mesh.traverse((o) => {
+    if (!o.isMesh || !o.material || !o.material.map) return;
+    if (!srcMat) {
+      srcMat = o.material;
+      tinted = makeSkinTintedTexture(srcMat.map, hex);
+    }
+    if (!tinted) return;
+    o.material = o.material.clone();
+    o.material.map = tinted;
+    o.material.needsUpdate = true;
+  });
+}
+
+function applyCosmetics(mesh, name, skinToneHex = null) {
   const rng = mulberry32(hashSeed(name || 'Hero'));
   let headMesh = null, capeMesh = null, trimMesh = null;
   // Base outfit: a name-seeded shirt (torso) and pants (legs) colour so a
@@ -126,7 +207,13 @@ function applyCosmetics(mesh, name) {
     trimMesh.material = trimMesh.material.clone();
     jitterColor(trimMesh.material, rng, 0.16);
   }
-  if (headMesh && rng() < 0.6) {
+  // A player-chosen skin tone (character creation) wins over the old subtle
+  // name-seeded skin jitter: repaint the atlas skin tile so head + hands read
+  // as the chosen tone. When no tone is chosen (older saves / peers), fall back
+  // to the previous tiny per-name head tint so nothing regresses.
+  if (skinToneHex != null) {
+    applySkinTone(mesh, skinToneHex);
+  } else if (headMesh && rng() < 0.6) {
     headMesh.material = headMesh.material.clone();
     jitterColor(headMesh.material, rng, 0.08);
   }
@@ -220,13 +307,29 @@ const CLIP_PATTERNS = {
 // Returns { mesh, mixer, actions, playing } or null if the model isn't loaded.
 // `name` seeds the small deterministic cosmetic variations (see applyCosmetics
 // above) so the same hero name always looks the same, for the local player
-// and for every peer who sees them in co-op.
-export function buildAnimatedHero(classId, name = '') {
+// and for every peer who sees them in co-op. `opts` carries the character's
+// creation choices: { gender: 'male'|'female', skinTone: <SKIN_TONES id> }.
+// Skin tone is the clearly visible one (repaints the head/hands); gender is a
+// subtle silhouette hint only (the base rigs have no gendered geometry).
+export function buildAnimatedHero(classId, name = '', opts = {}) {
   const data = loaded.get(classId);
   if (!data) return null;
 
+  const gender = opts.gender === 'female' ? 'female' : 'male';
+  const skinTone = skinToneById(opts.skinTone);
+
   const mesh = skeletonClone(data.scene);
   mesh.scale.setScalar(data.scale);
+  // The KayKit base rigs ship a single body shape with no separate male/female
+  // meshes, so gender can only be reflected as a silhouette hint, not real
+  // anatomy. A female hero gets a slightly narrower, slightly taller build via a
+  // non-uniform scale on the shared scale; a male keeps the stock proportions.
+  // This is deliberately subtle so it never distorts the animations.
+  if (gender === 'female') {
+    mesh.scale.x *= 0.94;
+    mesh.scale.z *= 0.94;
+    mesh.scale.y *= 1.03;
+  }
   let hoodedHead = null, headMesh = null;
   mesh.traverse((o) => {
     if (o.isMesh) {
@@ -259,7 +362,7 @@ export function buildAnimatedHero(classId, name = '') {
       r: Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2,
     };
   }
-  applyCosmetics(mesh, name);
+  applyCosmetics(mesh, name, skinTone ? skinTone.hex : null);
 
   // fake blob shadow
   const shadow = new THREE.Mesh(

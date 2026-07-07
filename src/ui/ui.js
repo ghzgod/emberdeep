@@ -1,4 +1,5 @@
 import { CLASSES } from '../entities/classes.js';
+import { SKIN_TONES, GENDERS } from '../entities/heroModel.js';
 import { SKILLS } from '../entities/skills.js';
 import { RARITIES, statLabel, sellValue, buyPrice } from '../entities/loot.js';
 import { makeItemIcon } from '../entities/itemIcon.js';
@@ -231,6 +232,7 @@ export class UI {
         if (v) localStorage.setItem('emberdeep-name-v1', v);
       });
     }
+    this.buildAppearancePickers();
     $('btn-charselect-confirm').onclick = () => {
       // a name is REQUIRED before starting
       const name = (csName?.value || '').trim().slice(0, 14);
@@ -238,6 +240,54 @@ export class UI {
       localStorage.setItem('emberdeep-name-v1', name);
       if (this.selectedClass) this.game.startNewGame(this.selectedClass);
     };
+  }
+
+  // Gender + skin-tone pickers for character creation. Each choice is persisted
+  // to localStorage the instant it is clicked, and the Player constructor reads
+  // those same keys when startNewGame builds the hero, so what you pick is what
+  // spawns (and what gets written into the save via player.toSave).
+  buildAppearancePickers() {
+    const genderWrap = $('cs-gender');
+    if (genderWrap) {
+      const cur = localStorage.getItem('emberdeep-gender-v1') === 'female' ? 'female' : 'male';
+      if (!localStorage.getItem('emberdeep-gender-v1')) localStorage.setItem('emberdeep-gender-v1', cur);
+      genderWrap.innerHTML = '';
+      for (const g of GENDERS) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cs-gender-btn' + (g.id === cur ? ' selected' : '');
+        btn.textContent = g.label;
+        btn.onclick = () => {
+          localStorage.setItem('emberdeep-gender-v1', g.id);
+          audio.play('ui_click', { volume: 0.6 });
+          genderWrap.querySelectorAll('.cs-gender-btn').forEach((b) => b.classList.remove('selected'));
+          btn.classList.add('selected');
+        };
+        genderWrap.appendChild(btn);
+      }
+    }
+    const skinWrap = $('cs-skin');
+    if (skinWrap) {
+      const cur = SKIN_TONES.some((t) => t.id === localStorage.getItem('emberdeep-skin-v1'))
+        ? localStorage.getItem('emberdeep-skin-v1') : 'light';
+      if (!localStorage.getItem('emberdeep-skin-v1')) localStorage.setItem('emberdeep-skin-v1', cur);
+      skinWrap.innerHTML = '';
+      for (const t of SKIN_TONES) {
+        const sw = document.createElement('button');
+        sw.type = 'button';
+        sw.className = 'cs-skin-sw' + (t.id === cur ? ' selected' : '');
+        sw.title = t.label;
+        sw.setAttribute('aria-label', t.label);
+        sw.style.background = '#' + t.hex.toString(16).padStart(6, '0');
+        sw.onclick = () => {
+          localStorage.setItem('emberdeep-skin-v1', t.id);
+          audio.play('ui_click', { volume: 0.6 });
+          skinWrap.querySelectorAll('.cs-skin-sw').forEach((b) => b.classList.remove('selected'));
+          sw.classList.add('selected');
+        };
+        skinWrap.appendChild(sw);
+      }
+    }
   }
 
   // Tap/click selects and shows details; the confirm button starts the game.
