@@ -1536,18 +1536,28 @@ export class Game {
     const rof = (item) => { let h = 2166136261; const s = String(item.id); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; };
     if (equipped.helmet) {
       const it = equipped.helmet, m = mat(it.rarity), r = rof(it);
+      // Seat the helmet on the actual crown of THIS model. Each class head sits
+      // at a different local height, so anchoring to the measured head-top (see
+      // heroModel headAnchor) keeps the helmet on the head instead of buried in
+      // it. Falls back to the old fixed values if no anchor was recorded.
+      const ha = mesh.userData.headAnchor || { top: 1.7, cx: 0, cz: 0, r: 0.28 };
+      const top = ha.top, hx = ha.cx, hz = ha.cz, hr = Math.max(0.22, ha.r);
       let helm;
       if (classId === 'mage') { // pointed hat: height + lean vary per item
-        helm = new THREE.Mesh(new THREE.ConeGeometry(0.24 + r * 0.05, 0.42 + r * 0.2, 10), m); helm.position.y = 1.64 + r * 0.06; helm.rotation.z = 0.06 + r * 0.14;
-        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.37, 0.04, 12), m); brim.position.y = 1.44; grp.add(brim);
-        if (it.rarity === 'legendary' || it.rarity === 'epic') { const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.05), m); gem.position.set(0, 1.5, 0.34); grp.add(gem); }
+        const coneH = 0.42 + r * 0.2;
+        helm = new THREE.Mesh(new THREE.ConeGeometry(hr * 0.95, coneH, 10), m);
+        helm.position.set(hx, top + coneH * 0.34, hz); helm.rotation.z = 0.06 + r * 0.14;
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(hr * 1.3, hr * 1.42, 0.04, 12), m); brim.position.set(hx, top + 0.02, hz); grp.add(brim);
+        if (it.rarity === 'legendary' || it.rarity === 'epic') { const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.05), m); gem.position.set(hx, top + 0.06, hz + hr * 1.2); grp.add(gem); }
       } else if (classId === 'ranger') { // feathered cap: feather length + angle vary
-        helm = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), m); helm.position.y = 1.5;
-        const feather = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.28 + r * 0.14, 5), new THREE.MeshStandardMaterial({ color: it.rarity === 'common' ? 0xc23b3b : RARITIES[it.rarity].color })); feather.position.set(0.2, 1.66, -0.05); feather.rotation.z = -0.5 - r * 0.5; grp.add(feather);
+        // Seat a touch below the visible head top and run taller than the other
+        // caps, so it also covers the crown gap the hidden hood used to fill.
+        helm = new THREE.Mesh(new THREE.SphereGeometry(hr * 1.18, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.58), m); helm.position.set(hx, top - hr * 0.28, hz);
+        const feather = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.28 + r * 0.14, 5), new THREE.MeshStandardMaterial({ color: it.rarity === 'common' ? 0xc23b3b : RARITIES[it.rarity].color })); feather.position.set(hx + hr * 0.75, top + 0.24, hz - 0.05); feather.rotation.z = -0.5 - r * 0.5; grp.add(feather);
       } else { // knight: domed helm, crest height + optional horns vary
-        helm = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), m); helm.position.y = 1.5;
-        const crest = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08 + r * 0.12, 0.3), m); crest.position.y = 1.66 + r * 0.05; grp.add(crest);
-        if (r > 0.5) { for (const sx of [-1, 1]) { const horn = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 5), m); horn.position.set(sx * 0.22, 1.6, 0); horn.rotation.z = sx * 0.7; grp.add(horn); } }
+        helm = new THREE.Mesh(new THREE.SphereGeometry(hr * 1.12, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), m); helm.position.set(hx, top - hr * 0.62, hz);
+        const crest = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08 + r * 0.12, hr * 1.15), m); crest.position.set(hx, top + 0.06 + r * 0.05, hz); grp.add(crest);
+        if (r > 0.5) { for (const sx of [-1, 1]) { const horn = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 5), m); horn.position.set(hx + sx * hr * 0.85, top - hr * 0.35, hz); horn.rotation.z = sx * 0.7; grp.add(horn); } }
       }
       grp.add(helm);
     }
