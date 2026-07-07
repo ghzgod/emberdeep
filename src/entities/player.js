@@ -175,18 +175,27 @@ export class Player {
   startDash(speed, duration, opts = {}) {
     const dir = (this.moveDir.x || this.moveDir.z)
       ? { ...this.moveDir }
-      : { ...this.aimDir };
+      : this.facingDir();
     this.dash = { dir, speed, t: duration, ...opts, hitSet: new Set() };
     if (opts.invulnerable) this.invulnTimer = Math.max(this.invulnTimer, duration + 0.05);
   }
 
+  // The direction the character is actually facing (the heading the mesh is
+  // turned to), as a unit vector on the ground plane. Directional abilities
+  // fire along this so they always launch where the hero points, on both
+  // mouse and touch (touch has no cursor, so aimDir can be stale).
+  facingDir() {
+    return { x: Math.cos(this.visualAngle), z: Math.sin(this.visualAngle) };
+  }
+
   blink(distance, game) {
-    // step toward aim until blocked
+    // step toward facing until blocked
+    const dir = this.facingDir();
     const steps = 20;
     let bestX = this.pos.x, bestZ = this.pos.z;
     for (let i = 1; i <= steps; i++) {
-      const x = this.pos.x + this.aimDir.x * distance * (i / steps);
-      const z = this.pos.z + this.aimDir.z * distance * (i / steps);
+      const x = this.pos.x + dir.x * distance * (i / steps);
+      const z = this.pos.z + dir.z * distance * (i / steps);
       if (game.isWalkable(x, z, 0.35)) { bestX = x; bestZ = z; }
       else break;
     }
