@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Input } from './core/input.js';
 import { SaveManager } from './core/save.js';
 import { audio } from './core/audio.js';
@@ -35,6 +36,13 @@ import { TouchControls } from './core/touch.js';
 const MAX_FLOOR = 50;
 const ROMAN = [null, 'I', 'II', 'III', 'IV', 'V'];
 
+// Shared neck seam used by the mage's robe chest (collar torus) and hood
+// helmet (skirt hem) in updateHeroGear, in the hero's local space relative to
+// the head anchor. Keeping this in one place means a hood equipped alongside
+// a robe always meets the collar with no gap, regardless of which item's
+// rarity colour each piece uses.
+const MAGE_ROBE_COLLAR = { r: 0.16, y: 0.92 + 0.42, z: 0.02 };
+
 export class Game {
   constructor() {
     this.canvas = document.getElementById('game-canvas');
@@ -45,6 +53,17 @@ export class Game {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x08060c);
     this.scene.fog = new THREE.Fog(0x08060c, 18, 42);
+    // A procedural PMREM environment so metal-ish materials (rarity-tinted
+    // gear, most notably the knight's baked helmet - see updateHeroGear)
+    // have something to reflect: without this, a metalness>0
+    // MeshStandardMaterial renders flat/near-black, since PBR metal reflects
+    // its surroundings rather than showing a diffuse colour. This generic
+    // room is only the fallback used before any real scene exists (title
+    // screen, char select); refreshEnvironmentReflection() below swaps it
+    // for a snapshot of the actual town/dungeon once one is loaded, so the
+    // reflection tracks the real torches/lighting instead of a generic room.
+    this._pmremGen = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = this._pmremGen.fromScene(new RoomEnvironment(), 0.04).texture;
 
     this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
     this.cameraOffset = new THREE.Vector3(0, 11, 9.5);
@@ -583,8 +602,30 @@ export class Game {
     audio.startAmbience('town'); // open-square wind + birdsong
     this.shopCooldown = 1;
     this.requestSave(true);
+    this.refreshEnvironmentReflection();
 
     if (net.isHost) this.broadcastWorld();
+  }
+
+  // Rebuilds scene.environment from an actual snapshot of the CURRENT
+  // town/dungeon (via a throwaway CubeCamera near the spawn point) instead
+  // of the generic fallback room, so metal gear (see updateHeroGear's knight
+  // helmet) reflects a faded impression of the real nearby torches/walls
+  // rather than a made-up interior. Called once per town/floor load (a
+  // handful of times per session) - NOT per frame, so the CubeCamera's six
+  // renders + PMREM convolution cost is a one-off scene-transition expense,
+  // not an ongoing one.
+  refreshEnvironmentReflection() {
+    if (!this.dungeonMeshes) return;
+    const spawn = this.player?.mesh?.position ?? new THREE.Vector3(0, 1.6, 0);
+    const rt = new THREE.WebGLCubeRenderTarget(128);
+    const cubeCam = new THREE.CubeCamera(0.1, 60, rt);
+    cubeCam.position.set(spawn.x, 1.7, spawn.z);
+    cubeCam.update(this.renderer, this.scene);
+    const oldEnv = this.scene.environment;
+    this.scene.environment = this._pmremGen.fromCubemap(rt.texture).texture;
+    if (oldEnv && oldEnv !== this.scene.environment) oldEnv.dispose();
+    rt.dispose();
   }
 
   // Vendors roam a small tether around their booth: amble to a nearby point
@@ -1051,6 +1092,7 @@ export class Game {
     this.stairsCooldown = 1.5;
     this.returnPortalArmed = false; // arms once you walk away from the entrance
     this.requestSave(true);
+    this.refreshEnvironmentReflection();
 
     if (net.isHost) this.broadcastWorld();
 
@@ -1559,40 +1601,181 @@ export class Game {
     };
     // deterministic 0..1 from an item id, so each item's piece differs a little
     const rof = (item) => { let h = 2166136261; const s = String(item.id); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; };
-    if (equipped.helmet) {
-      const it = equipped.helmet, m = mat(it.rarity), r = rof(it);
-      // Seat the helmet on the actual crown of THIS model. Each class head sits
-      // at a different local height, so anchoring to the measured head-top (see
-      // heroModel headAnchor) keeps the helmet on the head instead of buried in
-      // it. Falls back to the old fixed values if no anchor was recorded.
-      const ha = mesh.userData.headAnchor || { top: 1.7, cx: 0, cz: 0, r: 0.28 };
-      const top = ha.top, hx = ha.cx, hz = ha.cz, hr = Math.max(0.22, ha.r);
-      let helm;
-      if (classId === 'mage') { // pointed hat: height + lean vary per item
-        const coneH = 0.42 + r * 0.2;
-        helm = new THREE.Mesh(new THREE.ConeGeometry(hr * 0.95, coneH, 10), m);
-        helm.position.set(hx, top + coneH * 0.34, hz); helm.rotation.z = 0.06 + r * 0.14;
-        const brim = new THREE.Mesh(new THREE.CylinderGeometry(hr * 1.3, hr * 1.42, 0.04, 12), m); brim.position.set(hx, top + 0.02, hz); grp.add(brim);
-        if (it.rarity === 'legendary' || it.rarity === 'epic') { const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.05), m); gem.position.set(hx, top + 0.06, hz + hr * 1.2); grp.add(gem); }
-      } else if (classId === 'ranger') { // feathered cap: feather length + angle vary
-        // Seat a touch below the visible head top and run taller than the other
-        // caps, so it also covers the crown gap the hidden hood used to fill.
-        helm = new THREE.Mesh(new THREE.SphereGeometry(hr * 1.18, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.58), m); helm.position.set(hx, top - hr * 0.28, hz);
-        const feather = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.28 + r * 0.14, 5), new THREE.MeshStandardMaterial({ color: it.rarity === 'common' ? 0xc23b3b : RARITIES[it.rarity].color })); feather.position.set(hx + hr * 0.75, top + 0.24, hz - 0.05); feather.rotation.z = -0.5 - r * 0.5; grp.add(feather);
-      } else { // knight: domed helm, crest height + optional horns vary
-        helm = new THREE.Mesh(new THREE.SphereGeometry(hr * 1.12, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), m); helm.position.set(hx, top - hr * 0.62, hz);
-        const crest = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08 + r * 0.12, hr * 1.15), m); crest.position.set(hx, top + 0.06 + r * 0.05, hz); grp.add(crest);
-        if (r > 0.5) { for (const sx of [-1, 1]) { const horn = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 5), m); horn.position.set(hx + sx * hr * 0.85, top - hr * 0.35, hz); horn.rotation.z = sx * 0.7; grp.add(horn); } }
+    // A second independent 0..1 roll from the same id (mix the hash differently)
+    // so shape-branching decisions don't all key off the same number as size/height.
+    const rof2 = (item) => { let h = 84696351; const s = String(item.id); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 2654435761); h ^= h >>> 13; } return (h >>> 0) / 4294967296; };
+    const elaborate = (rarity) => rarity === 'legendary' || rarity === 'epic'; // extra trim/gems/layers at high rarity
+    // Physics refs collected below: hat tips / robe hems / cloak corners that
+    // get a subtle per-frame sway in animateAuras. Reset each rebuild.
+    const sway = { hat: null, hem: [], cloak: [] };
+    if (equipped.helmet && mesh.userData.bakedHat) {
+      // Show the model's OWN authored headgear mesh (KayKit's Mage_Hat /
+      // Knight_Helmet - see heroModel.js bakedHat) instead of a procedural
+      // stand-in. It is already sized and seated to fit this exact head and
+      // hair with no clipping, since it is the asset the hair was modelled
+      // around. We just recolour it (clone its material once per rebuild)
+      // and add a small per-item scale/tilt variance so different helmet
+      // items still read as slightly different, without ever risking clip.
+      const it = equipped.helmet, r = rof(it), r2 = rof2(it);
+      const hat = mesh.userData.bakedHat;
+      hat.visible = true;
+      if (!hat.userData.origMat) hat.userData.origMat = hat.material;
+      hat.material = hat.userData.origMat.clone();
+      // Clear any band/buckle/star ornaments added by a PREVIOUS helmet
+      // (this only runs when the loadout signature actually changes, e.g.
+      // swapping to a different helmet item - but without this, each swap
+      // would leave the last helmet's ornaments as stale ghost children).
+      for (let i = hat.children.length - 1; i >= 0; i--) hat.remove(hat.children[i]);
+      // This is a static mesh rigidly parented to the head bone, not a
+      // SkinnedMesh - it tracks the head's bone transform exactly, but the
+      // head mesh itself has its own baked animation deformation (idle
+      // breathing/run/attack squash) that can momentarily poke past a
+      // helmet sized to the bind pose. A small uniform margin (always >=1,
+      // never smaller than the authored asset) keeps the head fully
+      // contained through the whole animation range at every frame.
+      const s = 1.04 + r * 0.05;
+      hat.scale.set(s, s, s);
+      hat.rotation.z = (r - 0.5) * 0.1; // tiny per-item tilt variance
+      if (classId === 'mage') {
+        // Cloth hat: pick from a real colour palette (seeded per item, not
+        // always the rarity colour) so hats vary hue instead of every
+        // legendary being flat orange. Rarity nudges richness/saturation.
+        const HAT_PALETTE = [0x5a3a8f, 0x2e5f6b, 0x7a2e3a, 0x2f5c33, 0x6b3f1f, 0x3b3f7a, 0x8a4a2e, 0x4a4a7a];
+        const hue = HAT_PALETTE[Math.floor(r2 * HAT_PALETTE.length)];
+        const hot = it.rarity === 'legendary' || it.rarity === 'epic';
+        // Multiply-tint (not a flat colour replace) so the atlas's own baked
+        // light-to-dark shading still reads through as cloth folds, not a
+        // single flat plastic colour.
+        hat.material.color.set(hue);
+        if (hat.material.emissive) { hat.material.emissive.set(hot ? hue : 0x000000); hat.material.emissiveIntensity = it.rarity === 'legendary' ? 0.28 : it.rarity === 'epic' ? 0.16 : 0; }
+        hat.material.metalness = 0.03; hat.material.roughness = 0.9; // matte cloth
+        // Overlay hat band + buckle in a leather colour that is ALWAYS
+        // distinct from the cloth (the shared atlas tints uniformly, so a
+        // separate small mesh is the reliable way to guarantee contrast).
+        // Positioned at the hat's own local band height (KayKit's Mage_Hat
+        // has its brim near local y=0 and tapers up from there).
+        const bandColor = 0x3a2a1a; // dark leather
+        const hatR = mesh.userData.headAnchor ? Math.max(0.22, mesh.userData.headAnchor.r) : 0.4;
+        const band = new THREE.Mesh(new THREE.TorusGeometry(hatR * 0.42, hatR * 0.06, 8, 16), new THREE.MeshStandardMaterial({ color: bandColor, roughness: 0.75, metalness: 0.05 }));
+        band.rotation.x = Math.PI / 2; band.position.y = hatR * 0.28;
+        hat.add(band);
+        const buckle = new THREE.Mesh(new THREE.BoxGeometry(hatR * 0.1, hatR * 0.07, hatR * 0.03), new THREE.MeshStandardMaterial({ color: 0xc9c2a8, roughness: 0.35, metalness: 0.6 }));
+        buckle.position.set(0, hatR * 0.28, hatR * 0.42);
+        hat.add(buckle);
+      } else {
+        // Metal helmet (knight): the base colour stays STEEL/GUNMETAL GREY -
+        // real metal reads by reflection/specular, not a saturated diffuse
+        // hue, so a "purple helmet" would just look like purple plastic.
+        // Rarity instead layers a subtle SHEEN (a gentle multiply toward a
+        // tint, not a hue replace) over that steel base: near-neutral grey
+        // (common), a cool blue-steel sheen (rare), a faint violet-steel
+        // sheen (epic), a warm gold-steel sheen (legendary). metalness is
+        // near-1 and roughness low so it actually reflects the scene's PMREM
+        // environment (see this.scene.environment in the constructor) -
+        // that reflection, not a flat diffuse hue, is what reads as "metal".
+        const STEEL = new THREE.Color(0xaeb4bc);
+        const SHEEN = { common: 0xaeb4bc, rare: 0x8fa8c2, epic: 0xa898c2, legendary: 0xc9ad78 };
+        const c = STEEL.clone().lerp(new THREE.Color(SHEEN[it.rarity] ?? SHEEN.common), 0.35);
+        const hot = it.rarity === 'legendary' || it.rarity === 'epic';
+        hat.material.color.copy(c);
+        hat.material.metalness = 0.95;
+        hat.material.roughness = 0.22;
+        // Subtle, not a mirror: a faded impression of the actual nearby
+        // scene (see refreshEnvironmentReflection, which snapshots the real
+        // town/dungeon into scene.environment) rather than a strong reflection.
+        hat.material.envMapIntensity = 0.55;
+        if (hat.material.emissive) { hat.material.emissive.set(hot ? SHEEN[it.rarity] : 0x000000); hat.material.emissiveIntensity = it.rarity === 'legendary' ? 0.14 : it.rarity === 'epic' ? 0.08 : 0; }
       }
-      grp.add(helm);
+      // Gentle sway target: the baked hat mesh itself (its own pivot is
+      // already at the head/seat, authored by KayKit), so oscillating it
+      // reads as the point/brim swaying without any separate piece.
+      sway.hat = { obj: hat, baseZ: hat.rotation.z, baseX: 0, amp: 0.035 + r * 0.02 };
+    } else if (mesh.userData.bakedHat) {
+      // No helmet equipped: keep the baked hat hidden (bare head / default
+      // hood, per each class's own default-look logic above).
+      mesh.userData.bakedHat.visible = false;
     }
     if (equipped.chest) {
-      const it = equipped.chest, m = mat(it.rarity), r = rof(it);
-      const pL = new THREE.Mesh(new THREE.SphereGeometry(0.15 + r * 0.05, 8, 6), m); pL.position.set(-0.34, 1.02, 0); pL.scale.y = 0.7;
-      const pR = pL.clone(); pR.position.x = 0.34;
-      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.4, 0.14), m); plate.position.set(0, 0.92, 0.24);
-      const trim = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.16), mat(it.rarity)); trim.position.set(0, 0.72 + r * 0.06, 0.24);
-      grp.add(pL, pR, plate, trim);
+      const it = equipped.chest, m = mat(it.rarity), r = rof(it), r2 = rof2(it), fancy = elaborate(it.rarity);
+      if (classId === 'mage') {
+        // Full-length flowing ROBE: a waist-to-ankle skirt (cone-ish, built from
+        // a tapered cylinder so it reads as cloth rather than armor plate), plus
+        // a fitted upper chest piece and shoulder drape. Style varies the hem
+        // shape/flare; higher rarity gets a trim band + a slow emissive glow.
+        const style = r2 < 0.34 ? 'flare' : r2 < 0.67 ? 'straight' : 'slit';
+        const hot = fancy;
+        const robeMat = new THREE.MeshStandardMaterial({ color: m.color.clone(), metalness: 0.15, roughness: 0.55, emissive: hot ? m.color.clone() : 0x000000, emissiveIntensity: hot ? 0.16 : 0 });
+        const waistY = 0.92, hemY = 0.06 + r * 0.05; // ankle-ish
+        const topR = 0.26 + r * 0.03;
+        const botR = style === 'flare' ? topR * (1.9 + r * 0.3) : style === 'slit' ? topR * 1.5 : topR * 1.25;
+        const skirt = new THREE.Mesh(new THREE.CylinderGeometry(topR, botR, waistY - hemY, 12, 1, true), robeMat);
+        skirt.position.set(0, (waistY + hemY) / 2, 0);
+        grp.add(skirt);
+        if (style === 'slit') { // front slit: two overlapping half-cylinders instead of one closed skirt
+          skirt.visible = false;
+          for (const sx of [-1, 1]) {
+            const half = new THREE.Mesh(new THREE.CylinderGeometry(topR, botR, waistY - hemY, 8, 1, true, 0, Math.PI * 0.98), robeMat);
+            half.position.set(0, (waistY + hemY) / 2, 0); half.rotation.y = sx > 0 ? 0.15 : Math.PI + 0.15;
+            grp.add(half);
+          }
+        }
+        // Hem ring: a thin torus riding the bottom edge, the sway target so the
+        // whole hem visibly billows rather than just one thin strip.
+        const hem = new THREE.Mesh(new THREE.TorusGeometry(botR, 0.03, 6, 16), mat(it.rarity));
+        hem.rotation.x = Math.PI / 2; hem.position.set(0, hemY, 0);
+        grp.add(hem);
+        sway.hem.push({ obj: hem, basePos: hem.position.clone(), amp: 0.06 + r * 0.03, kind: 'ring' });
+        // Fitted chest + shoulder drape (cloth, not plate).
+        const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.22, topR, 0.42, 10), robeMat); torso.position.set(0, waistY + 0.21, 0.02); grp.add(torso);
+        // Collar sits at the shared MAGE_ROBE_COLLAR seam so an equipped hood's
+        // skirt hem lands exactly here, whatever colour either piece rolled.
+        const collar = new THREE.Mesh(new THREE.TorusGeometry(MAGE_ROBE_COLLAR.r, 0.025, 6, 10), mat(it.rarity)); collar.rotation.x = Math.PI / 2; collar.position.set(0, MAGE_ROBE_COLLAR.y, MAGE_ROBE_COLLAR.z); grp.add(collar);
+        // A drifting cloak-cape swatch off the back shoulders for elaborate robes.
+        if (fancy) {
+          const drape = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.5, 8, 1, true), robeMat);
+          drape.position.set(0, waistY, -0.08); drape.rotation.x = Math.PI;
+          grp.add(drape);
+          sway.cloak.push({ obj: drape, baseRotZ: 0, baseRotX: drape.rotation.x, amp: 0.05 + r * 0.03 });
+          // A few small drifting sparkle motes around the robe for Epic/Legendary.
+          const sparkleColor = RARITIES[it.rarity].color;
+          const sparkles = new THREE.Group();
+          const n = it.rarity === 'legendary' ? 5 : 3;
+          for (let i = 0; i < n; i++) {
+            const sp = new THREE.Mesh(new THREE.SphereGeometry(0.025, 5, 5), new THREE.MeshBasicMaterial({ color: sparkleColor }));
+            const a = (i / n) * Math.PI * 2 + r * 6.28;
+            sp.position.set(Math.cos(a) * (0.3 + r * 0.1), hemY + 0.15 + (i % 3) * 0.22, Math.sin(a) * (0.3 + r * 0.1));
+            sp.userData.orbit = { a, speed: 0.6 + (i % 3) * 0.3, radius: 0.3 + r * 0.1, baseY: sp.position.y };
+            sparkles.add(sp);
+          }
+          grp.add(sparkles);
+          grp.userData.robeSparkles = sparkles;
+        }
+      } else if (classId === 'knight') {
+        // Layered plate + tabard: pauldrons, a breastplate, and a cloth tabard
+        // strip hanging over it (tabard length/width vary, sways faintly).
+        const pL = new THREE.Mesh(new THREE.SphereGeometry(0.15 + r * 0.05, 8, 6), m); pL.position.set(-0.34, 1.02, 0); pL.scale.y = 0.7;
+        const pR = pL.clone(); pR.position.x = 0.34;
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.4, 0.14), m); plate.position.set(0, 0.92, 0.24);
+        const trim = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.16), mat(it.rarity)); trim.position.set(0, 0.72 + r * 0.06, 0.24);
+        grp.add(pL, pR, plate, trim);
+        const tabardMat = new THREE.MeshStandardMaterial({ color: mat(it.rarity).color, metalness: 0.1, roughness: 0.7 });
+        const tabard = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.34 + r2 * 0.14), tabardMat);
+        tabard.position.set(0, 0.6, 0.32); grp.add(tabard);
+        sway.hem.push({ obj: tabard, basePos: tabard.position.clone(), amp: 0.03 + r * 0.02, kind: 'plane' });
+        if (fancy) { const gorget = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.03, 6, 10), mat(it.rarity)); gorget.rotation.x = Math.PI / 2; gorget.position.set(0, 1.18, 0.05); grp.add(gorget); }
+      } else {
+        // Ranger: leather jerkin + a swaying cloak (style varies collar/length).
+        const style = r2 < 0.5 ? 'short' : 'long';
+        const vestMat = new THREE.MeshStandardMaterial({ color: m.color.clone(), metalness: 0.1, roughness: 0.75 });
+        const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.5, 8), vestMat); vest.position.set(0, 0.92, 0); grp.add(vest);
+        const strap = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.04), mat(it.rarity)); strap.position.set(0.14, 0.92, 0.2); strap.rotation.z = 0.3; grp.add(strap);
+        const cloakLen = style === 'long' ? 0.75 + r * 0.2 : 0.42 + r * 0.15;
+        const cloak = new THREE.Mesh(new THREE.ConeGeometry(0.24, cloakLen, 8, 1, true), vestMat);
+        cloak.position.set(0, 0.92 - cloakLen / 2 + 0.15, -0.14); cloak.rotation.x = Math.PI;
+        grp.add(cloak);
+        sway.cloak.push({ obj: cloak, baseRotZ: 0, baseRotX: cloak.rotation.x, amp: 0.06 + r * 0.04 });
+        if (fancy) { const clasp = new THREE.Mesh(new THREE.OctahedronGeometry(0.04), mat(it.rarity)); clasp.position.set(0, 1.14, 0.18); grp.add(clasp); }
+      }
     }
     if (equipped.legs) {
       const m = mat(equipped.legs.rarity);
@@ -1632,6 +1815,9 @@ export class Game {
     }
     mesh.add(grp);
     mesh.userData.gearVisual = grp;
+    // Hand the collected hat-tip/hem/cloak refs to the per-frame sway animator
+    // (see animateGearSway). Discarded and rebuilt whenever gear changes.
+    mesh.userData.gearSway = sway;
   }
 
   // Keep the local hero's aura in sync, spin sparkles, and fly the companion.
@@ -1655,6 +1841,68 @@ export class Game {
     };
     anim(this.player?.mesh);
     for (const [, rp] of this.remotePlayers) anim(rp.mesh);
+    this.animateGearSway(this.player?.mesh, dt, t);
+    for (const [, rp] of this.remotePlayers) this.animateGearSway(rp.mesh, dt, t);
+  }
+
+  // Subtle secondary motion on equipped-gear cosmetics: wizard-hat tips, robe
+  // hems, and cloaks sway as if in a light wind (sine idle motion) and swing
+  // extra when the hero turns (driven by the mesh's actual per-frame turn
+  // rate). This never touches the skeleton/animation mixer, so it layers on
+  // top of the base walk/idle/attack clips instead of fighting them.
+  animateGearSway(mesh, dt, t) {
+    const sway = mesh?.userData?.gearSway;
+    if (!sway) return;
+    // Turn-rate from the hero root's actual rotation delta this frame (rad/s),
+    // shortest-path-wrapped so a spin near +-PI doesn't spike. Reused for hat,
+    // hem and cloak alike so they all swing together on a turn.
+    const prevY = mesh.userData._swayPrevRotY ?? mesh.rotation.y;
+    let dRot = mesh.rotation.y - prevY;
+    while (dRot > Math.PI) dRot -= Math.PI * 2;
+    while (dRot < -Math.PI) dRot += Math.PI * 2;
+    const turnRate = dt > 0 ? dRot / dt : 0;
+    mesh.userData._swayPrevRotY = mesh.rotation.y;
+    const wind = Math.sin(t * 2.1) * 0.6 + Math.sin(t * 3.7 + 1.3) * 0.4; // -1..1 breeze
+    const turnKick = Math.max(-1.4, Math.min(1.4, turnRate * 0.12)); // clamp so a fast spin doesn't fling gear
+    if (sway.hat) {
+      const h = sway.hat;
+      const swing = wind * h.amp + turnKick * h.amp * 0.8;
+      if (h.axis === 'x') {
+        h.obj.rotation.x = h.baseX + swing;
+      } else if (h.pivot) { // curled-tip style: orbit the tip sphere around its base cone
+        h.obj.position.x = h.basePos.x + swing;
+        h.obj.position.z = h.basePos.z + Math.abs(swing) * 0.3;
+      } else {
+        h.obj.rotation.z = h.baseZ + swing;
+        h.obj.rotation.x = (h.baseX || 0) + swing * 0.4;
+      }
+    }
+    for (const hem of sway.hem) {
+      const swing = wind * hem.amp + turnKick * hem.amp * 0.9;
+      if (hem.kind === 'ring') {
+        hem.obj.position.x = hem.basePos.x + swing;
+        hem.obj.position.z = hem.basePos.z + swing * 0.5;
+        hem.obj.rotation.z = swing * 0.5;
+      } else { // plane (tabard): flap around its top edge
+        hem.obj.rotation.x = swing * 0.6;
+        hem.obj.position.x = hem.basePos.x + swing * 0.3;
+      }
+    }
+    for (const cl of sway.cloak) {
+      const swing = wind * cl.amp + turnKick * cl.amp;
+      cl.obj.rotation.x = cl.baseRotX + swing * 0.5;
+      cl.obj.rotation.z = cl.baseRotZ + swing;
+    }
+    // Robe sparkle motes: slow independent orbit + bob, Epic/Legendary mage chest only.
+    const sparkles = mesh.userData.gearVisual?.userData?.robeSparkles;
+    if (sparkles) {
+      for (const sp of sparkles.children) {
+        const o = sp.userData.orbit;
+        if (!o) continue;
+        const a = o.a + t * o.speed;
+        sp.position.set(Math.cos(a) * o.radius, o.baseY + Math.sin(t * 1.4 + o.a) * 0.05, Math.sin(a) * o.radius);
+      }
+    }
   }
 
   // A compact snapshot of the equipped gear, for co-op inspect panels.
