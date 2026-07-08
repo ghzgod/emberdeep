@@ -304,6 +304,18 @@ const CLIP_PATTERNS = {
   death: [/death_a$/i, /death/i],
 };
 
+// Knight-only basic-attack combo: the KayKit rig ships several distinct 1H
+// melee clips, so instead of always playing the same slice we cycle through
+// these on consecutive swings (see Player.tryBasicAttack). Falls back to
+// whatever attackKnight resolves to if a specific clip isn't present in the
+// GLB. Keys match classes.js's knight.basic.variations[].clip.
+const KNIGHT_COMBO_PATTERNS = {
+  slice_horizontal: [/1h_melee_attack_slice_horizontal/i],
+  slice_diagonal: [/1h_melee_attack_slice_diagonal/i],
+  chop: [/1h_melee_attack_chop/i],
+  stab: [/1h_melee_attack_stab/i],
+};
+
 // Returns { mesh, mixer, actions, playing } or null if the model isn't loaded.
 // `name` seeds the small deterministic cosmetic variations (see applyCosmetics
 // above) so the same hero name always looks the same, for the local player
@@ -392,12 +404,28 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
     }
     actions[key] = action;
   }
+  // Knight combo variants: register any of the four 1H melee clips that exist
+  // in this GLB as separate one-shot actions under actions.attackCombo[key],
+  // so playAttack(variant) can swap which swing plays without touching the
+  // default `attack` action other classes/abilities rely on.
+  const attackCombo = {};
+  if (classId === 'knight') {
+    for (const [key, patterns] of Object.entries(KNIGHT_COMBO_PATTERNS)) {
+      const clip = findClip(anims, patterns);
+      if (!clip) continue;
+      const action = mixer.clipAction(clip);
+      action.setLoop(THREE.LoopOnce);
+      action.clampWhenFinished = true;
+      attackCombo[key] = action;
+    }
+  }
   if (actions.idle) actions.idle.play();
 
   return {
     mesh,
     mixer,
     actions,
+    attackCombo,
     current: 'idle',
     _idleT: Math.random() * 10, // desyncs idle sway across multiple heroes on screen
     // Crossfade helper driven from Player.update (and from remote-peer sync in
@@ -442,9 +470,17 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
         this.mesh.rotation.z += (0 - this.mesh.rotation.z) * Math.min(1, 10 * dt);
       }
     },
-    playAttack() {
-      const a = this.actions.attack;
+    // `variant` picks one of the knight's combo clips (see KNIGHT_COMBO_PATTERNS)
+    // for a varied swing; omit it (abilities, other classes) to play the
+    // class's single default attack clip as before. Stops whichever combo
+    // clip played last so two swing poses never blend together.
+    playAttack(variant) {
+      const combo = variant && this.attackCombo[variant];
+      const a = combo || this.actions.attack;
       if (!a) return;
+      for (const other of Object.values(this.attackCombo)) {
+        if (other !== a) other.stop();
+      }
       a.reset();
       a.setEffectiveTimeScale(1.8);
       a.setEffectiveWeight(1);

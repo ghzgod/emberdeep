@@ -1855,25 +1855,32 @@ export class Game {
   // Is the local hero mid-swing / holding attack? Enemies use this to juke.
   playerIsAttacking() { return !!(this.player && (this.player.aiming || this.player.attackAnim > 0.05)); }
 
-  meleeAttack(player, basic) {
+  // `variation` (optional) is the current combo-cycle entry from classes.js's
+  // basic.variations — carries this swing's range/arc/dmgMult so left/right
+  // slices, the overhead chop and the lunging stab each hit a slightly
+  // different shape instead of one identical swing every time.
+  meleeAttack(player, basic, variation) {
+    const range = variation?.range ?? basic.range;
+    const arc = variation?.arc ?? basic.arc;
+    const dmgMult = variation?.dmgMult ?? 1;
     let hitAny = false;
     for (const e of this.enemies) {
       if (e.dead) continue;
       const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
       const dist = Math.hypot(dx, dz);
-      if (dist > basic.range + e.radius) continue;
+      if (dist > range + e.radius) continue;
       const angleTo = Math.atan2(dz, dx);
       let diff = angleTo - player.aimAngle;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      if (Math.abs(diff) < basic.arc / 2) {
-        this.damageEnemy(e, player.damage, { knockback: 3, kbFrom: player.pos });
+      if (Math.abs(diff) < arc / 2) {
+        this.damageEnemy(e, player.damage * dmgMult, { knockback: 3, kbFrom: player.pos });
         learner.recordPlayerHit(dist); // learn your engagement range
         hitAny = true;
       }
     }
-    const hitX = player.pos.x + (player.aimDir?.x || 0) * basic.range;
-    const hitZ = player.pos.z + (player.aimDir?.z || 0) * basic.range;
+    const hitX = player.pos.x + (player.aimDir?.x || 0) * range;
+    const hitZ = player.pos.z + (player.aimDir?.z || 0) * range;
     if (hitAny) audio.play(basic.hitSound);
     else if (!this.isWalkable(hitX, hitZ, 0.1)) {
       // a whiffed swing that lands on stone strikes sparks and chips the wall
