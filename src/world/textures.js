@@ -421,3 +421,112 @@ export function makeWoodTexture() {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
+
+// Horizontal wooden planks with dark seams and drawn grain, for tavern walls
+// and the bar front. Reads as fitted board panelling rather than the vertical
+// staves in makeWoodTexture, so a wall and a barrel don't share one look.
+export function makePlankTexture(base = '#6a4a2c') {
+  const size = 128;
+  const [canvas, ctx] = makeCanvas(size);
+  ctx.fillStyle = '#2a1a0e';
+  ctx.fillRect(0, 0, size, size);
+  const rows = 5, rh = size / rows;
+  for (let r = 0; r < rows; r++) {
+    ctx.fillStyle = shadeColor(base, 14);
+    ctx.fillRect(0, r * rh + 2, size, rh - 3);
+    // long grain streaks running along each board
+    for (let g = 0; g < 5; g++) {
+      ctx.strokeStyle = `rgba(40,24,12,${0.12 + Math.random() * 0.14})`;
+      ctx.lineWidth = 1;
+      const gy = r * rh + 4 + Math.random() * (rh - 8);
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      for (let px = 0; px <= size; px += 16) ctx.lineTo(px, gy + (Math.random() - 0.5) * 3);
+      ctx.stroke();
+    }
+    // occasional peg/knot
+    if (Math.random() < 0.7) {
+      ctx.fillStyle = 'rgba(30,18,8,0.5)';
+      ctx.beginPath();
+      ctx.arc(20 + Math.random() * (size - 40), r * rh + rh / 2, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  speckle(ctx, size, 160, 0.16);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Rough grey fieldstone for the hearth surround and mantel: irregular mortared
+// blocks so the fireplace reads as stone masonry against the wooden walls.
+export function makeHearthStoneTexture() {
+  const size = 128;
+  const [canvas, ctx] = makeCanvas(size);
+  ctx.fillStyle = '#33302b';
+  ctx.fillRect(0, 0, size, size);
+  const rows = 5, rh = size / rows;
+  for (let r = 0; r < rows; r++) {
+    const offset = (r % 2) * 0.5;
+    let x = -offset * 40;
+    while (x < size) {
+      const w = 22 + Math.random() * 20;
+      const b = 96 + Math.floor(Math.random() * 20);
+      ctx.fillStyle = `rgb(${b},${b - 4},${b - 9})`;
+      ctx.beginPath();
+      ctx.roundRect(x + 2, r * rh + 2, w - 3, rh - 3, 4);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      ctx.fillRect(x + 4, r * rh + 3, w - 7, 2);
+      x += w;
+    }
+  }
+  speckle(ctx, size, 300, 0.14);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// The hanging tavern sign face: a plank board with a painted golden golem
+// silhouette and "THE SLEEPING GOLEM" lettering, so the swinging sign actually
+// names the inn instead of being a blank board.
+export function makeTavernSignTexture() {
+  const w = 256, h = 160;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  // weathered board
+  x.fillStyle = '#5a3c22';
+  x.fillRect(0, 0, w, h);
+  for (let i = 0; i < 6; i++) {
+    x.fillStyle = `rgba(30,18,8,${0.1 + Math.random() * 0.12})`;
+    x.fillRect(0, (i / 6) * h, w, 2);
+  }
+  // gilt border
+  x.strokeStyle = '#d8b04a';
+  x.lineWidth = 6;
+  x.strokeRect(8, 8, w - 16, h - 16);
+  // sleeping golem: a slumped stone head with closed eyes
+  x.fillStyle = '#c8a24a';
+  x.beginPath();
+  x.arc(w / 2, h * 0.42, 30, 0, Math.PI * 2);
+  x.fill();
+  x.strokeStyle = '#3a2a12';
+  x.lineWidth = 3;
+  x.beginPath(); x.moveTo(w / 2 - 16, h * 0.4); x.lineTo(w / 2 - 4, h * 0.4); x.stroke();
+  x.beginPath(); x.moveTo(w / 2 + 4, h * 0.4); x.lineTo(w / 2 + 16, h * 0.4); x.stroke();
+  // little "Z" of sleep
+  x.fillStyle = '#d8b04a';
+  x.font = 'bold 22px serif';
+  x.fillText('z', w / 2 + 30, h * 0.28);
+  // lettering
+  x.fillStyle = '#e8d08a';
+  x.font = 'bold 20px serif';
+  x.textAlign = 'center';
+  x.fillText('THE SLEEPING GOLEM', w / 2, h - 22);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
