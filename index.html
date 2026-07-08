@@ -206,7 +206,14 @@
         <button id="ab-inv" title="Inventory (Tab)">🎒</button>
         <button id="ab-quests" title="Quest Log (J)">📜</button>
         <button id="ab-skills" title="Mastery (K)">✦</button>
-        <button id="ab-potion" title="Drink Potion (R)">🧪</button>
+        <button id="ab-potion" title="Drink Potion (R)">
+          <svg class="potion-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="10" y="2" width="4" height="4" rx="1" fill="#8a6a3a"/>
+            <path d="M9 6h6v3.2l3.6 7.4c1.1 2.3-.5 5-3 5H8.4c-2.5 0-4.1-2.7-3-5L9 9.2V6z" fill="#c8342f" stroke="#7a1f1c" stroke-width="1"/>
+            <path d="M8.6 13.5c1 .6 2.2.9 3.4.9s2.4-.3 3.4-.9" stroke="#7a1f1c" stroke-width="1" fill="none" stroke-linecap="round"/>
+            <ellipse cx="10.3" cy="14.3" rx="1.1" ry="1.7" fill="#ff8f7a" opacity="0.75"/>
+          </svg>
+        </button>
         <button id="ab-mic" class="hidden" title="Push-to-talk: hold V">🎤</button>
         <button id="ab-pause" title="Menu (Esc)">⚙️</button>
         <button id="ab-toggle" title="Toggle menu">☰</button>
@@ -241,24 +248,39 @@
     <!-- Touch controls (coarse-pointer devices) -->
     <div id="touch-ui" class="hidden">
       <div id="joystick-base"><div id="joystick-knob"></div></div>
-      <button id="touch-potion">🧪</button>
-      <button id="touch-inv">🎒</button>
-      <button id="touch-mic" class="hidden">🎤</button>
-      <button id="touch-pause">⏸</button>
+      <button id="touch-potion" aria-label="Drink potion">
+        <svg class="potion-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="10" y="2" width="4" height="4" rx="1" fill="#8a6a3a"/>
+          <path d="M9 6h6v3.2l3.6 7.4c1.1 2.3-.5 5-3 5H8.4c-2.5 0-4.1-2.7-3-5L9 9.2V6z" fill="#c8342f" stroke="#7a1f1c" stroke-width="1"/>
+          <path d="M8.6 13.5c1 .6 2.2.9 3.4.9s2.4-.3 3.4-.9" stroke="#7a1f1c" stroke-width="1" fill="none" stroke-linecap="round"/>
+          <ellipse cx="10.3" cy="14.3" rx="1.1" ry="1.7" fill="#ff8f7a" opacity="0.75"/>
+        </svg>
+      </button>
+      <button id="touch-inv" aria-label="Inventory">🎒</button>
+      <button id="touch-mic" class="hidden" aria-label="Push to talk">🎤</button>
+      <button id="touch-pause" aria-label="Menu">⚙️</button>
       <button id="touch-rotl" aria-label="Rotate camera left">↺</button>
       <button id="touch-rotr" aria-label="Rotate camera right">↻</button>
       <button id="touch-menu-toggle" title="Menu" aria-label="Menu"></button>
-    </div>
-
-    <!-- One-time mobile controls hint -->
-    <div id="touch-hint" class="hidden">
-      <div id="touch-hint-card">
-        <h3>Controls</h3>
-        <p>Left thumb: move</p>
-        <p>Right side: tap to aim and attack</p>
-        <p>Bottom right: your abilities</p>
-        <p>Tap the menu button for potion, bag, and settings</p>
-        <button id="btn-touch-hint" class="menu-btn small">Got it</button>
+      <!-- First-time 3-step contextual tutorial, first Embervale visit only.
+           Each step is a small pulsing ring + short label right over the zone
+           it's teaching; non-blocking (pointer-events: none) so none of them
+           ever intercept input, and each auto-advances/fades the moment the
+           player does that action (see touch.js). Only one is ever visible
+           at a time (steps gated by the "step-N" class on the container). -->
+      <div id="touch-tut" class="hidden">
+        <div id="touch-tut-move" class="tut-step">
+          <div class="tut-ring"></div>
+          <div class="tut-label">Drag to move</div>
+        </div>
+        <div id="touch-tut-attack" class="tut-step">
+          <div class="tut-ring"></div>
+          <div class="tut-label">Tap to aim &amp; attack</div>
+        </div>
+        <div id="touch-tut-ability" class="tut-step">
+          <div class="tut-ring"></div>
+          <div class="tut-label">Tap an ability</div>
+        </div>
       </div>
     </div>
 
