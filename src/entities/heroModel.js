@@ -409,6 +409,15 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       const speed01 = typeof speed === 'number' ? Math.min(1, Math.max(0, speed)) : (speed ? 1 : 0);
       const moving = speed01 > 0.02;
       const want = moving ? 'run' : 'idle';
+      // Leaving the frozen whirl pose: stop and un-pause the held attack clip so
+      // it stops contributing weight, and restore the run clip's timescale (it
+      // was zeroed if there was no attack clip to freeze).
+      if (this.current === 'whirl') {
+        if (this.actions.attack) { this.actions.attack.paused = false; this.actions.attack.stop(); }
+        if (this.actions.run) this.actions.run.setEffectiveTimeScale(1);
+        this.current = 'idle';
+        if (this.actions.idle) this.actions.idle.reset().play();
+      }
       if (want !== this.current && this.actions[want]) {
         const from = this.actions[this.current];
         const to = this.actions[want];
@@ -440,6 +449,40 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       a.setEffectiveTimeScale(1.8);
       a.setEffectiveWeight(1);
       a.play();
+    },
+    // Whirlwind pose: freeze the attack clip near mid-swing, where the sword
+    // arm is extended out to the side, and hold it there (paused, no time
+    // advance) so the blade reads as held out horizontally while the root
+    // spins. This is the most convincing static option on a baked skeletal rig
+    // without authoring a new clip. Falls back to the run clip if there is no
+    // attack action. Call every frame during the whirl; setLocomotion restores
+    // normal blending as soon as it stops being called.
+    holdWhirlPose() {
+      const a = this.actions.attack;
+      if (a) {
+        const clip = a.getClip();
+        if (this.current !== 'whirl') {
+          for (const act of Object.values(this.actions)) {
+            if (act !== a) act.stop();
+          }
+          a.reset();
+          a.setEffectiveWeight(1);
+          a.setEffectiveTimeScale(0); // freeze on the held frame
+          a.paused = true;
+          a.play();
+          this.current = 'whirl';
+        }
+        // Mid-swing frame: arms/weapon swept out to the side.
+        a.time = clip.duration * 0.45;
+      } else if (this.actions.run) {
+        // no attack clip: at least keep legs planted with the run pose frozen
+        const r = this.actions.run;
+        if (this.current !== 'whirl') { r.reset().play(); this.current = 'whirl'; }
+        r.setEffectiveTimeScale(0);
+      }
+      // keep the rig root level (no idle sway) during the spin
+      this.mesh.position.y = 0;
+      this.mesh.rotation.z = 0;
     },
     playDeath() {
       const d = this.actions.death;

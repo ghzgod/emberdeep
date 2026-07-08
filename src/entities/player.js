@@ -35,6 +35,8 @@ export class Player {
     this.statuses = [];      // debuffs on the player (slow etc.)
     this.dash = null;
     this.spinTimer = 0;
+    this.whirl = null;        // sustained whirlwind state: { t, tick, tickT, radius, perTick, knockback }
+    this.glideVel = { x: 0, z: 0 }; // carried momentum used only while whirling (ice movement)
     this.attackCd = 0;
     this.abilityCds = [0, 0, 0, 0];
     this.abilityCdMax = [0, 0, 0, 0]; // actual (post-reduction) cooldown, for the UI wheel
@@ -178,6 +180,24 @@ export class Player {
       : this.facingDir();
     this.dash = { dir, speed, t: duration, ...opts, hitSet: new Set() };
     if (opts.invulnerable) this.invulnTimer = Math.max(this.invulnTimer, duration + 0.05);
+  }
+
+  // Begin a sustained whirlwind: spins the mesh, ticks AoE damage around the
+  // hero as it moves, and switches movement to low-friction "ice" gliding for
+  // the duration. Seeds the glide velocity from current movement (or facing) so
+  // the player keeps drifting the way they were going.
+  startWhirl(opts) {
+    const spd = this.moveSpeed;
+    const dir = (this.moveDir.x || this.moveDir.z) ? this.moveDir : this.facingDir();
+    this.glideVel = { x: dir.x * spd, z: dir.z * spd };
+    this.whirl = {
+      t: opts.duration,
+      tick: opts.tick,
+      tickT: 0, // fire a first damage tick immediately
+      radius: opts.radius,
+      perTick: opts.perTick,
+      knockback: opts.knockback || 0,
+    };
   }
 
   // The direction the character is actually facing (the heading the mesh is
@@ -350,6 +370,20 @@ export class Player {
     // resource regen
     this.resource = Math.min(this.maxResource, this.resource + this.resourceRegen * dt);
 
+    // Sustained whirlwind: tick AoE damage around the moving hero, then glide.
+    if (this.whirl) {
+      const w = this.whirl;
+      w.tickT -= dt;
+      if (w.tickT <= 0) {
+        w.tickT += w.tick;
+        game.aoeDamage(this.pos.x, this.pos.z, w.radius, w.perTick, {
+          source: 'player', knockback: w.knockback,
+        });
+      }
+      w.t -= dt;
+      if (w.t <= 0) this.whirl = null;
+    }
+
     // dash movement overrides normal movement
     if (this.dash) {
       const d = this.dash;
@@ -372,6 +406,22 @@ export class Player {
       }
       d.t -= dt;
       if (d.t <= 0) this.dash = null;
+    } else if (this.whirl) {
+      // "Ice" movement while spinning: keep a velocity that drifts in the last
+      // heading and only steers loosely toward new input, so the hero slides
+      // rather than stopping or turning sharply. Low blend factor = low friction.
+      const spd = this.moveSpeed;
+      const targetX = this.moveDir.x * spd;
+      const targetZ = this.moveDir.z * spd;
+      const grip = Math.min(1, 1.6 * dt); // small = slippery; ~1.6/s pull toward input
+      this.glideVel.x += (targetX - this.glideVel.x) * grip;
+      this.glideVel.z += (targetZ - this.glideVel.z) * grip;
+      const mx = this.glideVel.x * dt;
+      const mz = this.glideVel.z * dt;
+      if (mx && game.isWalkable(this.pos.x + mx, this.pos.z, 0.35)) this.pos.x += mx;
+      else if (mx) this.glideVel.x = 0; // scrub speed on a wall instead of grinding
+      if (mz && game.isWalkable(this.pos.x, this.pos.z + mz, 0.35)) this.pos.z += mz;
+      else if (mz) this.glideVel.z = 0;
     } else {
       // normal movement
       const spd = this.moveSpeed;
@@ -404,8 +454,10 @@ export class Player {
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     this.visualAngle += diff * Math.min(1, 14 * dt);
-    if (this.spinTimer > 0) {
-      this.mesh.rotation.y += 18 * dt; // whirlwind spin
+    if (this.whirl) {
+      this.mesh.rotation.y += 16 * dt; // sustained whirlwind spin (~2.5 turns/sec)
+    } else if (this.spinTimer > 0) {
+      this.mesh.rotation.y += 18 * dt; // legacy short spin
     } else {
       this.mesh.rotation.y = -this.visualAngle + Math.PI / 2;
     }
@@ -414,12 +466,19 @@ export class Player {
     const curSpeed = this.dash ? this.dash.speed : (movingNow ? this.moveSpeed : 0);
     const speed01 = curSpeed > 0 ? Math.min(1, curSpeed / (this.speed * 1.8)) : 0;
     if (this.anim) {
-      this.anim.setLocomotion(speed01, dt, this.attackAnim > 0);
+      if (this.whirl) {
+        // Hold the swing pose so the blade reads as held out horizontally while
+        // the root spins, instead of running the walk/idle loop.
+        this.anim.holdWhirlPose();
+      } else {
+        this.anim.setLocomotion(speed01, dt, this.attackAnim > 0);
+      }
     } else {
-      // primitive fallback: weapon bob + basic leg/idle gait
+      // primitive fallback: weapon bob + basic leg/idle gait. While whirling,
+      // jam the weapon arm out to the side so the blade sweeps horizontally.
       const w = this.mesh.userData.weapon;
-      if (w) w.rotation.x = -this.attackAnim * 5;
-      if (this.mesh.userData.updateGait) this.mesh.userData.updateGait(dt, speed01, this.attackAnim > 0);
+      if (w) w.rotation.x = this.whirl ? -Math.PI / 2 : -this.attackAnim * 5;
+      if (this.mesh.userData.updateGait) this.mesh.userData.updateGait(dt, speed01, this.attackAnim > 0 || !!this.whirl);
     }
   }
 
