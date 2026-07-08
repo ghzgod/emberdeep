@@ -72,9 +72,16 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
 
   const floorGeo = new THREE.BoxGeometry(TILE, 0.2, TILE);
   const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95 });
-  const floorMesh = new THREE.InstancedMesh(floorGeo, floorMat, floorTiles.length);
+  // The descend-stairs tile has its own recessed stairwell built below, so the
+  // solid floor tile there is omitted -> the hatch actually opens into the well
+  // instead of a floor plane sitting over it. (floorTiles itself is left intact;
+  // motes/runes may still pepper the surrounding tiles.)
+  const floorRenderTiles = (!town && dungeon.stairs)
+    ? floorTiles.filter((tp) => !(tp.x === dungeon.stairs.x && tp.y === dungeon.stairs.y))
+    : floorTiles;
+  const floorMesh = new THREE.InstancedMesh(floorGeo, floorMat, floorRenderTiles.length);
   const m = new THREE.Matrix4();
-  floorTiles.forEach((tp, i) => {
+  floorRenderTiles.forEach((tp, i) => {
     const w = tileToWorld(tp.x, tp.y);
     m.setPosition(w.x, -0.1, w.z);
     floorMesh.setMatrixAt(i, m);
@@ -648,15 +655,72 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
     const HATCH = 1.6;                 // square hatch side (sits inside the 2-unit tile)
     const half = HATCH / 2;
 
-    // Dark stairwell recess: a sunken square well with steps descending into it.
-    const recessMat = new THREE.MeshStandardMaterial({ color: 0x07070a, roughness: 1 });
-    const recess = new THREE.Mesh(new THREE.BoxGeometry(HATCH, 1.6, HATCH), recessMat);
-    recess.position.y = -0.8; // top of the well sits just under floor level
-    stairsMesh.add(recess);
-    const stepMat = new THREE.MeshStandardMaterial({ color: 0x1c1c22, roughness: 0.95 });
-    for (let i = 0; i < 5; i++) {
-      const step = new THREE.Mesh(new THREE.BoxGeometry(HATCH, 0.12, 0.28), stepMat);
-      step.position.set(0, -0.1 - i * 0.22, half - 0.18 - i * 0.26);
+    // Dark stairwell recess: a sunken square well, walled on all four sides and
+    // capped with a solid black bottom so nothing behind or below shows through.
+    // The whole well is inset just BELOW the floor plane (top of the walls at
+    // WELL_TOP < 0) so no face is coplanar with the floor -> no z-fighting.
+    const WELL_TOP = -0.05;            // wall tops sit just under the floor
+    const WELL_DEPTH = 2.0;            // how far the well sinks
+    const WELL_BOT = WELL_TOP - WELL_DEPTH;
+    // The solid floor tile at this spot is omitted (see floorRenderTiles), so
+    // the well must fill the whole 2-unit tile hole. The shaft spans the tile;
+    // a dark coping rim frames the smaller hatch opening flush with the floor.
+    const OUTER = TILE;                 // well footprint == the removed floor tile
+    const outerHalf = OUTER / 2;
+    // Solid black bottom cap: a thick slab well below the opening so the floor
+    // beneath the level can never be seen through the hole.
+    const bottomMat = new THREE.MeshStandardMaterial({ color: 0x020204, roughness: 1, metalness: 0 });
+    const bottom = new THREE.Mesh(new THREE.BoxGeometry(OUTER, 0.3, OUTER), bottomMat);
+    bottom.position.y = WELL_BOT - 0.15;
+    stairsMesh.add(bottom);
+    // Four dark inner walls lining the shaft, spanning the full tile so no gap
+    // between the well and the surrounding floor can reveal the void below. Box
+    // faces point outward, so looking down the camera always meets a solid wall.
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x0a0a10, roughness: 1, metalness: 0 });
+    const wallH = WELL_DEPTH + 0.1;
+    const wallY = (WELL_TOP + WELL_BOT) / 2;
+    const wallLong = new THREE.BoxGeometry(OUTER, wallH, 0.14);
+    const wallSide = new THREE.BoxGeometry(0.14, wallH, OUTER);
+    const wN = new THREE.Mesh(wallLong, wallMat); wN.position.set(0, wallY, -outerHalf + 0.07);
+    const wS = new THREE.Mesh(wallLong, wallMat); wS.position.set(0, wallY, outerHalf - 0.07);
+    const wW = new THREE.Mesh(wallSide, wallMat); wW.position.set(-outerHalf + 0.07, wallY, 0);
+    const wE = new THREE.Mesh(wallSide, wallMat); wE.position.set(outerHalf - 0.07, wallY, 0);
+    stairsMesh.add(wN, wS, wW, wE);
+    // Dark coping rim: a thin square frame from the floor plane down to the well
+    // top, filling the ring between the 2-unit tile edge and the hatch opening
+    // so the floor meets solid stone, never a see-through seam. Its top sits a
+    // hair below y=0 so it is not coplanar with the surrounding floor tiles.
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x14121a, roughness: 1, metalness: 0 });
+    const rimTop = -0.02, rimBot = WELL_TOP, rimH = rimTop - rimBot;
+    const rimY = (rimTop + rimBot) / 2;
+    const rimBand = (outerHalf - half + 0.02);
+    const rimLong = new THREE.BoxGeometry(OUTER, rimH, rimBand);
+    const rimSide = new THREE.BoxGeometry(rimBand, rimH, HATCH);
+    const rimZ = half + rimBand / 2 - 0.01;
+    const rimX = half + rimBand / 2 - 0.01;
+    const rN = new THREE.Mesh(rimLong, rimMat); rN.position.set(0, rimY, -rimZ);
+    const rS = new THREE.Mesh(rimLong, rimMat); rS.position.set(0, rimY, rimZ);
+    const rW = new THREE.Mesh(rimSide, rimMat); rW.position.set(-rimX, rimY, 0);
+    const rE = new THREE.Mesh(rimSide, rimMat); rE.position.set(rimX, rimY, 0);
+    stairsMesh.add(rN, rS, rW, rE);
+
+    // Wooden plank steps descending into the dark. Each step is a little lower
+    // and a little darker than the last, so the lower steps fade toward black
+    // and the bottom of the flight melts into the shadow of the well.
+    const STEP_COUNT = 6;
+    for (let i = 0; i < STEP_COUNT; i++) {
+      // 1 (top) -> 0 (bottom): steps dim from warm wood to near-black.
+      const t = 1 - i / (STEP_COUNT - 1);
+      const shade = 0.12 + 0.88 * t;   // brightness multiplier down the flight
+      const stepMat = new THREE.MeshStandardMaterial({
+        map: woodTex,
+        color: new THREE.Color(0x6b4a2b).multiplyScalar(shade),
+        roughness: 0.9,
+        metalness: 0,
+      });
+      const step = new THREE.Mesh(new THREE.BoxGeometry(HATCH - 0.12, 0.14, 0.3), stepMat);
+      // Top tread starts below the floor plane (never coplanar with it).
+      step.position.set(0, WELL_TOP - 0.12 - i * 0.24, half - 0.22 - i * 0.26);
       stairsMesh.add(step);
     }
 
