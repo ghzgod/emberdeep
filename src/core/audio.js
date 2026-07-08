@@ -234,6 +234,64 @@ export class AudioEngine {
     sh.stop(ct + cdur + 0.02); vib.stop(ct + cdur + 0.02);
   }
 
+  // Continuous whirlwind whoosh: bandpassed brown noise (blade-through-air)
+  // with a gentle amplitude tremolo so it reads as a spinning blade rather than
+  // a flat hiss. Loops until stopWhirl() tears it down. Routed through sfxGain
+  // so the SFX slider/mute applies. Returns a handle to pass to stopWhirl();
+  // also stashed on `this._whirl` so callers that lose the handle can still
+  // stop it via stopWhirl() with no argument.
+  startWhirl(opts = {}) {
+    if (!this.ctx || this.ctx.state !== 'running') return null;
+    this.stopWhirl(); // never let two loops stack
+    const t = this.ctx.currentTime;
+    const vol = Math.max(0, Math.min(1, opts.volume ?? 0.5));
+    const out = this.sfxGain || this.ctx.destination;
+
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._noise();
+    src.loop = true;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 950; bp.Q.value = 0.9;
+
+    const g = this.ctx.createGain();
+    const peak = 0.11 * vol;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.12); // quick fade-in on spin-up
+
+    // amplitude tremolo (blade passing) riding on the same gain node
+    const lfo = this.ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 5.5;
+    const lfoGain = this.ctx.createGain(); lfoGain.gain.value = peak * 0.5;
+    lfo.connect(lfoGain); lfoGain.connect(g.gain);
+
+    src.connect(bp); bp.connect(g); g.connect(out);
+    src.start(t, Math.random() * 1.5);
+    lfo.start(t);
+
+    const handle = { src, g, lfo, peak };
+    this._whirl = handle;
+    return handle;
+  }
+
+  // Stops a whirl loop started by startWhirl(). Accepts the handle returned by
+  // startWhirl(), or no argument to stop whatever is currently looping. Fades
+  // out quickly then tears down the nodes; safe to call repeatedly / when
+  // nothing is playing.
+  stopWhirl(handle) {
+    const h = handle || this._whirl;
+    if (!h) return;
+    if (this._whirl === h) this._whirl = null;
+    try {
+      const t = this.ctx.currentTime;
+      h.g.gain.cancelScheduledValues(t);
+      h.g.gain.setValueAtTime(h.g.gain.value, t);
+      h.g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    } catch { /* context gone */ }
+    setTimeout(() => {
+      try { h.src.stop(); } catch {}
+      try { h.lfo.stop(); } catch {}
+    }, 160);
+  }
+
   play(name, opts = {}) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     // UI blips are synthesized, not sampled — softer and more pleasant.

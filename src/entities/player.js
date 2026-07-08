@@ -199,6 +199,7 @@ export class Player {
       perTick: opts.perTick,
       knockback: opts.knockback || 0,
     };
+    audio.startWhirl();
   }
 
   // The direction the character is actually facing (the heading the mesh is
@@ -251,6 +252,8 @@ export class Player {
     if (this.hp <= 0) {
       this.hp = 0;
       this.dead = true;
+      this.whirl = null; // interrupt a sustained whirlwind if death lands mid-spin
+      audio.stopWhirl();
       if (this.anim) this.anim.playDeath();
       audio.play('player_death');
       game.onPlayerDeath();
@@ -333,6 +336,7 @@ export class Player {
   // through abilityOrder to the actual ability index, so a re-slotted
   // ability keeps its own cooldown instead of inheriting the slot's.
   tryAbility(slot, game) {
+    if (game.inTown) return;
     if (this.dead) return;
     const index = this.abilityOrder[slot];
     const ab = this.classDef.abilities[index];
@@ -394,7 +398,10 @@ export class Player {
         });
       }
       w.t -= dt;
-      if (w.t <= 0) this.whirl = null;
+      if (w.t <= 0) {
+        this.whirl = null;
+        audio.stopWhirl();
+      }
     }
 
     // dash movement overrides normal movement
