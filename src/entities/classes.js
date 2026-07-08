@@ -57,13 +57,20 @@ export const CLASSES = {
         },
       },
       {
-        id: 'whirlwind', name: 'Whirlwind', icon: '🌀', cd: 6, cost: 30,
-        desc: 'Spin in a deadly circle, striking all nearby enemies.',
+        id: 'whirlwind', name: 'Whirlwind', icon: '🌀', cd: 8, cost: 35,
+        desc: 'Spin for 3 seconds, gliding as if on ice and shredding all nearby enemies.',
         exec(game, p) {
           audio.play('whirlwind');
-          game.aoeDamage(p.pos.x, p.pos.z, 3.2, p.damage * 1.8, { knockback: 6, source: 'player' });
+          // A sustained spin instead of a single burst: the whirl state (player.js)
+          // ticks AoE damage around the moving hero, spins the mesh, and puts the
+          // player on low-friction "ice" movement for the duration. Per-tick damage
+          // is the old one-shot value spread across the ticks, so total damage over
+          // the full spin lands near the previous single hit, not a nuke.
+          const duration = 3.0;
+          const tick = 0.2;
+          const perTick = p.damage * 1.8 * (tick / duration) * 3; // ~total 3x the old burst over 3s
+          p.startWhirl({ duration, tick, radius: 3.2, perTick, knockback: 3 });
           game.particles.ring(p.pos.x, 0.6, p.pos.z, 3.2, 0xdadfff);
-          p.spinTimer = 0.45;
         },
       },
     ],
