@@ -998,8 +998,16 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 /* Mobile layout: left thumb moves, abilities live under the right thumb, and
    every utility (potion, bag, pause, mic, camera rotate) tucks into one menu
    opened from the bottom-right toggle, so nothing overlaps the abilities or the
-   status banner any more. */
-@media (pointer: coarse) {
+   status banner any more.
+   Gated on body.touch-mode (set by core/touch.js's isTouchDevice() check, the
+   same check buildHotbar() uses to pick the wheel) rather than the
+   @media (pointer: coarse) query directly. A media query and the JS check can
+   disagree on some tablets/emulators - that mismatch was the root cause of the
+   broken hybrid layout (row of buttons from JS + toggle from CSS both showing
+   at once, toggle overlapping ability #4). Keying both off one class means
+   they can never disagree, and touch.js re-toggles the class on
+   resize/orientationchange so it cannot get stuck either. */
+body.touch-mode {
   #touch-menu-toggle { display: flex; transition: border-color 0.2s ease, color 0.2s ease; }
   #touch-ui.menu-open #touch-menu-toggle { border-color: var(--gold); color: var(--gold); }
   /* the ::before glyph swaps to a close mark when open (defined in the base
@@ -1038,8 +1046,12 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   }
 
   /* PORTRAIT default: the toggle sits flush to the right edge, just ABOVE the
-     ability wheel, and the utilities rise straight up from it in one clean
-     flush-right column when open. */
+     ability wheel, and the utilities rise straight UP from it in one clean
+     flush-right column when open. A vertical rise never moves left into the
+     wheel's horizontal space, so this direction is always safe regardless of
+     width and needs no .menu-side/.menu-up gating - the width-aware direction
+     switch (see chooseMenuDirection in touch.js) only matters for the
+     landscape short-screen layout below, where the drawer fans sideways. */
   #touch-menu-toggle { right: 14px; bottom: 230px; }
   #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { right: 14px; bottom: 230px; }
   #touch-ui.menu-open #touch-potion { bottom: 296px; transition-delay: 0s; }
@@ -1129,18 +1141,6 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   #touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr, #touch-menu-toggle { width: 46px; height: 46px; font-size: 19px; }
   #touch-rotl, #touch-rotr { font-size: 27px; }
   #touch-menu-toggle::before { font-size: 22px; }
-  /* LANDSCAPE: the ability wheel owns the bottom-right, so the toggle goes to the
-     bottom-LEFT corner and the utilities fan out to the RIGHT along the bottom
-     edge - well clear of the wheel. Each one is collapsed on the toggle when
-     closed and slides right (staggered) when open. */
-  #touch-menu-toggle { left: 12px; right: auto; bottom: 12px; }
-  #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { left: 12px; right: auto; bottom: 12px; }
-  #touch-ui.menu-open #touch-potion { left: 66px;  right: auto; bottom: 12px; transition-delay: 0s; }
-  #touch-ui.menu-open #touch-inv    { left: 120px; right: auto; bottom: 12px; transition-delay: 0.03s; }
-  #touch-ui.menu-open #touch-pause  { left: 174px; right: auto; bottom: 12px; transition-delay: 0.06s; }
-  #touch-ui.menu-open #touch-rotl   { left: 228px; right: auto; bottom: 12px; transition-delay: 0.09s; }
-  #touch-ui.menu-open #touch-rotr   { left: 282px; right: auto; bottom: 12px; transition-delay: 0.12s; }
-  #touch-ui.menu-open #touch-mic    { left: 336px; right: auto; bottom: 12px; transition-delay: 0.15s; }
   #chat { bottom: 128px; width: min(44vw, 300px); }
   #chat-recent { max-height: 32vh; }
   #minimap { width: 84px; height: 84px; }
@@ -1163,6 +1163,34 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
      minimap up top while still hugging the bottom-right thumb. */
   #hotbar { right: 0; bottom: 0; }
   .ability-wheel { width: 150px; height: 150px; }
+}
+/* LANDSCAPE touch (short screen + touch-mode only): the ability wheel owns the
+   bottom-right, so the toggle goes to the bottom-LEFT corner and the utilities
+   fan out to the RIGHT along the bottom edge - well clear of the wheel. Each
+   one is collapsed on the toggle when closed and slides right (staggered)
+   when open. touch.js only applies .menu-side here when there's enough width
+   for the full fan to clear the wheel (see the width-aware JS); narrow short
+   screens fall back to .menu-up, stacking straight up from the bottom-left
+   corner instead, which stays clear of the wheel in any width. */
+@media (max-height: 540px) {
+  body.touch-mode {
+    #touch-menu-toggle { left: 12px; right: auto; bottom: 12px; }
+    #touch-potion, #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { left: 12px; right: auto; bottom: 12px; }
+    #touch-ui.menu-open.menu-side #touch-potion { left: 66px;  right: auto; bottom: 12px; transition-delay: 0s; }
+    #touch-ui.menu-open.menu-side #touch-inv    { left: 120px; right: auto; bottom: 12px; transition-delay: 0.03s; }
+    #touch-ui.menu-open.menu-side #touch-pause  { left: 174px; right: auto; bottom: 12px; transition-delay: 0.06s; }
+    #touch-ui.menu-open.menu-side #touch-rotl   { left: 228px; right: auto; bottom: 12px; transition-delay: 0.09s; }
+    #touch-ui.menu-open.menu-side #touch-rotr   { left: 282px; right: auto; bottom: 12px; transition-delay: 0.12s; }
+    #touch-ui.menu-open.menu-side #touch-mic    { left: 336px; right: auto; bottom: 12px; transition-delay: 0.15s; }
+    /* not enough width to fan right without reaching the wheel: stack upward
+       from the bottom-left corner instead. */
+    #touch-ui.menu-open.menu-up #touch-potion { left: 12px; right: auto; bottom: 66px;  transition-delay: 0s; }
+    #touch-ui.menu-open.menu-up #touch-inv    { left: 12px; right: auto; bottom: 120px; transition-delay: 0.03s; }
+    #touch-ui.menu-open.menu-up #touch-pause  { left: 12px; right: auto; bottom: 174px; transition-delay: 0.06s; }
+    #touch-ui.menu-open.menu-up #touch-rotl   { left: 12px; right: auto; bottom: 228px; transition-delay: 0.09s; }
+    #touch-ui.menu-open.menu-up #touch-rotr   { left: 12px; right: auto; bottom: 282px; transition-delay: 0.12s; }
+    #touch-ui.menu-open.menu-up #touch-mic    { left: 12px; right: auto; bottom: 336px; transition-delay: 0.15s; }
+  }
 }
 /* the wheel container is click-through; only its buttons capture touches, so
    attack taps that fall between the arc buttons still reach the game. */
