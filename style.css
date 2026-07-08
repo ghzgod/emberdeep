@@ -754,13 +754,6 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 }
 .settings-rows label:has(.toggle) { cursor: pointer; }
 
-/* "Do not ask again" row inside the confirm modal: label and its toggle
-   grouped tightly together and centered, matching the compact card - not
-   spread to opposite edges like a full-width settings row. */
-.toggle-row {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  font-size: 14px; margin: 0 0 16px;
-}
 /* Neural-voice download progress inside the confirm modal (battery-saver-off flow) */
 #confirm-progress-row { margin: 0 0 16px; }
 #confirm-progress-row .loading-bar-outer { width: 100%; margin: 0 auto 6px; }
