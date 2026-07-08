@@ -21,7 +21,9 @@ const MANIFEST = {
   charge:        ['audio/charge.mp3'],
   whirlwind:     ['audio/whirlwind.mp3'],
   shield_block:  ['audio/shield_block.mp3'],
-  war_cry:       ['audio/war_cry.mp3'],
+  // war_cry is SYNTHESIZED in warCrySound() (a scary gendered battle yell): the
+  // old sampled clip was a weak grunt. No manifest entry so it isn't fetched;
+  // play('war_cry', { gender }) is routed to the synth in play().
   multishot:     ['audio/multishot.mp3'],
   dodge_roll:    ['audio/dodge_roll.mp3'],
   trap_place:    ['audio/trap_place.mp3'],
@@ -234,6 +236,92 @@ export class AudioEngine {
     sh.stop(ct + cdur + 0.02); vib.stop(ct + cdur + 0.02);
   }
 
+  // Scary battle yell for War Cry (synthesized, no asset): a shouted, distorted
+  // vowel with a hard pitch drop, formant filtering so it reads as a human
+  // shout rather than a tone, and layered breath/rasp noise for grit. Gendered:
+  // a man's roar sits an octave-plus lower with heavier distortion and chestier
+  // formants; a woman's yell is higher, sharper, and more piercing/fierce.
+  // Routed through sfxGain with the same distance attenuation as play().
+  warCrySound(gender, opts = {}) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+    let vol = opts.volume ?? 1;
+    if (opts.pos) {
+      const dx = opts.pos.x - this.listener.x;
+      const dz = opts.pos.z - this.listener.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > AUDIBLE_RANGE) return;
+      vol *= Math.max(0, 1 - dist / AUDIBLE_RANGE) ** 1.5;
+    }
+    if (vol <= 0.01) return;
+    const out = this.sfxGain || this.ctx.destination;
+
+    const male = gender !== 'female';
+    // Male: deep roar (~140Hz->75Hz), sawtooth, heavy distortion, chest formants.
+    // Female: fierce shout (~330Hz->220Hz), sawtooth, brighter/sharper formants,
+    // lighter but still gritty distortion.
+    const cfg = male
+      ? { f0: 145, f1: 72, dur: 0.85, drive: 14, formants: [700, 1150, 2600], peak: 0.55, noiseHz: 1200, noiseAmt: 0.35 }
+      : { f0: 340, f1: 220, dur: 0.72, drive: 9, formants: [1000, 1700, 3200], peak: 0.5, noiseHz: 2200, noiseAmt: 0.3 };
+    const dur = cfg.dur;
+
+    // (1) voiced shout core: sawtooth with a sharp pitch fall (roar/yell contour)
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(cfg.f0, t);
+    osc.frequency.exponentialRampToValueAtTime(cfg.f1, t + dur * 0.75);
+
+    // (2) waveshaper distortion for vocal grit/rasp
+    const shaper = this.ctx.createWaveShaper();
+    const n = 4096;
+    const curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.tanh(cfg.drive * x) / Math.tanh(cfg.drive);
+    }
+    shaper.curve = curve;
+    shaper.oversample = '4x';
+
+    // (3) vowel formant bank (three parallel bandpasses = open "AA"-ish shout)
+    const formantGain = this.ctx.createGain();
+    const bands = cfg.formants.map((freq, i) => {
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = freq;
+      bp.Q.value = i === 0 ? 3.5 : 5;
+      const bg = this.ctx.createGain();
+      bg.gain.value = i === 0 ? 1 : 0.55;
+      shaper.connect(bp); bp.connect(bg); bg.connect(formantGain);
+      return bp;
+    });
+
+    const peak = cfg.peak * vol;
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(peak, t + 0.035); // snappy shout attack
+    env.gain.setValueAtTime(peak, t + dur * 0.45);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+    osc.connect(shaper);
+    formantGain.connect(env);
+    env.connect(out);
+    osc.start(t);
+    osc.stop(t + dur + 0.05);
+
+    // (4) breath/rasp noise layer riding under the shout for texture
+    const nbuf = this.ctx.createBuffer(1, Math.ceil((dur + 0.05) * this.ctx.sampleRate), this.ctx.sampleRate);
+    const nd = nbuf.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const nsrc = this.ctx.createBufferSource(); nsrc.buffer = nbuf;
+    const nbp = this.ctx.createBiquadFilter(); nbp.type = 'bandpass'; nbp.frequency.value = cfg.noiseHz; nbp.Q.value = 0.7;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(peak * cfg.noiseAmt, t + 0.03);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.9);
+    nsrc.connect(nbp); nbp.connect(ng); ng.connect(out);
+    nsrc.start(t); nsrc.stop(t + dur + 0.05);
+  }
+
   // Continuous whirlwind whoosh: bandpassed brown noise (blade-through-air)
   // with a gentle amplitude tremolo so it reads as a spinning blade rather than
   // a flat hiss. Loops until stopWhirl() tears it down. Routed through sfxGain
@@ -298,6 +386,8 @@ export class AudioEngine {
     if (UI_SYNTH[name]) { this._playUI(name); return; }
     // Blink is synthesized (shimmer/whoosh teleport) rather than sampled.
     if (name === 'blink') { this.blinkSound(opts); return; }
+    // War Cry is synthesized (scary gendered battle yell) rather than sampled.
+    if (name === 'war_cry') { this.warCrySound(opts.gender, opts); return; }
     const variants = MANIFEST[name];
     if (!variants) return;
 
