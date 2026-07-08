@@ -23,7 +23,27 @@ export const CLASSES = {
     color: 0xb9c4d8, uiColor: '#b9c4d8',
     stats: { maxHp: 135, damage: 15, speed: 6.3, armor: 0.15, crit: 0.08 },
     resource: { name: 'Stamina', max: 100, regen: 12 },
-    basic: { kind: 'melee', range: 2.3, arc: Math.PI * 0.65, cooldown: 0.45, basicCost: 9, sound: 'sword_swing', hitSound: 'sword_hit' },
+    // range/arc below are the fallback/base values (used if variations is absent);
+    // the knight always has variations, so meleeAttack actually reads per-swing
+    // range/arc/dmgMult off basic.variations[comboIndex] instead. Base range was
+    // 2.3; every variation's range sits at 2.8-3.3 (roughly 1.2x-1.4x that) for
+    // noticeably better reach on every swing.
+    basic: {
+      kind: 'melee', range: 2.3, arc: Math.PI * 0.65, cooldown: 0.45, basicCost: 9,
+      sound: 'sword_swing', hitSound: 'sword_hit',
+      // Combo cycle: 4 swings, each with a different clip + slightly different
+      // hit shape. dmgMult keeps per-hit damage close to 1x on average (three
+      // quick 0.95x cuts + one heavier 1.15x lunge every 4th swing) so widening
+      // reach/arc doesn't inflate sustained DPS. idleResetMs matches the ~1.2s
+      // read used by tryBasicAttack to drop the combo back to swing 1 after a pause.
+      idleResetMs: 1200,
+      variations: [
+        { clip: 'slice_horizontal', range: 2.9, arc: Math.PI * 0.7, dmgMult: 0.95 }, // left-to-right
+        { clip: 'slice_diagonal',   range: 2.9, arc: Math.PI * 0.7, dmgMult: 0.95 }, // right-to-left
+        { clip: 'chop',             range: 2.8, arc: Math.PI * 0.55, dmgMult: 1.0 }, // overhead
+        { clip: 'stab',             range: 3.3, arc: Math.PI * 0.35, dmgMult: 1.15 }, // heavier lunge, narrow but long
+      ],
+    },
     // AoE (whirlwind) sits LAST, since slot 4 is the "ultimate" slot every class
     // reserves for its area ability, and the cdr4 gear stat only reduces
     // whatever ability currently occupies slot 4.
