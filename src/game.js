@@ -52,7 +52,9 @@ export class Game {
 
     // Zoom: mouse wheel (desktop) and two-finger pinch (touch) scale the camera
     // offset. Gated to gameplay so menus keep native scrolling.
-    const clampZoom = (z) => Math.min(1.5, Math.max(0.55, z));
+    // Lower bound is small enough to push the camera right up to the hero's
+    // face (full zoom-in) in any mode; upper bound keeps a sane pulled-back view.
+    const clampZoom = (z) => Math.min(1.5, Math.max(0.12, z));
     window.addEventListener('wheel', (e) => {
       if (this.state !== 'playing') return;
       this.camZoom = clampZoom(this.camZoom * (1 + e.deltaY * 0.0011));
@@ -111,7 +113,7 @@ export class Game {
     // ensure keybinds exist on older saves
     this.settings.keybinds = Object.assign({ interact: 'KeyF', potion: 'KeyR', talk: 'KeyV', inventory: 'Tab', quests: 'KeyJ', mastery: 'KeyK' }, this.settings.keybinds || {});
     // restore the last camera zoom (clamped in case of a hand-edited value)
-    this.camZoom = Math.min(1.5, Math.max(0.55, this.settings.camZoom || 1));
+    this.camZoom = Math.min(1.5, Math.max(0.12, this.settings.camZoom || 1));
     // one-time migration: settings saved before push-to-talk became the
     // default carried voiceMode:'off' that the user never chose
     if (!this.settings._v2) {
