@@ -1,12 +1,20 @@
+// Single source of truth for "is this a touch device" so the JS ability-bar
+// choice (buildHotbar) and the CSS layout (body.touch-mode) can never
+// disagree. Anyone needing the touch/non-touch decision should call this
+// instead of re-checking matchMedia/ontouchstart themselves.
+export function isTouchDevice() {
+  return matchMedia('(pointer: coarse)').matches
+    || 'ontouchstart' in window
+    || location.search.includes('touch');
+}
+
 // Touch controls: virtual joystick (left half) + hold-to-attack aim (right half),
 // tappable hotbar / potion / pause. Active on coarse-pointer devices, or force
 // with ?touch in the URL for testing.
 export class TouchControls {
   constructor(game) {
     this.game = game;
-    this.enabled = matchMedia('(pointer: coarse)').matches
-      || 'ontouchstart' in window
-      || location.search.includes('touch');
+    this.enabled = isTouchDevice();
     this.move = { x: 0, z: 0 };
     this.joyActive = false;
     this.attacking = false;
@@ -15,8 +23,20 @@ export class TouchControls {
     this._joyId = null;
     this._aimId = null;
 
+    // body.touch-mode is the flag both CSS and JS key off; re-evaluated below
+    // on resize/orientationchange so a mid-session pointer/viewport change
+    // (tablet rotation, devtools device toggle) never leaves the wheel and
+    // the row-plus-toggle hybrid both on screen at once.
+    document.body.classList.toggle('touch-mode', this.enabled);
+
+    // Re-check on resize/orientationchange: if the touch/non-touch verdict
+    // flips, flip the body class and rebuild the hotbar so the ability
+    // layout (row vs wheel) and the menu toggle's visibility (CSS reads
+    // body.touch-mode) always agree with each other.
+    window.addEventListener('resize', () => this._reevaluate());
+    window.addEventListener('orientationchange', () => this._reevaluate());
+
     if (!this.enabled) return;
-    document.body.classList.add('touch-mode');
 
     const canvas = game.canvas;
     canvas.style.touchAction = 'none';
@@ -43,8 +63,17 @@ export class TouchControls {
     bind('touch-pause', () => { game.togglePause(true); closeMenu(); });
 
     // the utility menu toggle collapses potion/bag/pause/mic/rotate out of the
-    // way so they never overlap the abilities or the status banner
-    bind('touch-menu-toggle', () => document.getElementById('touch-ui')?.classList.toggle('menu-open'));
+    // way so they never overlap the abilities or the status banner. Opening
+    // direction is width-aware (see chooseMenuDirection): fan sideways along
+    // the bottom when there's room to clear the ability bar/wheel, otherwise
+    // stack straight up so it can never overlap it.
+    bind('touch-menu-toggle', () => {
+      const ui = document.getElementById('touch-ui');
+      if (!ui) return;
+      const opening = !ui.classList.contains('menu-open');
+      if (opening) this.chooseMenuDirection(ui);
+      ui.classList.toggle('menu-open', opening);
+    });
 
     // one-time controls hint, first mobile play only
     const hint = document.getElementById('touch-hint');
@@ -133,6 +162,59 @@ export class TouchControls {
       this._aimId = null;
       this.attacking = false;
     }
+  }
+
+  // Re-run the touch/non-touch check and, if the verdict changed since
+  // construction (or since the last check), flip body.touch-mode and rebuild
+  // the ability bar so it swaps between the row and the wheel to match. This
+  // is what stops a tablet from getting stuck in the row-plus-kebab hybrid
+  // after an orientation change or viewport resize.
+  _reevaluate() {
+    const nowEnabled = isTouchDevice();
+    if (nowEnabled === this.enabled) return;
+    this.enabled = nowEnabled;
+    document.body.classList.toggle('touch-mode', this.enabled);
+    if (this.game.player) this.game.ui.buildHotbar(this.game.player);
+  }
+
+  // Decide whether the utility drawer fans out SIDEWAYS along the bottom
+  // (.menu-side) or stacks straight UP from the toggle (.menu-up).
+  //
+  // The portrait layout (style.css, the plain body.touch-mode block) always
+  // rises in a flush-right vertical column above the toggle - that motion
+  // never reaches into the wheel's horizontal space, so it is safe at any
+  // width and ignores these classes entirely.
+  //
+  // The landscape/short-screen layout puts the toggle in the bottom-LEFT
+  // corner and fans the drawer to the right along the bottom edge, straight
+  // toward the ability wheel that owns the bottom-right corner. THAT is the
+  // direction that can overlap the wheel on a narrow width, so this is where
+  // .menu-side vs .menu-up actually matters: fan sideways only if the row of
+  // buttons has room to fully clear the wheel, otherwise stack upward from
+  // the corner instead (which stays clear at any width).
+  chooseMenuDirection(ui) {
+    const toggle = document.getElementById('touch-menu-toggle');
+    const hotbar = document.getElementById('hotbar');
+    if (!toggle || !hotbar) { ui.classList.add('menu-side'); ui.classList.remove('menu-up'); return; }
+    const tRect = toggle.getBoundingClientRect();
+    const hRect = hotbar.getBoundingClientRect();
+    // Portrait: toggle sits on the right, same side as the wheel, and the
+    // drawer only ever moves vertically - always safe, always sideways-class
+    // (no-op for that layout, but keeps the class state consistent).
+    const toggleOnRight = tRect.left > window.innerWidth / 2;
+    if (toggleOnRight) {
+      ui.classList.add('menu-side'); ui.classList.remove('menu-up');
+      return;
+    }
+    // Landscape short-screen: toggle bottom-left, drawer fans right toward
+    // the wheel. Measure whether 5 more button-widths (+ gaps) actually fit
+    // in the gap between the toggle and the wheel's left edge.
+    const btnSpan = tRect.width + 10;
+    const fanReach = btnSpan * 5;
+    const clearance = hRect.left - tRect.right;
+    const fitsSideways = hRect.width === 0 || clearance >= fanReach;
+    ui.classList.toggle('menu-side', fitsSideways);
+    ui.classList.toggle('menu-up', !fitsSideways);
   }
 
   setVisible(v) {

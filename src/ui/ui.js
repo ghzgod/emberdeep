@@ -7,6 +7,7 @@ import { SaveManager } from '../core/save.js';
 import { Floaters } from './floaters.js';
 import { Minimap } from './minimap.js';
 import { audio } from '../core/audio.js';
+import { isTouchDevice } from '../core/touch.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1220,7 +1221,11 @@ export class UI {
     const order = player.abilityOrder || [0, 1, 2, 3];
     // On touch devices the abilities render as a quarter-pie radial wheel in the
     // bottom-right corner (built + updated separately); desktop keeps the row.
-    if (matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window) {
+    // Uses the same isTouchDevice() check that drives body.touch-mode (see
+    // core/touch.js) so the JS layout choice and the CSS never disagree.
+    const touch = isTouchDevice();
+    document.body.classList.toggle('touch-mode', touch);
+    if (touch) {
       this.buildRadialHotbar(player, order);
       return;
     }
