@@ -293,7 +293,7 @@ export class Game {
     // player can opt into full AI (smarter bosses, neural voices) right away.
     if (this.firstBatteryChoice) {
       this.firstBatteryChoice = false;
-      this.ui.promptBatterySaverChoice();
+      this.ui.promptBatterySaverChoice(true);
     }
   }
 
