@@ -1,6 +1,29 @@
 import * as THREE from 'three';
 import { audio } from '../core/audio.js';
 import { learner } from '../ai/learner.js';
+import { attachEnemyModel, bossModelKey, typeModelKey } from './enemyModel.js';
+
+// Distance-tiered animation throttle (mirrors world-of-claudecraft's approach):
+// enemies close to the camera update their mixer every frame, mid-range ones
+// every 2nd frame, far ones every 6th (or freeze on a static pose once the
+// live cap below is exceeded). Keeps a packed floor's total animated-mixer
+// cost bounded regardless of how many modeled mobs are on screen.
+const ANIM_NEAR_DIST = 14;
+const ANIM_MID_DIST = 26;
+const MAX_ANIMATED = 18; // concurrently mixer-updated modeled enemies per frame
+
+// Approximate hero mesh half-width (KayKit adventurer rigs), used only for the
+// visual stand-off nudge below so a melee mob's real footprint doesn't
+// overlap the player mesh at point-blank range. Not a gameplay hitbox.
+const PLAYER_BODY_RADIUS = 0.32;
+
+// Per-frame mixer-update budget, shared across every Enemy instance. Reset
+// once at the top of each frame's enemy loop (see resetEnemyAnimBudget,
+// called from game.js right before it iterates this.enemies) so near-camera
+// mobs always get priority and only the overflow beyond MAX_ANIMATED freezes
+// on its last pose for that frame instead of mixer.update()-ing.
+let _animBudget = MAX_ANIMATED;
+export function resetEnemyAnimBudget() { _animBudget = MAX_ANIMATED; }
 
 // Enemy archetypes. Stats scale with dungeon floor.
 export const ENEMY_TYPES = {
@@ -145,29 +168,71 @@ export class Enemy {
     if (typeId === 'ghost') this._moanCd = 25 + Math.random() * 35;
 
     this.mesh = buildEnemyMesh(typeId, this.miniboss ? 1.5 : this.elite ? 1.3 : 1);
-    if (this.elite) {
-      // The floor's one guaranteed elite is GILDED so it's unmistakable — every
-      // material tinted toward gold with a warm glow, plus a golden crown.
-      const gold = new THREE.Color(0xffd24a);
-      this.mesh.traverse((o) => {
-        if (o.isMesh && o.material && o.material.color) {
-          o.material = o.material.clone();
-          o.material.color.lerp(gold, 0.55);
-          if ('emissive' in o.material) {
-            o.material.emissive = new THREE.Color(0xffa51e);
-            o.material.emissiveIntensity = 0.35;
-          }
-        }
+    // Swap the box placeholder for the modeled creature once its (lazily
+    // fetched, cached-per-type) GLB resolves. attachEnemyModel mutates
+    // this.mesh's children in place, so the group reference above never
+    // changes and every existing call site (scene.add, e.mesh.position, ...)
+    // keeps working unmodified.
+    // Boss (see the subclass below) rebuilds this.mesh itself right after
+    // calling super(), so skip the base 'golem' model fetch/attach here: it
+    // would just be immediately discarded work, and Boss attaches its own
+    // act-specific model instead.
+    const modelKey = opts.skipModel ? null : typeModelKey(typeId);
+    if (modelKey) {
+      // Kick off (or join) the fetch for this type's GLB; swaps into this.mesh
+      // in place once resolved. Re-applies elite gilding afterward since the
+      // gilding below runs immediately against the (soon-to-be-replaced) box
+      // placeholder and attachEnemyModel discards those cloned materials.
+      attachEnemyModel(this.mesh, modelKey).then((anim) => {
+        if (!anim) return;
+        this._modelReady = true;
+        if (this.elite) this._applyEliteGilding();
       });
-      const crown = this.mesh.children.find((c) => c.geometry?.type === 'TorusGeometry');
-      if (crown) crown.material = new THREE.MeshBasicMaterial({ color: 0xffe680 });
     }
+    if (this.elite) this._applyEliteGilding();
+  }
+
+  // The floor's one guaranteed elite is GILDED so it's unmistakable: every
+  // material tinted toward gold with a warm glow, plus a golden crown. Called
+  // once immediately (box placeholder) and again after the modeled GLB swaps
+  // in (see the constructor above), since the swap clones fresh materials.
+  _applyEliteGilding() {
+    const gold = new THREE.Color(0xffd24a);
+    this.mesh.traverse((o) => {
+      if (o.isMesh && o.material && o.material.color) {
+        o.material = o.material.clone();
+        o.material.color.lerp(gold, 0.55);
+        if ('emissive' in o.material) {
+          o.material.emissive = new THREE.Color(0xffa51e);
+          o.material.emissiveIntensity = 0.35;
+        }
+      }
+    });
+    const crown = this.mesh.children.find((c) => c.name === 'MinibossCrown' || c.geometry?.type === 'TorusGeometry');
+    if (crown) crown.material = new THREE.MeshBasicMaterial({ color: 0xffe680 });
   }
 
   get moveSpeed() {
     let s = this.speed;
     for (const st of this.statuses) if (st.slow) s *= st.slow.mult;
     return s;
+  }
+
+  // Visual footprint radius for anti-clipping (separation from other enemies
+  // and stand-off from the player), as opposed to this.radius which is the
+  // smaller GAMEPLAY hit-circle (untouched, still drives damageEnemy/attack
+  // range/collision-with-walls exactly as before). Once a modeled GLB has
+  // swapped in, its real measured footprint (enemyModel.js) scaled by the
+  // same miniboss/elite multiplier the mesh group itself uses is at least as
+  // large as the old box radius for every current type, so two modeled
+  // creatures (or a creature and the hero) never visibly interpenetrate even
+  // though their much smaller hit-circles would allow it. Falls back to
+  // this.radius while the model is still loading (box placeholder).
+  get visualRadius() {
+    const fp = this.mesh.userData?.footprintRadius;
+    if (!fp) return this.radius;
+    const meshScale = this.miniboss ? 1.5 : this.elite ? 1.3 : 1;
+    return Math.max(this.radius, fp * meshScale);
   }
 
   addStatus(status, game) {
@@ -189,7 +254,16 @@ export class Enemy {
   // Drive limbs from ACTUAL movement, not just the chase state: legs only
   // stride when the body is really translating (no more walking in place),
   // amplitude and frequency scale with speed, eased in and out smoothly.
-  _animateGait(dt, speed01 = 0) {
+  // Also drives the modeled-creature AnimationMixer (walk/idle crossfade) when
+  // a GLB has swapped in for this enemy; box-gait stays as the fallback path
+  // for any type that has no model mapping or whose model hasn't loaded yet.
+  _animateGait(dt, speed01 = 0, animDt = dt) {
+    const anim = this.mesh.userData?.anim;
+    if (anim) {
+      anim.setLocomotion(speed01);
+      if (animDt > 0) anim.update(animDt);
+      return;
+    }
     const gait = this.mesh.userData?.gait;
     if (!gait || !gait.length) return;
     if (this._gt === undefined) this._gt = Math.random() * 6;
@@ -218,7 +292,40 @@ export class Enemy {
     const moved = Math.hypot(this.pos.x - pxz.x, this.pos.z - pxz.z);
     pxz.x = this.pos.x; pxz.z = this.pos.z;
     const topSpeed = (this.def?.speed || 2.2) * dt;
-    this._animateGait(dt, topSpeed > 0 ? Math.min(1, moved / topSpeed) : 0);
+    // Distance-tiered mixer throttle for modeled (GLB) enemies only: near the
+    // camera every frame, mid-range every 2nd, far every 6th. Box-gait mobs
+    // are cheap procedural rotations and stay full-rate regardless (see the
+    // animDt=0 skip inside _animateGait, which no-ops the mixer.update call
+    // but still advances the walk/idle crossfade state so it doesn't pop).
+    let animDt = dt;
+    const anim = this.mesh.userData?.anim;
+    if (anim) {
+      const dCam = Math.hypot(this.pos.x - player.pos.x, this.pos.z - player.pos.z);
+      const near = dCam < ANIM_NEAR_DIST;
+      const tier = near ? 1 : dCam < ANIM_MID_DIST ? 2 : 6;
+      this._animTick = ((this._animTick ?? 0) + 1) % tier;
+      const dueThisFrame = this._animTick === 0;
+      // Near-camera mobs always get priority; only mid/far tiers spend from
+      // the shared per-frame cap, so a packed room never exceeds MAX_ANIMATED
+      // live mixer updates regardless of how many modeled mobs are on screen.
+      if (dueThisFrame && (near || _animBudget > 0)) {
+        if (!near) _animBudget--;
+        animDt = dt * tier;
+      } else {
+        animDt = 0;
+      }
+      // Eyes-on-you: only for near, alive, non-idle (aggroed) enemies (cheap,
+      // and skipped entirely for anything far enough that a head turn would
+      // never read anyway; matches the same near-tier gate as the mixer
+      // throttle above, so it costs nothing extra on a packed floor). Uses
+      // the local player directly (co-op remote targets are handled the same
+      // way visually: every client's own camera-near enemies look at ITS
+      // local hero, which is the only hero that client renders up close).
+      if (near && this.state !== 'idle' && !player.dead) {
+        anim.lookAtTarget?.(player.pos.x, player.pos.y + 1.0, player.pos.z);
+      }
+    }
+    this._animateGait(dt, topSpeed > 0 ? Math.min(1, moved / topSpeed) : 0, animDt);
     // Wraiths leave a wispy stream behind them as they drift (self-fading, so
     // it's RAM-bounded via the particle system's own lifetimes).
     if (this.typeId === 'ghost' && this.state === 'chase') {
@@ -292,6 +399,7 @@ export class Enemy {
           this.state = 'windup';
           this.stateTimer = atk.windup;
           if (atk.kind === 'slam') audio.play(this.def.sounds.special, { pos: this.pos, volume: 0.6 });
+          this.mesh.userData?.anim?.playAttack();
           break;
         }
         // ---- tactical approach: flank to the target's side/rear, dodge their
@@ -382,17 +490,44 @@ export class Enemy {
       }
     }
 
-    // separation from other enemies (cheap)
+    // Separation from other enemies (cheap). Uses visualRadius (the modeled
+    // mesh's real measured footprint once it has loaded, else the gameplay
+    // hit-circle) rather than the raw gameplay radius, so two real creature
+    // meshes keep a visible gap instead of clipping through each other the
+    // way their smaller hit-circles alone would allow.
+    const myVisR = this.visualRadius;
     for (const other of game.enemies) {
       if (other === this || other.dead) continue;
       const dx = this.pos.x - other.pos.x;
       const dz = this.pos.z - other.pos.z;
       const d = Math.hypot(dx, dz);
-      const minD = this.radius + other.radius;
+      const minD = myVisR + (other.visualRadius ?? other.radius);
       if (d > 0.001 && d < minD) {
         const push = (minD - d) * 0.5;
         const nx = this.pos.x + (dx / d) * push;
         const nz = this.pos.z + (dz / d) * push;
+        if (game.isWalkable(nx, nz, this.radius)) { this.pos.x = nx; this.pos.z = nz; }
+      }
+    }
+
+    // Stand-off from the hero: a modeled creature's real footprint can be
+    // wider than its gameplay hit-circle, so a mob sitting right at its
+    // attack range (a gameplay distance, left untouched above) could still
+    // visually overlap the player mesh. Nudge back to the mesh-safe distance
+    // ONLY when actually closer than that: never interferes with the
+    // approach/flank/attack-range logic above, which already stopped the mob
+    // at atk.range; this only catches the cases where flanking math, knockback
+    // drift, or a pack squeeze puts it nearer than its own visible silhouette
+    // allows. Skipped for ranged attackers (they already keep well back) and
+    // while mid-windup/attack (the telegraphed lunge should visually connect).
+    if (!target.dead && atk.kind !== 'ranged' && this.state !== 'windup') {
+      const standOff = this.visualRadius + PLAYER_BODY_RADIUS;
+      if (distToPlayer > 0.001 && distToPlayer < standOff) {
+        const push = standOff - distToPlayer;
+        const bx = (this.pos.x - tPos.x) / distToPlayer;
+        const bz = (this.pos.z - tPos.z) / distToPlayer;
+        const nx = this.pos.x + bx * push;
+        const nz = this.pos.z + bz * push;
         if (game.isWalkable(nx, nz, this.radius)) { this.pos.x = nx; this.pos.z = nz; }
       }
     }
@@ -461,7 +596,7 @@ export const ACT_BOSSES = [
 
 export class Boss extends Enemy {
   constructor(floor) {
-    super('golem', floor, {});
+    super('golem', floor, { skipModel: true });
     const act = Math.min(5, Math.max(1, Math.ceil(floor / 10)));
     const def = ACT_BOSSES[act];
     this.act = act;
@@ -480,6 +615,13 @@ export class Boss extends Enemy {
     this.barrageCd = 4;
 
     this.mesh = buildBossMesh(def.glow);
+    // Each act lord gets a distinct, imposing modeled creature (see
+    // bossModelKey/enemyModel.js) instead of the shared box boss rig: a big
+    // armored skeleton, a spider queen, a fire demon, a stone colossus, and
+    // finally a dragon for the Dungeon Lord. Swaps into this.mesh in place,
+    // same lazy-load-then-attach pattern as every other enemy type.
+    attachEnemyModel(this.mesh, bossModelKey(act), { tint: def.glow, tintStrength: 0.12 })
+      .then((anim) => { if (anim) this._modelReady = true; });
   }
 
   update(dt, game) {
@@ -502,7 +644,12 @@ export class Boss extends Enemy {
         this.barrageCd -= dt;
         if (this.barrageCd <= 0) {
           this.barrageCd = this.phase === 3 ? 3.2 : 5;
-          this.fireBarrage(game);
+          // The Dungeon Lord (act 5) alternates its ranged barrage with a
+          // fire-breath stream instead of always firing the same barrage:
+          // attack variety at the AI-decision level, on top of the modeled
+          // creature's own attack-clip variety (see enemyModel.js).
+          if (this.act === 5 && Math.random() < 0.5) this.fireBreath(game);
+          else this.fireBarrage(game);
         }
       }
     }
@@ -530,6 +677,39 @@ export class Boss extends Enemy {
         friendly: false, color: glow, size: 0.24, trail: glow,
       });
     }
+  }
+
+  // The Dungeon Lord's fire breath: a cone of flame particles aimed at its
+  // current target, with damage applied along the same line (a forward-offset
+  // hit circle straddling the stream, matching how the existing golem
+  // slam/AoE attacks already resolve damage, see game.aoeHitPlayers). Plays
+  // one of the dragon rig's own attack clips (Headbutt/Punch, its only two
+  // baked one-shots: dragonevolved.glb ships no dedicated cast/breath clip)
+  // as the physical cue so the lunge reads as the source of the flame.
+  fireBreath(game) {
+    const target = game.getNearestTarget(this.pos);
+    if (target.dead) return;
+    audio.play('golem_slam', { pos: this.pos, rate: 1.4, volume: 0.8 });
+    let dx = target.pos.x - this.pos.x, dz = target.pos.z - this.pos.z;
+    const len = Math.hypot(dx, dz) || 1;
+    dx /= len; dz /= len;
+    this.mesh.userData?.anim?.playAttack();
+    game.shake(0.25);
+    const range = 7.5;
+    const steps = 5; // stagger a few bursts along the stream so it animates as a jet, not one static puff
+    for (let i = 0; i < steps; i++) {
+      const t = i / (steps - 1);
+      game.particles.breath(
+        this.pos.x + dx * 0.6, 1.1, this.pos.z + dz * 0.6,
+        dx, dz, { range: range * (0.5 + t * 0.5), spread: 0.28 + t * 0.1, count: 16 }
+      );
+    }
+    // Damage: a hit circle straddling the stream partway to its max range,
+    // anyone standing in the flame's path (not just at its exact tip) takes
+    // it, mirroring the golem slam's simple radius-at-a-point resolution.
+    const hitX = this.pos.x + dx * range * 0.5;
+    const hitZ = this.pos.z + dz * range * 0.5;
+    game.aoeHitPlayers(hitX, hitZ, range * 0.5 + 0.8, this.damage * 0.75);
   }
 }
 
@@ -836,11 +1016,15 @@ export function buildEnemyMesh(typeId, scale = 1) {
   g.userData.gait = gait;
   g.scale.setScalar(scale);
   if (scale !== 1) {
-    // miniboss glow crown
+    // miniboss glow crown, named + kept out of userData.gait so attachEnemyModel
+    // (enemyModel.js) can find it, leave it parented through the box->model swap,
+    // and reposition it above the modeled creature's real height instead of the
+    // box mesh's assumed one.
     const crown = new THREE.Mesh(
       new THREE.TorusGeometry(0.22, 0.04, 6, 12),
       new THREE.MeshBasicMaterial({ color: 0xffd75e })
     );
+    crown.name = 'MinibossCrown';
     crown.rotation.x = Math.PI / 2;
     crown.position.y = (typeId === 'spider' ? 0.6 : 1.6);
     g.add(crown);

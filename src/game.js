@@ -6,7 +6,8 @@ import { generateDungeon, generateTown, FLOOR, WALL, DOOR, BRIDGE } from './worl
 import { buildDungeonMeshes, TILE, tileToWorld } from './world/meshbuilder.js';
 import { themeForFloor, actOfFloor, actFloorOf, makeGlowTexture } from './world/textures.js';
 import { Player, xpForLevel } from './entities/player.js';
-import { Enemy, Boss, ENEMY_TYPES, ACT_BOSSES, buildEnemyMesh, buildBossMesh } from './entities/enemies.js';
+import { Enemy, Boss, ENEMY_TYPES, ACT_BOSSES, buildEnemyMesh, buildBossMesh, resetEnemyAnimBudget } from './entities/enemies.js';
+import { attachEnemyModel, typeModelKey, bossModelKey } from './entities/enemyModel.js';
 import { buildAnimatedHero } from './entities/heroModel.js';
 import { CLASSES, buildHeroMesh } from './entities/classes.js';
 import { ProjectileSystem } from './entities/projectiles.js';
@@ -513,7 +514,7 @@ export class Game {
       });
       this.dungeonMeshes = null;
     }
-    for (const e of this.enemies) this.scene.remove(e.mesh);
+    for (const e of this.enemies) { e.mesh.userData.detached = true; this.scene.remove(e.mesh); }
     this.enemies = [];
     if (this.deathMarkers) { for (const d of this.deathMarkers) this.scene.remove(d.mesh); this.deathMarkers = []; }
     if (this.wallMarks) { for (const d of this.wallMarks) this.disposeMarkEntry(d); this.wallMarks = []; }
@@ -1442,6 +1443,10 @@ export class Game {
     const mesh = spec.boss ? buildBossMesh() : buildEnemyMesh(spec.ty, spec.mb ? 1.5 : spec.el ? 1.25 : 1);
     mesh.position.set(spec.x, 0, spec.z);
     this.scene.add(mesh);
+    // Same lazy GLB swap as the host-side Enemy class (see enemies.js's
+    // constructor): guests see the same modeled creatures, not boxes.
+    const modelKey = spec.boss ? bossModelKey(actOfFloor(this.floor)) : typeModelKey(spec.ty);
+    if (modelKey) attachEnemyModel(mesh, modelKey);
     this.enemies.push({
       netId: spec.id, typeId: spec.ty,
       def: ENEMY_TYPES[spec.ty] || ENEMY_TYPES.golem,
@@ -1464,20 +1469,27 @@ export class Game {
       if (!this.player.dead) {
         m.mesh.rotation.y = Math.atan2(this.player.pos.x - m.pos.x, this.player.pos.z - m.pos.z);
       }
-      // Animate mirrored mobs' limbs on the guest too. Mirror enemies are plain
-      // object literals (not Enemy instances), so Enemy._animateGait isn't on them;
-      // inline the same oscillation, reading the gait registered on the mesh and
-      // keeping a per-mirror time accumulator. Mirrors are always pursuing.
-      const gait = m.mesh.userData?.gait;
-      if (gait && gait.length) {
-        if (m._gt === undefined) m._gt = m.pos.x + m.pos.z; // deterministic-ish phase offset
-        m._gt += dt * 9; // chasing cadence
-        const t = m._gt;
-        for (const p of gait) {
-          if (p.kind === 'leg') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp;
-          else if (p.kind === 'arm') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp * 0.85;
-          else if (p.kind === 'wing') p.mesh.rotation.z = p.bz + Math.sin(t * 1.9 + p.phase) * p.amp;
-          else if (p.kind === 'tail') p.mesh.rotation.x = p.bx + Math.sin(t * 1.2 + p.phase) * p.amp;
+      // Animate mirrored mobs on the guest too. Mirror enemies are plain object
+      // literals (not Enemy instances), so Enemy._animateGait isn't on them.
+      // Modeled (GLB) mobs drive their AnimationMixer directly (mirrors are
+      // always "moving" from the guest's POV, so just run the walk clip);
+      // box-fallback mobs get the same inline limb oscillation as before.
+      const anim = m.mesh.userData?.anim;
+      if (anim) {
+        anim.setLocomotion(1);
+        anim.update(dt);
+      } else {
+        const gait = m.mesh.userData?.gait;
+        if (gait && gait.length) {
+          if (m._gt === undefined) m._gt = m.pos.x + m.pos.z; // deterministic-ish phase offset
+          m._gt += dt * 9; // chasing cadence
+          const t = m._gt;
+          for (const p of gait) {
+            if (p.kind === 'leg') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp;
+            else if (p.kind === 'arm') p.mesh.rotation.x = p.bx + Math.sin(t + p.phase) * p.amp * 0.85;
+            else if (p.kind === 'wing') p.mesh.rotation.z = p.bz + Math.sin(t * 1.9 + p.phase) * p.amp;
+            else if (p.kind === 'tail') p.mesh.rotation.x = p.bx + Math.sin(t * 1.2 + p.phase) * p.amp;
+          }
         }
       }
       m.hitFlash = Math.max(0, m.hitFlash - dt);
@@ -2006,6 +2018,7 @@ export class Game {
     }
     audio.play(e.def.sounds.death, { pos: e.pos, volume: 0.85 });
     this.particles.burst(e.pos.x, 0.8, e.pos.z, 22, e.def.color, { speed: 4, life: 0.7 });
+    e.mesh.userData.detached = true; // no-ops any still-in-flight GLB swap (enemyModel.js)
     this.scene.remove(e.mesh);
 
     this.player.gainXp(e.xp, this);
@@ -2582,6 +2595,7 @@ export class Game {
       this._lastSeenLevel = p.level;
       if (this._levelStamps.length >= 10 && now > (this.cheatLockUntil || 0)) this.applyCheatLockout('impossible leveling');
     }
+    resetEnemyAnimBudget(); // per-frame modeled-enemy mixer.update() cap (see enemies.js)
     if (net.active && !net.isHost) {
       this.updateGuestMirrors(dt);   // host runs the real enemy AI
     } else {
