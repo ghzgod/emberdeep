@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, WALL } from './dungeon.js';
 import { TILE, tileToWorld } from './meshbuilder.js';
-import { makeWoodTexture, makePaintingTexture } from './textures.js';
+import { makeWoodTexture, makePaintingTexture, makePlankTexture, makeHearthStoneTexture, makeTavernSignTexture } from './textures.js';
 
 // "The Sleeping Golem" — the tavern interior. Warm, safe, and populated.
 // 12 x 9 tiles. Furniture occupies solid (WALL) tiles so you can't walk
@@ -35,29 +35,58 @@ export function generateTavernInterior() {
 export function buildTavernInterior() {
   const group = new THREE.Group();
   const woodTex = makeWoodTexture();
+  const floorTex = makePlankTexture('#6a4a2c');
+  floorTex.repeat.set(6, 4);
+  const boardTex = makePlankTexture('#7a5636'); // lighter boards for bar + wainscot
+  boardTex.repeat.set(3, 1);
+  const stoneTex = makeHearthStoneTexture();
   const plankMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.9 });
+  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.92 });
+  const boardMat = new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.85 });
+  const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 1 });
   const plasterMat = new THREE.MeshStandardMaterial({ color: 0xb8a488, roughness: 0.95 });
   const darkWood = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.9 });
+  const ironMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.6, roughness: 0.55 });
   const skinMat = new THREE.MeshStandardMaterial({ color: 0xd8ab88, roughness: 0.85 });
   const smokePuffs = [];
 
-  // floor planks
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(W * TILE, 0.2, H * TILE), plankMat);
+  // floor planks (real plank texture: fitted boards, not the vertical staves)
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(W * TILE, 0.2, H * TILE), floorMat);
   floor.position.set((W * TILE) / 2, -0.1, (H * TILE) / 2);
   group.add(floor);
 
-  // perimeter walls with a south door gap
+  // perimeter walls with a south door gap. Plaster above, a dark wooden wainscot
+  // rail below so the room reads as timber-and-plaster, not bare stucco.
   const wallH = 2.6;
-  const mkWall = (w, d, x, z) => {
+  const wainH = 1.0;
+  const mkWall = (w, d, x, z, horizontal) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), plasterMat);
     m.position.set(x, wallH / 2, z);
     group.add(m);
+    // wainscot: a thin waist-high board panel on the inner face of the wall
+    const wt = boardTex.clone(); wt.needsUpdate = true;
+    wt.repeat.set(horizontal ? w / TILE : d / TILE, 1);
+    const wainMat = new THREE.MeshStandardMaterial({ map: wt, roughness: 0.85 });
+    const panelT = 0.08; // panel thickness (along the wall's short axis)
+    const wain = new THREE.Mesh(
+      new THREE.BoxGeometry(horizontal ? w : panelT, wainH, horizontal ? panelT : d), wainMat);
+    // seat the panel just proud of the wall's inner face, toward room center
+    const dir = horizontal ? Math.sign((H * TILE) / 2 - z) : Math.sign((W * TILE) / 2 - x);
+    if (horizontal) wain.position.set(x, wainH / 2, z + dir * (d / 2 - panelT / 2));
+    else wain.position.set(x + dir * (d / 2 - panelT / 2), wainH / 2, z);
+    group.add(wain);
   };
-  mkWall(W * TILE, TILE, (W * TILE) / 2, TILE / 2);
-  mkWall(TILE, H * TILE, TILE / 2, (H * TILE) / 2);
-  mkWall(TILE, H * TILE, W * TILE - TILE / 2, (H * TILE) / 2);
-  mkWall(5 * TILE, TILE, 2.5 * TILE + TILE / 2, H * TILE - TILE / 2);
-  mkWall(4.5 * TILE, TILE, W * TILE - 2.25 * TILE, H * TILE - TILE / 2);
+  mkWall(W * TILE, TILE, (W * TILE) / 2, TILE / 2, true);
+  mkWall(TILE, H * TILE, TILE / 2, (H * TILE) / 2, false);
+  mkWall(TILE, H * TILE, W * TILE - TILE / 2, (H * TILE) / 2, false);
+  mkWall(5 * TILE, TILE, 2.5 * TILE + TILE / 2, H * TILE - TILE / 2, true);
+  mkWall(4.5 * TILE, TILE, W * TILE - 2.25 * TILE, H * TILE - TILE / 2, true);
+  // exposed ceiling beams overhead for timber-frame feel
+  for (let i = 0; i < 4; i++) {
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(W * TILE - TILE, 0.22, 0.28), darkWood);
+    beam.position.set((W * TILE) / 2, 2.55, TILE * (1.6 + i * 1.6));
+    group.add(beam);
+  }
 
   // framed procedural paintings on the side walls (each is a unique dusk scene)
   const mkPainting = (x, z, roty) => {
@@ -75,7 +104,7 @@ export function buildTavernInterior() {
 
   // ---- the bar (on BAR_TILES row) ----
   const barCenter = tileToWorld(5.5, 1);
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 1.05, 1.2), darkWood);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 1.05, 1.2), boardMat);
   bar.position.set(barCenter.x + TILE / 2, 0.52, barCenter.z);
   group.add(bar);
   const barTop = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE + 0.2, 0.08, 1.35), plankMat);
@@ -150,18 +179,51 @@ export function buildTavernInterior() {
   keeper.rotation.y = 0; // face the customer side (+z), not the back wall
   group.add(keeper);
 
-  // ---- back-bar: two shelves stocked with bottles, spirits, wine + glasses ----
+  // ---- back-bar: three stocked shelves with bracket supports, plus jugs,
+  // stacked tankards, kegs and casks so the wall behind Barlow reads as a
+  // working, well-supplied bar. ----
   const glassMat = (c, o = 0.85) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.15, metalness: 0.1, transparent: true, opacity: o });
   const corkMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 1 });
-  const shelfZ = TILE * 0.55;
-  for (const sy of [1.55, 1.98]) {
-    const shelf = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 0.08, 0.42), darkWood);
+  const pewterMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.6, roughness: 0.4 });
+  const brassMat = new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.55, roughness: 0.45 });
+  const potteryMat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
+  // Shelves ride just proud of the north wall's inner face (the wall box spans
+  // z 0..2), so the bottles sit ON the wall behind Barlow rather than buried
+  // inside the wall as they were before.
+  const shelfZ = 2.04;
+  const shelfW = 6 * TILE;
+  const shelfYs = [1.32, 1.74, 2.16];
+  for (const sy of shelfYs) {
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(shelfW, 0.07, 0.28), boardMat);
     shelf.position.set(barCenter.x + TILE / 2, sy, shelfZ);
     group.add(shelf);
+    // small iron brackets under each shelf
+    for (let b = 0; b < 5; b++) {
+      const brk = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.22), ironMat);
+      brk.position.set(barCenter.x + TILE / 2 - shelfW / 2 + 0.6 + b * (shelfW - 1.2) / 4, sy - 0.1, shelfZ - 0.04);
+      group.add(brk);
+    }
   }
-  const wineReds = [0x5a0f1a, 0x7a1420];
-  const spiritCols = [0xcaa14a, 0x3a6ad9, 0x2a8a4a, 0x8a3ad9, 0xb05a2a];
+  const wineReds = [0x5a0f1a, 0x7a1420, 0x461426];
+  const spiritCols = [0xcaa14a, 0x3a6ad9, 0x2a8a4a, 0x8a3ad9, 0xb05a2a, 0x1c8a8a];
+  const jugCols = [0x8a6a44, 0x6a5238, 0x94724a, 0x5a4a55];
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  // a small clay/pewter drinking jug or tankard for the shelves
+  const placeJug = (x, y, tankard) => {
+    const j = new THREE.Group();
+    if (tankard) {
+      j.add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.075, 0.2, 9), Math.random() < 0.5 ? pewterMat : brassMat));
+      const handle = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.014, 5, 9, Math.PI), pewterMat);
+      handle.position.set(0.09, 0, 0); handle.rotation.z = Math.PI / 2; j.add(handle);
+    } else {
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.11, 9, 8), potteryMat(pick(jugCols))); body.scale.y = 1.1; j.add(body);
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.09, 8), potteryMat(pick(jugCols))); neck.position.y = 0.14; j.add(neck);
+      const handle = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.016, 5, 9, Math.PI), potteryMat(pick(jugCols)));
+      handle.position.set(0.1, 0.03, 0); handle.rotation.z = -0.4; j.add(handle);
+    }
+    j.position.set(x, y, shelfZ);
+    group.add(j);
+  };
   const placeBottle = (x, y, kind) => {
     const b = new THREE.Group();
     if (kind === 'wine') {
@@ -170,6 +232,8 @@ export function buildTavernInterior() {
     } else if (kind === 'flask') {
       const body = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), glassMat(pick(spiritCols))); body.scale.y = 0.92; b.add(body);
       const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.12, 6), corkMat); neck.position.y = 0.13; b.add(neck);
+    } else if (kind === 'jug') {
+      placeBottle._jug = true; // marker unused; real jug handled by placeJug
     } else {
       b.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.32, 8), glassMat(pick(spiritCols))));
       const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.05, 6), corkMat); cork.position.y = 0.185; b.add(cork);
@@ -177,10 +241,21 @@ export function buildTavernInterior() {
     b.position.set(x, y, shelfZ);
     group.add(b);
   };
+  // lower shelf: mostly jugs and stacked tankards (the mugs the tavern serves)
+  for (let i = 0; i < 12; i++) {
+    const x = barCenter.x - 5.2 + i * 0.95;
+    if (i % 3 === 0) placeJug(x, 1.4, false);
+    else placeJug(x, 1.4, true);
+  }
+  // middle + top shelves: bottles, flasks, wine
   const kinds = ['wine', 'tall', 'flask'];
-  for (let i = 0; i < 11; i++) placeBottle(barCenter.x - 4.7 + i * 0.95, 1.78, kinds[i % 3]);
-  for (let i = 0; i < 9; i++) placeBottle(barCenter.x - 4.2 + i * 1.05, 2.2, kinds[(i + 1) % 3]);
-  // filled wine glasses on the top shelf
+  for (let i = 0; i < 11; i++) placeBottle(barCenter.x - 4.7 + i * 0.95, 1.83, kinds[i % 3]);
+  for (let i = 0; i < 9; i++) {
+    const x = barCenter.x - 4.2 + i * 1.05;
+    if (i % 4 === 2) placeJug(x, 2.24, false);
+    else placeBottle(x, 2.25, kinds[(i + 1) % 3]);
+  }
+  // filled wine glasses tucked among the top-shelf bottles
   for (let i = 0; i < 4; i++) {
     const glass = new THREE.Group();
     const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.02, 0.09, 8), glassMat(0xdddddd, 0.35));
@@ -188,15 +263,41 @@ export function buildTavernInterior() {
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.08, 5), glassMat(0xdddddd, 0.35)); stem.position.y = -0.085;
     const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.008, 8), glassMat(0xdddddd, 0.35)); foot.position.y = -0.13;
     glass.add(bowl, wine, stem, foot);
-    glass.position.set(barCenter.x - 3.5 + i * 2.0, 2.3, shelfZ + 0.02);
+    glass.position.set(barCenter.x - 3.5 + i * 2.0, 2.36, shelfZ + 0.02);
     group.add(glass);
   }
-  // a wooden cask resting on the floor behind the bar
-  const cask = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.7, 12), plankMat);
-  cask.rotation.z = Math.PI / 2; cask.position.set(barCenter.x - 2.2, 0.34, shelfZ + 0.1);
-  const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.02, 6, 14), new THREE.MeshStandardMaterial({ color: 0x3a3a40, metalness: 0.5, roughness: 0.5 }));
-  hoop.position.copy(cask.position); hoop.rotation.y = Math.PI / 2;
-  group.add(cask, hoop);
+  // a stack of clean pewter tankards on the bar top, ready to pour
+  for (let s = 0; s < 3; s++) {
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.07, 0.17, 9), pewterMat);
+    t.position.set(barCenter.x - 4.3, 1.2 + s * 0.001, barCenter.z + 0.35);
+    t.position.x += s * 0.02; t.position.z -= s * 0.16; t.position.y = 1.2;
+    group.add(t);
+  }
+
+  // ---- kegs and casks in the narrow strip behind the bar, kept to the ends
+  // so they never overlap Barlow (who stands at bar center). ----
+  const mkKeg = (x, z, r, len, horizontal, tint) => {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 14), new THREE.MeshStandardMaterial({ map: woodTex, color: tint, roughness: 0.9 }));
+    g.add(body);
+    for (const hy of [-len * 0.34, 0, len * 0.34]) {
+      const hoop = new THREE.Mesh(new THREE.TorusGeometry(r + 0.01, 0.022, 6, 16), ironMat);
+      hoop.position.y = hy; hoop.rotation.x = Math.PI / 2; g.add(hoop);
+    }
+    if (horizontal) { g.rotation.z = Math.PI / 2; }
+    g.position.set(x, horizontal ? r : len / 2, z);
+    group.add(g);
+    return g;
+  };
+  const backStripZ = 2.28; // between the wall face (2.0) and the bar back (2.4)
+  // a tapped serving cask lying on its side at the left end behind the bar
+  mkKeg(barCenter.x - 4.6, backStripZ, 0.3, 0.66, true, 0xe8dccb);
+  const spigot = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.12, 6), ironMat);
+  spigot.rotation.x = Math.PI / 2; spigot.position.set(barCenter.x - 4.6, 0.22, backStripZ + 0.34);
+  group.add(spigot);
+  // upright kegs lined along the right end behind the bar
+  mkKeg(barCenter.x + 4.1, backStripZ, 0.28, 0.66, false, 0xd8c8b0);
+  mkKeg(barCenter.x + 4.9, backStripZ, 0.28, 0.66, false, 0xf0e4d0);
   // iron chandelier with flickering candles over the room
   const chand = new THREE.Group();
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.03, 6, 16), new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.5, roughness: 0.6 }));
@@ -225,9 +326,10 @@ export function buildTavernInterior() {
   warmLight(0xffa860, 16, 8, 3.5 * TILE, 1.9, 6 * TILE);                     // near the entrance
 
   // ---- glowing back-bar panel so the bottles silhouette and read ----
-  const backPanel = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 1.3, 0.08),
-    new THREE.MeshStandardMaterial({ color: 0x5a3820, roughness: 0.7, emissive: 0x3a1c0a, emissiveIntensity: 0.5 }));
-  backPanel.position.set(barCenter.x + TILE / 2, 1.85, shelfZ - 0.28);
+  const backPanel = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 1.7, 0.08),
+    new THREE.MeshStandardMaterial({ map: boardTex.clone(), color: 0x8a6038, roughness: 0.7, emissive: 0x3a1c0a, emissiveIntensity: 0.45 }));
+  backPanel.material.map.repeat.set(4, 1);
+  backPanel.position.set(barCenter.x + TILE / 2, 1.7, shelfZ - 0.07);
   group.add(backPanel);
   // a carved stone golem head mounted over the bar — the tavern's namesake
   const trophy = new THREE.Group();
@@ -238,8 +340,58 @@ export function buildTavernInterior() {
   const gEyeR = gEyeL.clone(); gEyeR.position.x = 0.13;
   const gJaw = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.36), new THREE.MeshStandardMaterial({ color: 0x565049, roughness: 1 })); gJaw.position.set(0, -0.24, 0.02);
   trophy.add(gHead, gBrow, gEyeL, gEyeR, gJaw);
-  trophy.position.set(barCenter.x + TILE / 2, 2.5, shelfZ - 0.2);
+  trophy.position.set(barCenter.x + TILE / 2, 2.5, shelfZ - 0.18);
   group.add(trophy);
+
+  // ---- wall lanterns: little iron-and-glass lamps with a warm glowing pane,
+  // mounted on the side walls so the room is lit by fixtures, not just the air.
+  const mkLantern = (x, z, roty) => {
+    const lan = new THREE.Group();
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.28, 0.05), ironMat); back.position.z = -0.12; lan.add(back);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.18, 5), ironMat); arm.rotation.x = Math.PI / 2; arm.position.set(0, 0.05, -0.05); lan.add(arm);
+    const cage = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.16),
+      new THREE.MeshStandardMaterial({ color: 0xffcf7a, emissive: 0xffa040, emissiveIntensity: 0.8, roughness: 0.4, transparent: true, opacity: 0.85 }));
+    lan.add(cage);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.1, 4), ironMat); cap.position.y = 0.15; cap.rotation.y = Math.PI / 4; lan.add(cap);
+    const flame = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), new THREE.MeshBasicMaterial({ color: 0xffd27a }));
+    lan.add(flame);
+    smokePuffs.push({ mesh: flame, baseY: 0, phase: Math.random() * 6, speed: 5, kind: 'fire' });
+    lan.position.set(x, 1.55, z); lan.rotation.y = roty;
+    group.add(lan);
+    const ll = new THREE.PointLight(0xffb060, 8, 5, 2); ll.position.set(x, 1.55, z); group.add(ll);
+  };
+  mkLantern(TILE + 0.12, 3.5 * TILE, Math.PI / 2);
+  mkLantern(W * TILE - TILE - 0.12, 5.0 * TILE, -Math.PI / 2);
+
+  // ---- a stack of storage barrels and a crate in the SW corner (clear of the
+  // exit lane, which runs down the middle at x=6). ----
+  const cornerX = TILE * 1.35, cornerZ = TILE * 6.5;
+  mkKeg(cornerX, cornerZ, 0.36, 0.78, false, 0xe4d4bd);
+  mkKeg(cornerX + 0.8, cornerZ, 0.36, 0.78, false, 0xd6c4a8);
+  mkKeg(cornerX + 0.4, cornerZ - 0.1, 0.3, 0.62, false, 0xf0e2cc).position.y += 0.78; // one stacked on top
+  const crate = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), plankMat);
+  crate.position.set(cornerX + 0.05, 0.35, cornerZ + 0.85);
+  group.add(crate);
+  // iron banding on the crate
+  for (const cy of [-0.22, 0.22]) {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.05, 0.72), ironMat);
+    band.position.set(cornerX + 0.05, 0.35 + cy, cornerZ + 0.85); group.add(band);
+  }
+  // a burlap sack leaning on the crate
+  const sack = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 7), new THREE.MeshStandardMaterial({ color: 0xb8a074, roughness: 1 }));
+  sack.scale.set(0.9, 1.2, 0.9); sack.position.set(cornerX + 0.7, 0.3, cornerZ + 0.85); group.add(sack);
+
+  // ---- hanging carved tavern sign over the entrance, gently swinging ----
+  const sign = new THREE.Group();
+  const signBar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 1.1), ironMat); signBar.position.y = 0.42; group.add(signBar);
+  const chL = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.34, 4), ironMat); chL.position.set(0, 0.24, -0.45);
+  const chR = chL.clone(); chR.position.z = 0.45;
+  const board = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.44, 0.92),
+    new THREE.MeshStandardMaterial({ map: makeTavernSignTexture(), roughness: 0.9 }));
+  board.position.y = -0.02;
+  sign.add(signBar, chL, chR, board);
+  sign.position.set((W * TILE) / 2, 2.05, TILE * 6.2);
+  group.add(sign);
 
   // ---- tables (on TABLE_TILES) with stools, mugs, candles ----
   const patronMeshes = [];
@@ -268,6 +420,19 @@ export function buildTavernInterior() {
       new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.5, roughness: 0.5 }));
     mug.position.set(w.x - 0.25, 0.98, w.z);
     group.add(mug);
+    // a second pewter tankard + a wooden trencher with a candle-lit meal
+    const mug2 = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.075, 0.16, 9),
+      new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.6, roughness: 0.4 }));
+    mug2.position.set(w.x + 0.3, 0.99, w.z - 0.28);
+    const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.17, 0.03, 12), darkWood);
+    plate.position.set(w.x - 0.05, 0.92, w.z + 0.28);
+    const loaf = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 7),
+      new THREE.MeshStandardMaterial({ color: 0xc8a05a, roughness: 0.95 }));
+    loaf.scale.set(1.2, 0.7, 0.9); loaf.position.set(w.x - 0.05, 0.95, w.z + 0.28);
+    const jugT = new THREE.Mesh(new THREE.SphereGeometry(0.11, 9, 8),
+      new THREE.MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.9 }));
+    jugT.scale.y = 1.2; jugT.position.set(w.x + 0.05, 0.98, w.z - 0.25);
+    group.add(mug2, plate, loaf, jugT);
   }
 
   // ---- patrons: seated regulars with faces and drinks ----
@@ -306,11 +471,26 @@ export function buildTavernInterior() {
     patronMeshes.push({ mesh: patron, x: px, z: pz, drunk: def.name === 'drunk' });
   }
 
-  // ---- hearth with living fire ----
+  // ---- stone hearth with living fire, a mantel and a chimney breast ----
   const hearth = new THREE.Group();
-  const surround = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.9, 2.4),
-    new THREE.MeshStandardMaterial({ color: 0x6a665f, roughness: 1 }));
+  const stoneTexV = stoneTex.clone(); stoneTexV.needsUpdate = true; stoneTexV.repeat.set(1, 2);
+  const hearthMat = new THREE.MeshStandardMaterial({ map: stoneTexV, roughness: 1 });
+  const surround = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.9, 2.4), hearthMat);
   surround.position.y = 0.95;
+  // chimney breast tapering up toward the beams
+  const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 1.5), hearthMat);
+  chimney.position.set(0.02, 2.15, 0);
+  // heavy timber mantel shelf across the fire opening
+  const mantel = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.16, 2.0), darkWood);
+  mantel.position.set(-0.05, 1.55, 0);
+  // a couple of candlesticks and a tankard resting on the mantel
+  const mCandle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.16, 6), new THREE.MeshStandardMaterial({ color: 0xe8e0c8 }));
+  mCandle.position.set(-0.15, 1.71, -0.6);
+  const mFlame = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), new THREE.MeshBasicMaterial({ color: 0xffc45e }));
+  mFlame.position.set(-0.15, 1.83, -0.6);
+  smokePuffs.push({ mesh: mFlame, baseY: 1.83, phase: 2.4, speed: 4.5, kind: 'fire' });
+  const mTankard = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.065, 0.15, 9), new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.6, roughness: 0.4 }));
+  mTankard.position.set(-0.1, 1.7, 0.55);
   const firebox = new THREE.Mesh(new THREE.BoxGeometry(0.34, 1.0, 1.3),
     new THREE.MeshBasicMaterial({ color: 0x180c06 }));
   firebox.position.set(-0.22, 0.55, 0);
@@ -318,7 +498,8 @@ export function buildTavernInterior() {
     new THREE.MeshStandardMaterial({ color: 0x2e1c10, roughness: 1 }));
   logs.rotation.x = Math.PI / 2;
   logs.position.set(-0.3, 0.25, 0);
-  hearth.add(surround, firebox, logs);
+  const logs2 = logs.clone(); logs2.position.set(-0.3, 0.38, 0.12); logs2.rotation.set(Math.PI / 2, 0, 0.2);
+  hearth.add(surround, chimney, mantel, mCandle, mFlame, mTankard, firebox, logs, logs2);
   // layered flames that the game loop makes dance
   const flameColors = [0xff6a2a, 0xff9a3a, 0xffc45e];
   let mainFlame = null;
