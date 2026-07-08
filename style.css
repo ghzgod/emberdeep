@@ -572,7 +572,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #confirm-modal { position: fixed; inset: 0; z-index: 65; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
 #confirm-modal.hidden { display: none; }
 #confirm-card {
-  min-width: 280px; max-width: 86vw; padding: 22px 26px; text-align: center; color: var(--parchment);
+  min-width: 280px; width: 100%; max-width: min(90vw, 420px); padding: 22px 26px; text-align: center; color: var(--parchment);
   background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98));
   border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35);
 }
@@ -658,6 +658,13 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 }
 .settings-rows label:has(input[type=range]) > span { text-align: right; }
 .settings-rows input[type=range] { flex: 1; min-width: 120px; width: 100%; accent-color: var(--gold); }
+/* % label doubles as a mute toggle: click snaps the slider to 0 / restores it. */
+.vol-mute-label {
+  cursor: pointer; border-radius: 4px; padding: 4px 6px; margin: -4px -6px;
+  min-height: 24px; display: inline-flex; align-items: center; justify-content: flex-end;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.vol-mute-label:hover, .vol-mute-label:focus-visible { background: rgba(232,192,90,0.16); color: var(--gold); outline: none; }
 @media (max-width: 520px) {
   .settings-rows label:has(input[type=range]) { grid-template-columns: 110px 1fr 44px; }
 }
@@ -667,6 +674,93 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   .settings-rows label { font-size: 14px; }
   .settings-rows select { max-width: 100%; }
 }
+
+/* ---------- Custom dropdown (replaces native <select> in Settings) ----------
+   The native <select>'s option popup is positioned by the browser relative to
+   the nearest transformed/backdrop-filtered ancestor on some tablet/mobile
+   browsers, which pushes it off-screen inside the settings panel. This
+   renders its own themed, in-panel option list instead. The real <select>
+   stays in the DOM (visually hidden) so existing .value reads and onchange
+   handlers keep working unmodified; picking a custom option updates it and
+   dispatches a native change event. */
+.cselect { position: relative; display: inline-block; max-width: 60%; min-width: 180px; }
+@media (max-width: 520px) { .cselect { max-width: 100%; width: 100%; } }
+.cselect-native { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
+.cselect-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; min-height: 44px; font-family: inherit; font-size: 15px; text-align: left;
+  background: #241a30; color: var(--parchment); border: 1px solid var(--panel-border);
+  border-radius: 4px; padding: 4px 12px; cursor: pointer;
+}
+.cselect-trigger:hover, .cselect-trigger:focus-visible { border-color: var(--gold); outline: none; }
+.cselect.open .cselect-trigger { border-color: var(--gold); }
+.cselect-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cselect-arrow { opacity: 0.7; font-size: 12px; transition: transform 0.15s ease; }
+.cselect.open .cselect-arrow { transform: rotate(180deg); }
+.cselect-list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  max-height: 220px; overflow-y: auto;
+  background: linear-gradient(170deg, #241a30, #1a1424);
+  border: 1px solid var(--panel-border); border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  padding: 4px;
+}
+.cselect-option {
+  display: block; width: 100%; min-height: 44px; padding: 8px 12px;
+  font-family: inherit; font-size: 14px; text-align: left; line-height: 1.3;
+  background: transparent; color: var(--parchment); border: none; border-radius: 6px; cursor: pointer;
+}
+.cselect-option:hover, .cselect-option.active { background: rgba(232,192,90,0.16); color: var(--gold); }
+
+/* ---------- Toggle switches (replace plain checkboxes) ----------
+   Pure-CSS pill-with-a-knob switch built on the existing <input type=checkbox>
+   so .checked and onchange keep working unmodified. The input itself is kept
+   in the DOM (appearance:none, sized to a 44px tap target) but visually
+   invisible; .toggle-track/.toggle-knob paint the switch and react to :checked
+   via the sibling combinator. */
+.toggle {
+  position: relative; display: inline-flex; align-items: center;
+  width: 48px; height: 44px; flex: 0 0 auto; cursor: pointer;
+}
+.toggle input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; position: absolute; inset: 0;
+  margin: 0; width: 100%; height: 100%; cursor: pointer; z-index: 1;
+}
+.toggle-track {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 44px; height: 24px; border-radius: 12px;
+  background: #241a30; border: 1px solid var(--panel-border);
+  transition: background 0.18s ease, border-color 0.18s ease;
+  pointer-events: none;
+}
+.toggle-knob {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--parchment);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+.toggle input[type=checkbox]:checked ~ .toggle-track {
+  background: #4a3a1a; border-color: var(--gold);
+}
+.toggle input[type=checkbox]:checked ~ .toggle-track .toggle-knob {
+  transform: translateX(20px); background: var(--gold);
+}
+.toggle input[type=checkbox]:focus-visible ~ .toggle-track {
+  box-shadow: 0 0 0 2px var(--gold);
+}
+.settings-rows label:has(.toggle) { cursor: pointer; }
+
+/* "Do not ask again" row inside the confirm modal: label and its toggle
+   grouped tightly together and centered, matching the compact card - not
+   spread to opposite edges like a full-width settings row. */
+.toggle-row {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  font-size: 14px; margin: 0 0 16px;
+}
+/* Neural-voice download progress inside the confirm modal (battery-saver-off flow) */
+#confirm-progress-row { margin: 0 0 16px; }
+#confirm-progress-row .loading-bar-outer { width: 100%; margin: 0 auto 6px; }
+#confirm-progress-row .hint { margin-top: 0; }
 
 /* ---------- Toasts / banners ---------- */
 #levelup-toast {
