@@ -25,7 +25,6 @@ import { ParticleSystem } from './combat/particles.js';
 import { UI } from './ui/ui.js';
 import { learner } from './ai/learner.js';
 import { roaster } from './ai/roaster.js';
-import { isMemoryConstrainedDevice } from './ai/neuralVoice.js';
 import { STORIES } from './story.js';
 import { generateTavernInterior, buildTavernInterior } from './world/tavern.js';
 import { Wanderer } from './entities/wanderer.js';
@@ -102,10 +101,12 @@ export class Game {
     }
     // Battery saver: skip the heavy in-browser ML (TensorFlow.js movement net)
     // and the neural Kokoro TTS, using the browser's built-in speechSynthesis
-    // instead. Default ON for memory-constrained / mobile devices (which would
-    // OOM-crash on Kokoro anyway) when the player has never chosen a value.
-    if (typeof this.settings.batterySaver !== 'boolean') {
-      this.settings.batterySaver = isMemoryConstrainedDevice();
+    // instead. Default ON for everyone when the player has never chosen a
+    // value; the first-launch modal (shown once from boot()) lets them opt
+    // into full AI. this.firstBatteryChoice flags that one-time prompt.
+    this.firstBatteryChoice = typeof this.settings.batterySaver !== 'boolean';
+    if (this.firstBatteryChoice) {
+      this.settings.batterySaver = true;
     }
     // ensure keybinds exist on older saves
     this.settings.keybinds = Object.assign({ interact: 'KeyF', potion: 'KeyR', talk: 'KeyV', inventory: 'Tab', quests: 'KeyJ', mastery: 'KeyK' }, this.settings.keybinds || {});
@@ -265,6 +266,14 @@ export class Game {
     this.ui.setLoadingProgress(1, 'Ready');
     this.state = 'title';
     this.ui.showTitle();
+
+    // First-ever visit: battery saver defaulted ON above without asking.
+    // Offer the same explanatory modal used for later re-toggles so the
+    // player can opt into full AI (smarter bosses, neural voices) right away.
+    if (this.firstBatteryChoice) {
+      this.firstBatteryChoice = false;
+      this.ui.promptBatterySaverChoice();
+    }
   }
 
   // ---------------- state / flow ----------------
