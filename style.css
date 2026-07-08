@@ -515,6 +515,13 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
   white-space: normal; width: 260px; text-align: center; line-height: 1.35;
   text-shadow: 0 2px 4px #000, 0 0 10px rgba(0,0,0,0.8);
 }
+/* "Speaking soon" bubble: animated dots floated above a character's head while
+   their voice line is being synthesized (before audio starts). JS drives the
+   dot count and the world-projected position; this is just the look. */
+.floater.speak-soon {
+  animation: none; font-size: 22px; letter-spacing: 2px; color: #ffe9c8;
+  min-width: 1.4em; text-align: left; text-shadow: 0 2px 4px #000, 0 0 8px rgba(0,0,0,0.7);
+}
 @keyframes float-up { 0% { opacity: 1; margin-top: 0; } 100% { opacity: 0; margin-top: -46px; } }
 
 /* ---------- Inventory ---------- */
