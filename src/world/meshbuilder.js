@@ -318,6 +318,249 @@ function worldRng(seed) {
   };
 }
 
+// ---------------- Modeled dungeon architecture (KayKit Dungeon Remastered, CC0) ----------------
+// Floor/wall/pillar/door-arch/torch/rubble GLBs replace the old box-primitive
+// dungeon geometry built by buildDungeonMeshes above. That box geometry is
+// built first and kept as the permanent, silent fallback: this swap only
+// removes it once the matching GLB actually resolves to renderable geometry.
+// Every cell's variant + 90-degree rotation is derived purely from
+// (floor, cellX, cellY) via cellSeed(), never from array order or Math.random,
+// so a revisited floor renders an identical layout+variant mix every time.
+const DUNGEON_MODEL_FILES = {
+  floorLarge: 'models/dungeon/floor_tile_large.gltf.glb',
+  floorRocky: 'models/dungeon/floor_tile_large_rocks.gltf.glb',
+  floorBrokenA: 'models/dungeon/floor_tile_small_broken_A.gltf.glb',
+  floorBrokenB: 'models/dungeon/floor_tile_small_broken_B.gltf.glb',
+  wall: 'models/dungeon/wall.gltf.glb',
+  wallCracked: 'models/dungeon/wall_cracked.gltf.glb',
+  wallBroken: 'models/dungeon/wall_broken.gltf.glb',
+  pillar: 'models/dungeon/pillar.gltf.glb',
+  doorArch: 'models/dungeon/wall_doorway.glb',
+  torch: 'models/dungeon/torch_mounted.gltf.glb',
+  rubbleHalf: 'models/dungeon/rubble_half.gltf.glb',
+  rubbleLarge: 'models/dungeon/rubble_large.gltf.glb',
+};
+const dungeonLoader = new GLTFLoader();
+const _dungeonTplCache = new Map();
+
+// Like gltfToTemplate above, but keeps the model's AUTHORED proportions
+// instead of renormalizing to unit height: floor tiles are wide and nearly
+// flat, and wall panels are wide/tall/thin, so a height-based unit scale would
+// blow either of those up absurdly. Callers scale each axis explicitly to fit
+// TILE / WALL_HEIGHT. Only recenters XZ at the origin and drops the base to y=0.
+function gltfToArchTemplate(gltf) {
+  const scene = gltf.scene;
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  if (!Number.isFinite(size.x) || size.x < 1e-5) return null;
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  const norm = new THREE.Matrix4().makeTranslation(-center.x, -box.min.y, -center.z);
+  const byMat = new Map();
+  scene.traverse((o) => {
+    if (!o.isMesh || !(o.geometry?.getAttribute?.('position')?.count > 0)) return;
+    const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+    const geo = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(norm, o.matrixWorld));
+    if (!byMat.has(mat)) byMat.set(mat, []);
+    byMat.get(mat).push(geo);
+  });
+  if (!byMat.size) return null;
+  const pieces = [];
+  for (const [mat, geos] of byMat) {
+    const merged = geos.length > 1 ? (mergeGeometries(geos) || geos[0]) : geos[0];
+    const m = mat.clone();
+    if ('metalness' in m) m.metalness = 0;
+    if ('roughness' in m) m.roughness = Math.max(m.roughness ?? 1, 0.9);
+    pieces.push({ geometry: merged, material: m });
+  }
+  return { pieces, size: { x: size.x, y: size.y, z: size.z } };
+}
+
+function loadDungeonTemplate(key) {
+  let p = _dungeonTplCache.get(key);
+  if (!p) {
+    const file = DUNGEON_MODEL_FILES[key];
+    p = dungeonLoader.loadAsync(import.meta.env.BASE_URL + file)
+      .then((gltf) => gltfToArchTemplate(gltf))
+      .catch((err) => {
+        console.warn(`Dungeon model failed to load (${file}); box fallback stays.`, err);
+        return null;
+      });
+    _dungeonTplCache.set(key, p);
+  }
+  return p;
+}
+
+// Deterministic seed in [0,1) from (floor, cellX, cellY, salt). Pure function
+// of the cell's own coordinates, so revisiting a floor (or a co-op guest
+// generating the same floor independently) always picks the same variant and
+// rotation per cell, with no dependency on iteration order or Math.random.
+function cellSeed(floor, x, y, salt = 0) {
+  let h = ((floor * 374761393) ^ (x * 668265263) ^ (y * 2246822519) ^ (salt * 3266489917)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 0xffffffff;
+}
+
+// Clones a template's materials and lerps each toward `color` by `amt`, so the
+// shared cached template's original materials stay untouched (per-theme tint).
+function tintTemplate(tpl, color, amt) {
+  return { pieces: tpl.pieces.map((p) => {
+    const mat = p.material.clone();
+    if (mat.color) mat.color.lerp(color, amt);
+    return { geometry: p.geometry, material: mat };
+  }) };
+}
+
+// One InstancedMesh per template piece from placements of
+// { x, y, z, ry, sx, sy, sz } (world position, yaw, per-axis scale).
+function buildArchInstances(tpl, placements) {
+  const group = new THREE.Group();
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sv = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  for (const piece of tpl.pieces) {
+    const im = new THREE.InstancedMesh(piece.geometry, piece.material, placements.length);
+    placements.forEach((pl, i) => {
+      q.setFromAxisAngle(up, pl.ry || 0);
+      sv.set(pl.sx ?? 1, pl.sy ?? 1, pl.sz ?? 1);
+      p.set(pl.x, pl.y || 0, pl.z);
+      m.compose(p, q, sv);
+      im.setMatrixAt(i, m);
+    });
+    im.instanceMatrix.needsUpdate = true;
+    im.frustumCulled = false;
+    group.add(im);
+  }
+  return group;
+}
+
+// Swaps the box-primitive floor/wall/torch geometry for modeled KayKit pieces
+// once their GLBs resolve, and adds purely-additive corner pillars, door
+// archways, and scattered rubble/debris. Dungeon-only (town keeps its
+// procedural grass/garden-wall look, per design). Fully async: nothing here
+// blocks or delays the box fallback already visible in `group`.
+function dressDungeonArchitecture(group, dungeon, theme, floor, ctx) {
+  const { grid } = dungeon;
+  const { floorMesh, floorRenderTiles, wallMesh, wallDecorMeshes, renderWalls, sconceMeshes, torchPositions } = ctx;
+  const wallColor = new THREE.Color(theme.wall);
+  const floorColor = new THREE.Color(theme.floor);
+
+  const keys = ['floorLarge', 'floorRocky', 'floorBrokenA', 'floorBrokenB', 'wall', 'wallCracked', 'wallBroken', 'pillar', 'doorArch', 'torch', 'rubbleHalf', 'rubbleLarge'];
+  Promise.all(keys.map(loadDungeonTemplate)).then(([floorLarge, floorRocky, floorBrokenA, floorBrokenB, wallT, wallCracked, wallBroken, pillarT, doorArchT, torchT, rubbleHalf, rubbleLarge]) => {
+    if (floorMesh.parent !== group) return; // dungeon torn down/rebuilt meanwhile
+
+    // --- Floors: variant + 90-degree rotation per cell ---
+    const bigVariants = [floorLarge, floorRocky].filter(Boolean);
+    const brokenVariants = [floorBrokenA, floorBrokenB].filter(Boolean);
+    if (bigVariants.length || brokenVariants.length) {
+      const byTpl = new Map();
+      for (const tp of floorRenderTiles) {
+        const isRubbleFloor = grid[tp.y]?.[tp.x] === RUBBLE;
+        const pool = isRubbleFloor && brokenVariants.length ? brokenVariants : (bigVariants.length ? bigVariants : brokenVariants);
+        if (!pool.length) continue;
+        const tpl = pool[Math.floor(cellSeed(floor, tp.x, tp.y, 1) * pool.length) % pool.length];
+        const scale = pool === brokenVariants ? TILE / 2 : TILE / 4;
+        const rot = Math.floor(cellSeed(floor, tp.x, tp.y, 2) * 4) * (Math.PI / 2);
+        const w = tileToWorld(tp.x, tp.y);
+        if (!byTpl.has(tpl)) byTpl.set(tpl, []);
+        byTpl.get(tpl).push({ x: w.x, y: 0, z: w.z, ry: rot, sx: scale, sy: scale, sz: scale });
+      }
+      const floorGroup = new THREE.Group();
+      for (const [tpl, placements] of byTpl) floorGroup.add(buildArchInstances(tintTemplate(tpl, floorColor, 0.3), placements));
+      if (floorGroup.children.length) {
+        group.remove(floorMesh);
+        floorMesh.geometry.dispose();
+        group.add(floorGroup);
+      }
+    }
+
+    // --- Walls: variant (mostly intact, some cracked, fewer broken) + rotation ---
+    const wallVariants = [
+      { tpl: wallT, w: 0.55 },
+      { tpl: wallCracked, w: 0.30 },
+      { tpl: wallBroken, w: 0.15 },
+    ].filter((v) => v.tpl);
+    if (wallVariants.length && renderWalls.length) {
+      const byTpl = new Map();
+      for (const tp of renderWalls) {
+        const roll = cellSeed(floor, tp.x, tp.y, 3);
+        let acc = 0, chosen = wallVariants[0].tpl;
+        for (const v of wallVariants) { acc += v.w; if (roll < acc) { chosen = v.tpl; break; } }
+        const rot = Math.floor(cellSeed(floor, tp.x, tp.y, 4) * 4) * (Math.PI / 2);
+        const w = tileToWorld(tp.x, tp.y);
+        if (!byTpl.has(chosen)) byTpl.set(chosen, []);
+        // native wall footprint is 4 wide x 4 tall x 1 thick: scale each axis
+        // to exactly fill one TILE x WALL_HEIGHT x TILE cell (thickness
+        // stretched to TILE too) so the cell is fully solid no matter the yaw.
+        byTpl.get(chosen).push({ x: w.x, y: 0, z: w.z, ry: rot, sx: TILE / 4, sy: WALL_HEIGHT / 4, sz: TILE / 1 });
+      }
+      const wallGroup = new THREE.Group();
+      for (const [tpl, placements] of byTpl) wallGroup.add(buildArchInstances(tintTemplate(tpl, wallColor, 0.3), placements));
+      if (wallGroup.children.length) {
+        group.remove(wallMesh);
+        wallMesh.geometry.dispose();
+        for (const dm of wallDecorMeshes) { group.remove(dm); dm.geometry?.dispose?.(); }
+        group.add(wallGroup);
+      }
+    }
+
+    // --- Pillars: additive, at outward wall corners bordering open floor ---
+    if (pillarT && wallVariants.length) {
+      const placements = [];
+      for (const tp of renderWalls) {
+        const n = grid[tp.y - 1]?.[tp.x] === WALL, s = grid[tp.y + 1]?.[tp.x] === WALL;
+        const e = grid[tp.y]?.[tp.x + 1] === WALL, w2 = grid[tp.y]?.[tp.x - 1] === WALL;
+        const vertPair = (n && !s) || (!n && s), horizPair = (e && !w2) || (!e && w2);
+        if (!(vertPair && horizPair)) continue; // needs exactly one wall neighbor each axis (an L corner)
+        if (cellSeed(floor, tp.x, tp.y, 5) > 0.45) continue; // sparse, not every corner
+        const w = tileToWorld(tp.x, tp.y);
+        placements.push({ x: w.x, y: 0, z: w.z, ry: cellSeed(floor, tp.x, tp.y, 6) * Math.PI * 2, sx: WALL_HEIGHT / 4, sy: WALL_HEIGHT / 4, sz: WALL_HEIGHT / 4 });
+      }
+      if (placements.length) group.add(buildArchInstances(tintTemplate(pillarT, wallColor, 0.25), placements));
+    }
+
+    // --- Door archways: additive stone frame around the existing wood door ---
+    if (doorArchT && dungeon.doors?.length) {
+      const placements = dungeon.doors.map((d) => {
+        const w = tileToWorld(d.x, d.y);
+        return { x: w.x, y: 0, z: w.z, ry: d.vertical ? 0 : Math.PI / 2, sx: TILE / 4, sy: WALL_HEIGHT / 4, sz: TILE / 1 };
+      });
+      group.add(buildArchInstances(tintTemplate(doorArchT, wallColor, 0.3), placements));
+    }
+
+    // --- Torches: modeled sconce body, swapped in behind the untouched flame/glow/light ---
+    if (torchT && sconceMeshes.length) {
+      const s = TILE * 0.28;
+      const placements = torchPositions.map((tp, i) => ({ x: tp.x, y: (tp.y ?? 2) - 0.4, z: tp.z, ry: cellSeed(floor, i, 0, 7) * Math.PI * 2, sx: s, sy: s, sz: s }));
+      if (placements.length) {
+        group.add(buildArchInstances(tintTemplate(torchT, wallColor, 0.15), placements));
+        for (const sc of sconceMeshes) { group.remove(sc); sc.geometry?.dispose?.(); }
+      }
+    }
+
+    // --- Decay dressing: scattered rubble/debris piles near walls (additive) ---
+    const rubbleVariants = [rubbleHalf, rubbleLarge].filter(Boolean);
+    if (rubbleVariants.length) {
+      const byTpl = new Map();
+      for (const tp of floorRenderTiles) {
+        if (cellSeed(floor, tp.x, tp.y, 8) > 0.1) continue; // sparse scatter
+        const nearWall = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => grid[tp.y + dy]?.[tp.x + dx] === WALL);
+        if (!nearWall) continue;
+        const tpl = rubbleVariants[Math.floor(cellSeed(floor, tp.x, tp.y, 9) * rubbleVariants.length) % rubbleVariants.length];
+        const scale = 0.16 + cellSeed(floor, tp.x, tp.y, 10) * 0.14;
+        const jx = (cellSeed(floor, tp.x, tp.y, 11) - 0.5) * TILE * 0.5;
+        const jz = (cellSeed(floor, tp.x, tp.y, 12) - 0.5) * TILE * 0.5;
+        const rot = cellSeed(floor, tp.x, tp.y, 13) * Math.PI * 2;
+        const w = tileToWorld(tp.x, tp.y);
+        if (!byTpl.has(tpl)) byTpl.set(tpl, []);
+        byTpl.get(tpl).push({ x: w.x + jx, y: 0, z: w.z + jz, ry: rot, sx: scale, sy: scale, sz: scale });
+      }
+      for (const [tpl, placements] of byTpl) group.add(buildArchInstances(tintTemplate(tpl, wallColor, 0.2), placements));
+    }
+  });
+}
+
 // Built once per theme (cheap; avoids regenerating the canvas per banner prop).
 const _bannerTexCache = new Map();
 const bannerTexture = (theme) => {
@@ -591,6 +834,7 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   // some missing outright, some broken with a U-shaped notch and a bit of
   // rubble, so a wall run reads as crumbling battlements rather than a
   // uniform row of caps.
+  const wallDecorMeshes = [];
   if (!town && renderWalls.length) {
     const copingMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(theme.wall).multiplyScalar(0.72), roughness: 1, flatShading: true });
     const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x3a3730, roughness: 1, flatShading: true });
@@ -619,6 +863,7 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       });
       capMesh.instanceMatrix.needsUpdate = true;
       group.add(capMesh);
+      wallDecorMeshes.push(capMesh);
     }
     if (broken.length) {
       // two shorter caps with a gap between them: a broken/crumbled section
@@ -634,6 +879,7 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       leftMesh.instanceMatrix.needsUpdate = true;
       rightMesh.instanceMatrix.needsUpdate = true;
       group.add(leftMesh, rightMesh);
+      wallDecorMeshes.push(leftMesh, rightMesh);
     }
     if (rubblePos.length) {
       // a couple of small fallen chunks sitting in/near each notch
@@ -648,6 +894,7 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       });
       rubbleMesh.instanceMatrix.needsUpdate = true;
       group.add(rubbleMesh);
+      wallDecorMeshes.push(rubbleMesh);
     }
   }
 
@@ -693,6 +940,9 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
 
   // --- Torches (dungeon) / lamp posts (town); lights are pooled by the game ---
   const torchPositions = [];
+  const sconceMeshes = []; // dungeon-only: the static box sconce Meshes, kept so
+  // dressDungeonArchitecture can swap them for a modeled torch body once its GLB
+  // resolves. flame/glowSprite/the pooled light are never touched by that swap.
   if (town) {
     const postMat = new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.8 });
     for (const t of dungeon.torches) {
@@ -729,6 +979,7 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       const sconce = new THREE.Mesh(sconceGeo, sconceMat);
       sconce.position.set(w.x, 1.6, w.z);
       group.add(sconce);
+      sconceMeshes.push(sconce);
       const flame = new THREE.Mesh(flameGeo, flameMat);
       flame.position.set(w.x, 1.95, w.z);
       group.add(flame);
@@ -1276,6 +1527,13 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   }
   // --- World beyond the town walls: forest ring + horizon ground ---
   if (town) buildTownSurroundings(group, dungeon, smokePuffs);
+
+  // --- Modeled dungeon architecture: async swap-in over the box fallback above ---
+  if (!town) {
+    dressDungeonArchitecture(group, dungeon, theme, floor, {
+      floorMesh, floorRenderTiles, wallMesh, wallDecorMeshes, renderWalls, sconceMeshes, torchPositions,
+    });
+  }
 
   return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh, smokePuffs, breakables, townGlows };
 }

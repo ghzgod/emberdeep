@@ -32,8 +32,9 @@ Per-act music tracks were re-encoded with ffmpeg to keep download weight low (mo
 | Pack | Author | License | Used for |
 |---|---|---|---|
 | [KayKit Character Pack: Adventurers](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0) | Kay Lousberg (kaylousberg.com) | CC0 | Animated hero models: Knight, Mage, Rogue (Ranger) with idle/run/attack/death animations |
+| [KayKit Dungeon Remastered](https://github.com/KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0) | Kay Lousberg (kaylousberg.com) | CC0 | Dungeon floor tiles (intact/rocky/broken), wall segments (intact/cracked/broken), pillar, door archway, mounted torch, rubble/debris piles (`public/models/dungeon/`); instanced per grid cell with random variant + rotation, tinted per-act |
 
-Enemy models, dungeon geometry, and textures are procedurally generated in-engine.
+Enemy models and textures are procedurally generated in-engine.
 
 # Technology
 
