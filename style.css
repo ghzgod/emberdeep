@@ -796,8 +796,69 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
 /* column-gap keeps the boxes apart horizontally; the larger row-gap gives each
    slot-label (which hangs below its box) clearance from the boxes on the next
    wrapped row, so a label like "Helmet"/"Chest" never touches the box above. */
-.equip-row { display: flex; flex-wrap: wrap; justify-content: center; column-gap: 14px; row-gap: 26px; margin-bottom: 14px; }
-.inv-grid { display: grid; grid-template-columns: repeat(6, 64px); gap: 10px; }
+/* Body-shaped paper-doll: a live turntable of the hero sits centered in
+   #paperdoll, with the six real equip slots + one locked "offhand" slot laid
+   out anatomically around it via CSS grid (helmet over the head, weapon/
+   offhand flanking the torso, legs below, hands/trinket flanking the feet).
+   #equip-slots keeps its old id/class so ui.js's existing render logic (click
+   handlers, rarity borders, fillable state) is untouched; only its layout
+   becomes a grid instead of a wrapping flex row. */
+/* flex-shrink:0 - #inventory-screen is a flex column with overflow-y:auto;
+   without this the doll gets squashed by the flexbox algorithm before the
+   scrollbar ever kicks in on short screens, instead of just scrolling. */
+#paperdoll { position: relative; width: 100%; max-width: 480px; height: 380px; margin: 0 auto 10px; flex-shrink: 0; }
+#inv-preview {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 210px; height: 300px; overflow: hidden;
+  border: 1px solid var(--panel-border); border-radius: 12px;
+  background: radial-gradient(circle at 50% 30%, #241d31, #100b18);
+  box-shadow: inset 0 0 18px rgba(0,0,0,0.6), 0 4px 14px rgba(0,0,0,0.5), 0 0 14px rgba(232,192,90,0.08);
+}
+#inv-preview canvas { display: block; width: 100%; height: 100%; }
+.equip-row {
+  position: absolute; inset: 0; display: grid;
+  grid-template-columns: 1fr 1fr 1fr; grid-template-rows: repeat(4, 1fr);
+  align-items: center; justify-items: center; pointer-events: none;
+  row-gap: 12px;
+}
+.equip-row .inv-slot { pointer-events: auto; }
+.equip-row .inv-slot[data-slot="helmet"]  { grid-column: 2; grid-row: 1; }
+.equip-row .inv-slot[data-slot="weapon"]  { grid-column: 1; grid-row: 2; }
+.equip-row .inv-slot[data-slot="chest"]   { grid-column: 2; grid-row: 2; }
+.equip-row .inv-slot[data-slot="offhand"] { grid-column: 3; grid-row: 2; }
+.equip-row .inv-slot[data-slot="legs"]    { grid-column: 2; grid-row: 3; }
+.equip-row .inv-slot[data-slot="hands"]   { grid-column: 1; grid-row: 4; }
+.equip-row .inv-slot[data-slot="trinket"] { grid-column: 3; grid-row: 4; }
+/* The three center-column slots (helmet/chest/legs) sit directly over the
+   turntable hero, so unlike the side slots they get a translucent backing
+   instead of the bag grid's solid panel fill - the hero reads through
+   around and behind the icon instead of being fully blotted out. */
+.equip-row .inv-slot[data-slot="helmet"],
+.equip-row .inv-slot[data-slot="chest"],
+.equip-row .inv-slot[data-slot="legs"] {
+  background: rgba(18, 14, 22, 0.4); backdrop-filter: blur(1px);
+}
+/* Offhand has no slot type in loot.js today (GEAR_SLOTS is weapon/helmet/
+   chest/legs/hands/trinket) — shown locked so the anatomy reads complete
+   without implying a system that doesn't exist yet. */
+.inv-slot.equip.locked { cursor: default; opacity: 0.5; border-style: dashed; }
+.inv-slot.equip.locked .lock-icon { width: 22px; height: 22px; opacity: 0.7; }
+.inv-slot.equip.locked .slot-label { opacity: 0.5; }
+
+/* Two-column totals block under the doll: Offense / Defense, no numbered
+   accent-color selector anywhere (explicitly out of scope per spec). */
+#inv-stats {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 2px 30px;
+  width: 100%; max-width: 420px; margin: 0 auto 16px; font-size: 12.5px;
+}
+#inv-stats h4 {
+  margin: 0 0 4px; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--gold); opacity: 0.85; border-bottom: 1px solid var(--panel-border); padding-bottom: 4px;
+}
+#inv-stats .stat-row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; opacity: 0.92; }
+#inv-stats .stat-row span:first-child { opacity: 0.7; }
+
+.inv-grid { display: grid; grid-template-columns: repeat(6, 64px); gap: 10px; justify-content: center; }
 .inv-slot {
   width: 64px; height: 64px; border: 2px solid var(--panel-border); border-radius: 8px;
   background: var(--panel); display: flex; align-items: center; justify-content: center;
@@ -1700,7 +1761,27 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
   .inv-slot.equip { width: 58px; height: 58px; }
   .inv-slot.equip .inv-item-icon { width: 74%; height: 74%; }
   .inv-slot.equip .slot-label { bottom: -17px; font-size: 12px; opacity: 0.72; }
-  .equip-row { column-gap: 12px; row-gap: 28px; margin-bottom: 16px; }
+  #paperdoll { height: 300px; max-width: 380px; }
+  #inv-preview { width: 160px; height: 220px; }
+}
+/* Short landscape phones: the doll + stats + bag grid must all fit without
+   the footer hint scrolling off, so shrink the turntable and go one stats
+   column instead of stacking two half-width columns even narrower. */
+@media (max-height: 520px) and (pointer: coarse), (max-height: 460px) {
+  #paperdoll { height: 220px; max-width: 320px; margin-bottom: 4px; }
+  #inv-preview { width: 120px; height: 160px; }
+  #inv-stats { grid-template-columns: 1fr 1fr; max-width: 340px; font-size: 11px; margin-bottom: 8px; }
+  /* 4 equip-row grid tracks at the 58px compact size (+ gaps) need ~268px of
+     min-content height, which overflows this 220px-tall doll and pushed the
+     bottom row (hands/trinket) down past the stats block below it. Shrinking
+     both the slot box and the row-gap keeps all 4 rows inside the box. */
+  .equip-row { row-gap: 4px; }
+  .inv-slot.equip { width: 42px; height: 42px; }
+  .inv-slot.equip .slot-label { font-size: 9px; bottom: -13px; }
+  .inv-slot.equip.locked .lock-icon { width: 16px; height: 16px; }
+}
+@media (max-width: 420px) {
+  #inv-stats { grid-template-columns: 1fr; max-width: 260px; }
 }
 
 /* Character-select name field (required before starting) */
