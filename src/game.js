@@ -3348,8 +3348,10 @@ export class Game {
     this.updateCorridorYaw(dt, p);
     this.updateCameraFollow(dt);
 
-    // player light follows
-    this.playerLight.position.set(p.pos.x, 3.2, p.pos.z);
+    // player light follows. In town it rides at torso height so walking up to
+    // a building never paints a glow blob on its ROOF (at 3.2 the light sat at
+    // roof level); underground the higher carry position lights the room.
+    this.playerLight.position.set(p.pos.x, this.inTown && !this.inTavern ? 1.5 : 3.2, p.pos.z);
 
     // audio listener
     audio.setListener(p.pos.x, p.pos.z);
