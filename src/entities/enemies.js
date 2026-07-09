@@ -767,7 +767,13 @@ export class Enemy {
       this.mesh.rotation.y += dyaw * Math.min(1, 14 * dt);
     }
     // windup telegraph: lean/scale
-    const scaleBase = this.miniboss ? 1.5 : 1;
+    // Must match the multiplier buildEnemyMesh was constructed with (see the
+    // constructor) and the one visualRadius applies to the measured footprint,
+    // or an elite's rendered body silently shrinks back to the non-elite size
+    // every frame while the attack-range/stand-off math still assumes it is
+    // 1.3x bigger: the mob then visually reads as standing closer to (or
+    // inside) the player than its own collision math intends.
+    const scaleBase = this.miniboss ? 1.5 : this.elite ? 1.3 : 1;
     if (this.state === 'windup') {
       const t = 1 - this.stateTimer / atk.windup;
       this.mesh.scale.setScalar(scaleBase * (1 + t * 0.15));
