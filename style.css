@@ -494,14 +494,22 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 
 /* ---------- Character speech subtitle ---------- */
 #subtitle {
-  position: absolute; bottom: 108px; left: 50%; transform: translateX(-50%);
-  max-width: min(88vw, 640px); z-index: 16; pointer-events: none;
+  position: fixed; bottom: 108px; left: 50%; transform: translateX(-50%);
+  /* Above every full-screen menu/overlay (shop 20, buy-confirm 61,
+     confirm-modal 65) so an NPC/vendor line is never hidden behind a
+     purchase menu; pointer-events:none keeps it click-through. */
+  max-width: min(88vw, 640px); z-index: 66; pointer-events: none;
   background: linear-gradient(180deg, rgba(24,18,30,0.94), rgba(14,10,20,0.94));
   border: 1px solid var(--gold); border-radius: 12px;
   padding: 12px 20px 12px 18px; text-align: left;
   box-shadow: 0 6px 22px rgba(0,0,0,0.6), 0 0 14px rgba(232,192,90,0.12);
   animation: sub-in 0.25s ease-out;
+  opacity: 1; visibility: visible;
+  transition: opacity 0.6s ease, visibility 0.6s ease;
 }
+/* .fading is the slow fade-out once speech is done; .hidden is the final
+   parked state after the fade completes (display:none). */
+#subtitle.fading { opacity: 0; visibility: hidden; }
 #subtitle.hidden { display: none; }
 #subtitle-speaker {
   display: block; color: var(--gold); font-size: 13px; letter-spacing: 1.5px;
@@ -572,6 +580,9 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 .inv-slot.rarity-legendary { border-color: #ff8c1a; box-shadow: 0 0 6px rgba(255,140,26,0.3); }
 /* equipped gear attuned to another class: dimmed to signal reduced value */
 .inv-slot.equip.off-class { opacity: 0.55; }
+/* Empty equip slot with a bag item that fits: tap to auto-equip the best one. */
+.inv-slot.equip.fillable { cursor: pointer; border-style: dashed; border-color: rgba(232,192,90,0.5); }
+.inv-slot.equip.fillable:hover { border-color: var(--gold); box-shadow: 0 0 8px rgba(232,192,90,0.3); }
 /* items marked for destruction */
 .inv-slot.marked { border-color: #e04444 !important; box-shadow: 0 0 10px rgba(224,68,68,0.6); }
 .inv-slot.marked::after { content: '🗑'; position: absolute; top: -2px; right: 1px; font-size: 12px; }
@@ -607,6 +618,8 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 #confirm-card h2 { font-size: 20px; margin: 0 0 10px; color: var(--gold); }
 #confirm-card p { font-size: 14px; opacity: 0.9; margin: 0 0 18px; line-height: 1.4; }
 #confirm-card .buy-actions { display: flex; gap: 10px; justify-content: center; }
+#confirm-dontshow-row { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; opacity: 0.85; margin: 0 0 16px; cursor: pointer; }
+#confirm-dontshow-row.hidden { display: none; }
 
 /* Act travel modal */
 #act-select { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
@@ -990,6 +1003,10 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
    desktop action-bar button): sized to fill most of its round button. */
 .potion-icon { width: 26px; height: 26px; }
 #action-bar #ab-potion .potion-icon { width: 22px; height: 22px; }
+/* Flat-stroke drawer glyphs (backpack / mic / gear / rotate) inherit the
+   button's currentColor, so the existing :active gold/green states still tint
+   them without any per-icon color rules. */
+.drawer-icon { width: 26px; height: 26px; display: block; }
 /* Empty/unusable state: the slot stays put (never disappears) but reads as
    inert - desaturated and dimmed, tap is a no-op (see the JS handlers). */
 #touch-potion.disabled, #ab-potion.disabled {
@@ -1181,6 +1198,16 @@ body.touch-mode {
   width: 16px; height: 16px; border-radius: 50%;
   background: var(--gold); border: 2px solid #7a5514; box-shadow: 0 0 5px rgba(0,0,0,0.6); cursor: pointer;
 }
+/* Push-to-talk live mic meter: a plain level bar (no trigger knob). */
+#ptt-meter-row.hidden, #ptt-meter-hint.hidden { display: none; }
+#ptt-meter-track {
+  position: relative; display: block; width: 100%; height: 12px; margin-top: 4px;
+  background: #120d18; border: 1px solid var(--panel-border); border-radius: 6px; overflow: hidden;
+}
+#ptt-level-fill {
+  position: absolute; left: 0; top: 0; height: 100%; width: 0%;
+  background: #7ce87c; transition: width 0.1s;
+}
 #mic-test-row { margin-top: 6px; }
 #btn-mic-test { white-space: nowrap; }
 /* loud callout above the destroy confirmation when valuables are staged */
@@ -1202,6 +1229,7 @@ body.touch-mode {
      right (all positions stay LEFT of the shrunken minimap). */
   #touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr, #touch-menu-toggle { width: 46px; height: 46px; font-size: 19px; }
   #touch-potion .potion-icon { width: 21px; height: 21px; }
+  #touch-inv .drawer-icon, #touch-mic .drawer-icon, #touch-pause .drawer-icon, #touch-rotl .drawer-icon, #touch-rotr .drawer-icon { width: 22px; height: 22px; }
   #touch-rotl, #touch-rotr { font-size: 27px; }
   #touch-menu-toggle::before { font-size: 22px; }
   #chat { bottom: 128px; width: min(44vw, 300px); }
