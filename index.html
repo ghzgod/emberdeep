@@ -57,7 +57,8 @@
     <div id="shop-screen" class="overlay">
       <div id="shop-panel">
         <div class="shop-head">
-          <div id="shop-portrait">⚗️</div>
+          <!-- filled by ui.js renderShop with the vendor's SVG portrait -->
+          <div id="shop-portrait"></div>
           <div class="shop-head-text">
             <h2 id="shop-title">Shop</h2>
             <div id="shop-tagline"></div>
@@ -82,7 +83,7 @@
     <!-- Zoltan's mystery relic reveal -->
     <div id="relic-reveal" class="hidden">
       <div id="relic-card">
-        <div class="relic-spark">✨</div>
+        <div class="relic-spark"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path fill="#ffd75e" stroke="#a8741f" stroke-width="1" stroke-linejoin="round" d="M12 3.4l1.9 5.6 5.6 1.9-5.6 1.9-1.9 5.6-1.9-5.6-5.6-1.9 5.6-1.9L12 3.4Z"/><g fill="none" stroke="#c09aff" stroke-width="1.6" stroke-linecap="round"><path d="M18.8 15.8v3.6M17 17.6h3.6"/></g></svg></div>
         <div id="relic-icon"></div>
         <h2 id="relic-name"></h2>
         <div id="relic-rarity"></div>
@@ -110,7 +111,7 @@
     <!-- Destroy items confirmation -->
     <div id="destroy-modal" class="hidden">
       <div id="destroy-card">
-        <h2>🗑 Destroy items</h2>
+        <h2><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 6.5h15"/><path d="M8.5 6.5V5a1.5 1.5 0 0 1 1.5-1.5h4A1.5 1.5 0 0 1 15.5 5v1.5"/><path d="M6.5 6.5 7.3 19a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12.5"/><path d="M10 10.5v6M14 10.5v6"/></svg> Destroy items</h2>
         <div id="destroy-warning" class="hidden"></div>
         <div id="destroy-count"></div>
         <div id="destroy-list"></div>
@@ -124,7 +125,7 @@
     <!-- Travel to a cleared act -->
     <div id="act-select" class="hidden">
       <div id="act-card">
-        <h2>🌀 Where to?</h2>
+        <h2><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 11a1.6 1.6 0 0 1 3.2 0 3.1 3.1 0 0 1-6.2 0 4.7 4.7 0 0 1 9.4 0 6.4 6.4 0 0 1-6.4 6.4"/></svg> Where to?</h2>
         <div id="act-list"></div>
         <button id="btn-act-cancel" class="menu-btn">Cancel</button>
       </div>
@@ -161,14 +162,19 @@
     <div id="charselect-screen" class="overlay">
       <h2 class="screen-heading">Choose Your Hero</h2>
       <label class="cs-name-label">Your name <input id="cs-name" type="text" maxlength="14" placeholder="Enter a name" autocomplete="off"></label>
-      <div class="cs-appearance">
-        <div class="cs-pick-group">
-          <span class="cs-pick-label">Gender</span>
-          <div class="cs-gender" id="cs-gender"></div>
-        </div>
-        <div class="cs-pick-group">
-          <span class="cs-pick-label">Skin</span>
-          <div class="cs-skin" id="cs-skin"></div>
+      <!-- Live 3D turntable preview of the hero being created (class + gender
+           + skin tone applied live); driven by ui.js start/refresh/stopCharPreview -->
+      <div class="cs-top">
+        <div id="cs-preview"><canvas id="cs-preview-canvas"></canvas></div>
+        <div class="cs-appearance">
+          <div class="cs-pick-group">
+            <span class="cs-pick-label">Gender</span>
+            <div class="cs-gender" id="cs-gender"></div>
+          </div>
+          <div class="cs-pick-group">
+            <span class="cs-pick-label">Skin</span>
+            <div class="cs-skin" id="cs-skin"></div>
+          </div>
         </div>
       </div>
       <div class="class-cards" id="class-cards"></div>
@@ -199,23 +205,18 @@
       </div>
       <div id="hotbar"></div>
       <button id="interact-prompt" class="hidden"></button>
+      <!-- Tray glyphs are flat-stroke SVGs injected from src/ui/icons.js in
+           ui.js wireActionBar (single source of truth). The potion now lives
+           as a circular bubble on the ability row itself, in both layouts. -->
       <div id="action-bar">
-        <button id="ab-inv" title="Inventory (Tab)">🎒</button>
-        <button id="ab-quests" title="Quest Log (J)">📜</button>
-        <button id="ab-skills" title="Mastery (K)">✦</button>
-        <button id="ab-potion" title="Drink Potion (R)">
-          <svg class="potion-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <rect x="10" y="2" width="4" height="4" rx="1" fill="#8a6a3a"/>
-            <path d="M9 6h6v3.2l3.6 7.4c1.1 2.3-.5 5-3 5H8.4c-2.5 0-4.1-2.7-3-5L9 9.2V6z" fill="#c8342f" stroke="#7a1f1c" stroke-width="1"/>
-            <path d="M8.6 13.5c1 .6 2.2.9 3.4.9s2.4-.3 3.4-.9" stroke="#7a1f1c" stroke-width="1" fill="none" stroke-linecap="round"/>
-            <ellipse cx="10.3" cy="14.3" rx="1.1" ry="1.7" fill="#ff8f7a" opacity="0.75"/>
-          </svg>
-        </button>
-        <button id="ab-mic" class="hidden" title="Push-to-talk: hold V">🎤</button>
-        <button id="ab-pause" title="Menu (Esc)">⚙️</button>
-        <button id="ab-toggle" title="Toggle menu">☰</button>
+        <button id="ab-inv" title="Inventory (Tab)"></button>
+        <button id="ab-quests" title="Quest Log (J)"></button>
+        <button id="ab-skills" title="Mastery (K)"></button>
+        <button id="ab-mic" class="hidden" title="Push-to-talk: hold V"></button>
+        <button id="ab-pause" title="Menu (Esc)"></button>
+        <button id="ab-toggle" title="Toggle menu"></button>
       </div>
-      <div id="voice-indicator" class="hidden">🎤 LIVE</div>
+      <div id="voice-indicator" class="hidden"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="10" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg> LIVE</div>
     </div>
 
     <!-- Floating combat text layer -->
@@ -331,7 +332,7 @@
           <button id="btn-item-equip" class="menu-btn small">Equip</button>
           <button id="btn-item-sell" class="menu-btn small">Sell</button>
           <button id="btn-item-drop" class="menu-btn small">Drop</button>
-          <button id="btn-item-destroy" class="menu-btn small danger">🗑 Destroy</button>
+          <button id="btn-item-destroy" class="menu-btn small danger"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 6.5h15"/><path d="M8.5 6.5V5a1.5 1.5 0 0 1 1.5-1.5h4A1.5 1.5 0 0 1 15.5 5v1.5"/><path d="M6.5 6.5 7.3 19a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12.5"/><path d="M10 10.5v6M14 10.5v6"/></svg> Destroy</button>
         </div>
       </div>
     </div>
@@ -393,7 +394,7 @@
         <label>SFX Volume <input type="range" id="set-sfx" min="0" max="100" value="90"><span id="set-sfx-val"></span></label>
         <label>Voice Chat Volume <input type="range" id="set-vchat" min="0" max="100" value="90"><span id="set-vchat-val"></span></label>
         <label>NPC Speech <input type="range" id="set-speech" min="0" max="100" value="90"><span id="set-speech-val"></span></label>
-        <button id="btn-auto-level" class="menu-btn small" type="button">⚖️ Auto-Balance Audio</button>
+        <button id="btn-auto-level" class="menu-btn small" type="button">Auto-Balance Audio</button>
         <label>Graphics Quality
           <span class="cselect" id="cs-set-quality">
             <select id="set-quality" class="cselect-native">
@@ -416,7 +417,7 @@
           <span class="cselect" id="cs-set-voice">
             <select id="set-voice" class="cselect-native">
               <option value="off">Off</option>
-              <option value="ptt" selected>Push-to-talk (hold V / 🎤)</option>
+              <option value="ptt" selected>Push-to-talk (hold V or the mic button)</option>
               <option value="auto">Voice activated</option>
             </select>
             <button type="button" class="cselect-trigger"><span class="cselect-label"></span><span class="cselect-arrow">▾</span></button>
@@ -430,7 +431,7 @@
           <span id="ptt-meter-track"><span id="ptt-level-fill"></span></span>
         </div>
         <p id="ptt-meter-hint" class="hint hidden">Hold your push-to-talk key and speak - this shows your live mic level.</p>
-        <div id="mic-test-row" class="hidden"><button id="btn-mic-test" class="menu-btn small">🎤 Test mic (hear yourself)</button></div>
+        <div id="mic-test-row" class="hidden"><button id="btn-mic-test" class="menu-btn small">Test mic (hear yourself)</button></div>
         <div class="keybind-header">Key Bindings <span class="hint">(desktop)</span></div>
         <div id="keybinds"></div>
       </div>

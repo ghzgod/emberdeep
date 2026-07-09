@@ -114,6 +114,24 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 .cs-skin-sw:hover { transform: translateY(-2px); border-color: var(--gold); }
 .cs-skin-sw.selected { border-color: var(--gold); box-shadow: 0 0 12px rgba(232,192,90,0.5); transform: translateY(-2px); }
 
+/* Char-select live 3D preview: a small turntable viewport beside the
+   gender/skin pickers, framed in the panel language. The screen itself is
+   top-anchored + scrollable so the added preview never pushes the confirm
+   buttons off a short screen (same pattern as the inventory panel). */
+#charselect-screen { justify-content: flex-start; padding: 4vh 12px 24px; overflow-y: auto; }
+.cs-top { display: flex; gap: 30px; align-items: center; justify-content: center; flex-wrap: wrap; }
+#cs-preview {
+  width: 190px; height: 215px; flex: none; overflow: hidden;
+  border: 1px solid var(--panel-border); border-radius: 12px;
+  background: radial-gradient(circle at 50% 30%, #241d31, #100b18);
+  box-shadow: inset 0 0 18px rgba(0,0,0,0.6), 0 4px 14px rgba(0,0,0,0.5), 0 0 14px rgba(232,192,90,0.08);
+}
+#cs-preview canvas { display: block; width: 100%; height: 100%; }
+@media (max-width: 940px), (max-height: 700px) {
+  #cs-preview { width: 150px; height: 172px; }
+  #charselect-screen { padding-top: 2vh; gap: 12px; }
+}
+
 /* ---------- HUD ---------- */
 #hud { position: absolute; inset: 0; pointer-events: none; z-index: 10; color: var(--parchment); }
 #hud-topleft { position: absolute; top: 16px; left: 16px; width: 280px; display: flex; flex-direction: column; gap: 5px; }
@@ -389,38 +407,37 @@ body:not(.touch-input) #joy-ghost { display: none !important; }
 #touch-vitals .tv-hp { fill: none; stroke: var(--blood); stroke-linecap: round; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7)); }
 #touch-vitals .tv-res { fill: none; stroke: #5560b8; stroke-linecap: round; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7)); }
 #touch-vitals .tv-xp { fill: none; stroke: var(--gold); stroke-linecap: round; opacity: 0.9; }
+/* Readouts CURVE ALONG their own bands via textPath (built in
+   _buildTouchVitals): the health numbers ride the health arc in parchment,
+   the resource numbers ride the resource arc in its lighter blue-violet.
+   Sized small enough to sit within the band without spilling onto the
+   ability circles inside it. */
 #touch-vitals .tv-hp-text {
   fill: var(--parchment); font-family: Georgia, 'Times New Roman', serif;
-  font-size: 12px; paint-order: stroke; stroke: rgba(0,0,0,0.85); stroke-width: 2.5px;
+  font-size: 9.5px; letter-spacing: 0.5px;
+  paint-order: stroke; stroke: rgba(0,0,0,0.85); stroke-width: 2px;
 }
-/* resource current/max, one line under the health readout: a lighter tint of
-   the resource arc's blue-violet so the two numbers read at a glance */
 #touch-vitals .tv-res-text {
   fill: #aab2e6; font-family: Georgia, 'Times New Roman', serif;
-  font-size: 10px; paint-order: stroke; stroke: rgba(0,0,0,0.85); stroke-width: 2px;
+  font-size: 8.5px; letter-spacing: 0.5px;
+  paint-order: stroke; stroke: rgba(0,0,0,0.85); stroke-width: 1.8px;
 }
 /* Touch mode: vitals live on the cluster arcs, so the top-left bars retire.
    Desktop (non touch-mode) keeps its bars exactly as they are. */
 body.touch-mode #hud-topleft .bar-wrap { display: none; }
-.hotbar-slot {
-  position: relative; width: 66px; height: 66px; border: 2px solid var(--panel-border);
-  border-radius: 8px; background: var(--panel); display: flex; align-items: center; justify-content: flex-start;
-  flex-direction: column; padding-top: 8px; font-size: 26px; overflow: hidden;
-  cursor: pointer; transition: border-color 0.12s, transform 0.1s;
-}
-.hotbar-slot:hover { border-color: var(--gold); transform: translateY(-2px); }
-.hotbar-slot:active { transform: translateY(0); }
-.hotbar-slot .key { position: absolute; top: 2px; left: 5px; font-size: 11px; opacity: 0.7; }
-/* Radial clock: a dark wedge covers the remaining cooldown and shrinks
-   clockwise, revealing the ability colour underneath. No numbers. */
-.hotbar-slot .cd-sweep {
-  position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-  background: conic-gradient(rgba(6,4,10,0.80) var(--cd-ang, 0deg), transparent var(--cd-ang, 0deg));
-}
-.hotbar-slot.cooling .ab-icon { filter: grayscale(0.5) brightness(0.7); }
-/* off cooldown but too little resource: clearly dimmed so it doesn't look ready */
-.hotbar-slot.no-resource { border-color: #7a3030; }
-.hotbar-slot.no-resource .ab-icon { opacity: 0.4; }
+/* Desktop ability row: the SAME circular buttons as the touch cluster (gold
+   cooldown ring, cooldown seconds, no-resource rim), laid out as a flat
+   bottom-center row instead of the corner arc. No square boxes, no name
+   labels - the hotkey number sits in the corner, the name lives in the hover
+   tooltip. The potion bubble rides at the end of the row. Replaces the old
+   .hotbar-slot squares entirely. */
+#hotbar.desktop-row { align-items: center; gap: 10px; }
+#hotbar.desktop-row .act-btn { position: relative; width: 56px; height: 56px; flex: none; }
+#hotbar.desktop-row .act-btn:hover { border-color: var(--gold); }
+#hotbar.desktop-row .act-potion { width: 46px; height: 46px; margin-left: 8px; }
+/* drag-to-swap feedback (wireHotbarInput): lifted button dims, target glows */
+#hotbar.desktop-row .act-btn.dragging { opacity: 0.55; }
+#hotbar.desktop-row .act-btn.drop-target { border-color: var(--gold); box-shadow: 0 0 16px rgba(232,192,90,0.8); }
 
 /* Zoltan's mystery-relic reveal modal */
 #relic-reveal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
@@ -450,10 +467,6 @@ body.touch-mode #hud-topleft .bar-wrap { display: none; }
 #relic-card #relic-rarity { font-size: 12px; opacity: 0.65; text-transform: capitalize; margin-bottom: 8px; }
 #relic-card #relic-stats { font-size: 13px; opacity: 0.9; margin-bottom: 16px; min-height: 18px; }
 #relic-card #btn-relic-take { min-width: 140px; }
-.hotbar-slot .ab-name { position: absolute; bottom: 3px; left: 0; right: 0; font-size: 9px; text-align: center; opacity: 0.85; letter-spacing: 0.3px; line-height: 1.1; padding: 0 2px; }
-.hotbar-slot.ready { border-color: #6e5a8e; box-shadow: 0 0 8px rgba(160,120,220,0.25); }
-.hotbar-slot.no-resource { border-color: #7a3030; }
-
 /* interaction prompt pill */
 #interact-prompt {
   position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
@@ -698,7 +711,12 @@ body.touch-mode #hud-topleft .bar-wrap { display: none; }
 .inv-slot.equip.fillable:hover { border-color: var(--gold); box-shadow: 0 0 8px rgba(232,192,90,0.3); }
 /* items marked for destruction */
 .inv-slot.marked { border-color: #e04444 !important; box-shadow: 0 0 10px rgba(224,68,68,0.6); }
-.inv-slot.marked::after { content: '🗑'; position: absolute; top: -2px; right: 1px; font-size: 12px; }
+/* red trash mark in the corner of a slot queued for destruction (data-uri
+   copy of icons.js's trash glyph, tinted #e04444 - ::after cannot host DOM) */
+.inv-slot.marked::after {
+  content: ''; position: absolute; top: 1px; right: 2px; width: 13px; height: 13px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e04444' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 6.5h15'/%3E%3Cpath d='M8.5 6.5V5a1.5 1.5 0 0 1 1.5-1.5h4A1.5 1.5 0 0 1 15.5 5v1.5'/%3E%3Cpath d='M6.5 6.5 7.3 19a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12.5'/%3E%3Cpath d='M10 10.5v6M14 10.5v6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
 .menu-btn.danger { border-color: #7a3030; color: #e88; }
 .menu-btn.danger:hover { border-color: #e04444; color: #fff; box-shadow: 0 0 12px rgba(224,68,68,0.4); }
 
@@ -1156,17 +1174,13 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 }
 #touch-rotl:active, #touch-rotr:active, #touch-menu-toggle:active { border-color: var(--gold); color: var(--gold); }
 #touch-mic:active { border-color: #7ce87c; background: rgba(40, 80, 40, 0.85); transform: scale(1.08); }
-/* red potion flask icon (shared by the cluster potion bubble and the desktop
-   action-bar button): sized to fill most of its round button. */
+/* red potion flask icon (the cluster/row potion bubble): sized to fill most
+   of its round button. */
 .potion-icon { width: 26px; height: 26px; }
-#action-bar #ab-potion .potion-icon { width: 22px; height: 22px; }
 /* Flat-stroke drawer glyphs (backpack / mic / gear / rotate) inherit the
    button's currentColor, so the existing :active gold/green states still tint
    them without any per-icon color rules. */
 .drawer-icon { width: 26px; height: 26px; display: block; }
-/* Empty/unusable state: the slot stays put (never disappears) but reads as
-   inert - desaturated and dimmed, tap is a no-op (see the JS handlers). */
-#ab-potion.disabled { opacity: 0.4; filter: grayscale(1); cursor: default; }
 #touch-menu-toggle {
   display: none; position: absolute; pointer-events: auto; right: 14px; bottom: 14px;
   width: 56px; height: 56px; border-radius: 50%; border: 1px solid rgba(126,102,158,0.5);
@@ -1445,7 +1459,6 @@ body.touch-mode #chat-title { font-size: 11px; }
   #hud-clear { grid-area: clear; }
   #hud-quest { grid-area: quest; max-width: 42vw; }
   #minimap { grid-area: map; align-self: start; }
-  .hotbar-slot { width: 50px; height: 50px; }
   /* boss-bar-wrap is world-anchored above the boss now (positioned each frame
      from JS), so it needs no per-layout top offset here. */
   /* Landscape thumb ergonomics: gripping a phone/tablet in landscape, the right
@@ -1542,7 +1555,6 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
   #hud-floor { font-size: 15px; }
   #hud-quest { font-size: 10px; }
   #hud-clear { font-size: 11px; }
-  .hotbar-slot { width: 62px; height: 62px; }
   /* boss-bar-wrap is world-anchored (JS-positioned each frame) so no per-layout
      top offset is needed; just keep the width capped for small screens. */
   #boss-bar-wrap { width: min(84vw, 300px); }
