@@ -606,6 +606,11 @@ export class Game {
     const spawn = tileToWorld(spawnTile.x, spawnTile.y);
     this.player.pos.set(spawn.x, 0, spawn.z);
     this.player.dead = false;
+    // Reaching town resets combat cooldowns so the hero starts a fresh delve
+    // with everything ready (no leftover ability/attack timers from the fight
+    // that ended the last floor).
+    this.player.abilityCds = this.player.abilityCds.map(() => 0);
+    this.player.attackCd = 0;
 
     // fresh vendor stock each town visit
     for (const v of this.dungeonMeshes.vendorMeshes) {
@@ -2271,6 +2276,7 @@ export class Game {
       audio.play('door_open', { volume: 0.9 });
       audio.play('level_up', { volume: 0.4, rate: 1.3 });
       this.ui.floaters.spawn(this.player.pos, '⛓️ The seal breaks — the stairs open!', 'crit');
+      this.ui.showFloorBanner('The stairs have opened', 'The way below is unsealed', true);
       this.setStairsRingColor(0x54e87a);
       if (net.isHost) net.send({ t: 'notice', txt: '⛓️ The seal breaks — the stairs open!' });
     }
@@ -2902,10 +2908,16 @@ export class Game {
     // ---- camera follow + orbit + zoom + shake ----
     const target = p.pos;
     const zoom = this.camZoom || 1; // wheel / pinch scales the whole offset
+    // Zoomed in close: flatten the pitch toward eye level and lift the look
+    // target up to the head, so the camera peeks UNDER a hat brim at the face
+    // instead of staring straight down onto the top of the hat.
+    const closeIn = Math.min(1, Math.max(0, (0.6 - zoom) / 0.48)); // 0 far, 1 fully in
+    const yFlatten = 1 - 0.64 * closeIn;   // drop the camera height when zoomed in
+    const lookY = 0.5 + 1.15 * closeIn;    // raise the look target toward the face
     const camX = target.x + Math.sin(this.camYaw) * this.cameraOffset.z * zoom;
     const camZ = target.z + Math.cos(this.camYaw) * this.cameraOffset.z * zoom;
     this.camera.position.x += (camX - this.camera.position.x) * Math.min(1, 8 * dt);
-    this.camera.position.y += (target.y + this.cameraOffset.y * zoom - this.camera.position.y) * Math.min(1, 8 * dt);
+    this.camera.position.y += (target.y + this.cameraOffset.y * zoom * yFlatten - this.camera.position.y) * Math.min(1, 8 * dt);
     this.camera.position.z += (camZ - this.camera.position.z) * Math.min(1, 8 * dt);
     if (this.shakeAmount > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.shakeAmount;
@@ -2913,7 +2925,7 @@ export class Game {
       this.camera.position.z += (Math.random() - 0.5) * this.shakeAmount;
       this.shakeAmount *= 1 - 7 * dt;
     }
-    this.camera.lookAt(target.x, 0.5, target.z);
+    this.camera.lookAt(target.x, lookY, target.z);
 
     // player light follows
     this.playerLight.position.set(p.pos.x, 3.2, p.pos.z);
@@ -3011,11 +3023,17 @@ export class Game {
 
   updateDoors() {
     const p = this.player;
+    // A door opens on player proximity, and ALSO when the boss reaches it, so a
+    // boss chasing the hero can pass through a door the player already went
+    // through instead of getting walled off. Normal mobs never trigger this
+    // (only the player and the boss do), so ordinary door-gating is unchanged.
+    const boss = (this.boss && !this.boss.dead) ? this.boss : null;
     for (const d of this.dungeon.doors) {
       const key = `${d.x},${d.y}`;
       if (this.openedDoors.has(key)) continue;
       const w = tileToWorld(d.x, d.y);
-      if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < TILE * 1.1) {
+      const nearBoss = boss && Math.hypot(boss.pos.x - w.x, boss.pos.z - w.z) < TILE * 1.1;
+      if (Math.hypot(p.pos.x - w.x, p.pos.z - w.z) < TILE * 1.1 || nearBoss) {
         this.openedDoors.add(key);
         audio.play('door_open', { pos: { x: w.x, z: w.z } });
         const mesh = this.dungeonMeshes.doorMeshes.get(key);
@@ -3037,9 +3055,29 @@ export class Game {
       if (Math.hypot(p.pos.x - c.x, p.pos.z - c.z) < 1.3) {
         c.opened = true;
         audio.play('chest_open', { pos: { x: c.x, z: c.z } });
-        c.lid.rotation.x = -1.1;
-        c.lid.position.z -= 0.18;
-        c.lid.position.y += 0.12;
+        // Open the lid on the side nearest the player. The chest body stays put;
+        // only the lid tilts. The chest Group carries a random world yaw, so the
+        // player->chest direction is rotated into the chest's LOCAL frame and
+        // snapped to the nearest of the four edges (±X / ±Z), then the lid hinges
+        // up and slides back over that edge.
+        const yaw = c.mesh.rotation.y;
+        const wx = p.pos.x - c.x, wz = p.pos.z - c.z;
+        const cos = Math.cos(-yaw), sin = Math.sin(-yaw);
+        const lx = wx * cos - wz * sin; // player offset in the chest's local axes
+        const lz = wx * sin + wz * cos;
+        const open = 1.1; // hinge angle
+        const slide = 0.18, lift = 0.12;
+        if (Math.abs(lx) > Math.abs(lz)) {
+          // nearest side is along local X: hinge about Z so the lid leans back
+          // away from the player, exposing the opening toward them.
+          c.lid.rotation.z = lx > 0 ? open : -open;
+          c.lid.position.x += lx > 0 ? -slide : slide;
+        } else {
+          // nearest side is along local Z: hinge about X toward the player.
+          c.lid.rotation.x = lz > 0 ? open : -open;
+          c.lid.position.z += lz > 0 ? -slide : slide;
+        }
+        c.lid.position.y += lift;
         this.particles.burst(c.x, 0.8, c.z, 16, 0xe8c05a, { speed: 2.5, life: 0.6 });
         // chest loot: gold + high gear chance + potion chance
         const gold = 8 + Math.round(Math.random() * 10 * this.floor);
@@ -3075,6 +3113,12 @@ export class Game {
 
   // Portal: town → the dungeon (or join the party's shared world).
   usePortalToDungeon() {
+    // The town portal has a 10s reuse cooldown so it can't be spammed to
+    // rapidly re-roll floors. Blocked uses show a floater in the same style as
+    // Zoltan's "Fate must rest" gamble cooldown.
+    const left = Math.ceil(((this._portalReadyAt || 0) - performance.now()) / 1000);
+    if (left > 0) { this.ui.floaters.spawn(this.player.pos, `The way must settle — ${left}s`, 'player-dmg'); return; }
+    this._portalReadyAt = performance.now() + 10000;
     audio.play('stairs', { volume: 0.8 });
     if (net.active && !net.isHost) {
       this.stairsCooldown = 2;
@@ -3284,6 +3328,30 @@ export class Game {
     }
   }
 
+  // Desktop hover + click-to-teleport for the town dungeon portal. Raycasts the
+  // mouse against the portal mesh (reusing the same raycaster/NDC vector as the
+  // remote-player inspect click). While hovering, drives the portal's hover ramp
+  // (faster swirl + brighter shader, lerped smoothly in portal.js); a click
+  // while hovering teleports via the same usePortalToDungeon the prompt calls.
+  updatePortalHover() {
+    const pm = (this.inTown && !this.inTavern) ? this.dungeonMeshes?.portalMesh : null;
+    const setHover = pm?.userData.portalUpdate?.setHover;
+    if (!pm || !setHover) return;
+    // Touch has no meaningful cursor; leave the portal at rest for touch play.
+    if (this.touch?.enabled) { setHover(false); return; }
+    const input = this.input;
+    this._mouseNdc.set(
+      (input.mouse.x / window.innerWidth) * 2 - 1,
+      -(input.mouse.y / window.innerHeight) * 2 + 1
+    );
+    this.raycaster.setFromCamera(this._mouseNdc, this.camera);
+    const hovering = this.raycaster.intersectObject(pm, true).length > 0;
+    setHover(hovering);
+    if (hovering && input.mouse.clicked && this.stairsCooldown <= 0) {
+      this.usePortalToDungeon();
+    }
+  }
+
   // Town: vendors open their shop when you walk up; the portal descends.
   updateTownInteractions(dt) {
     this.shopCooldown = Math.max(0, this.shopCooldown - dt);
@@ -3295,6 +3363,10 @@ export class Game {
     // advance the portal spheres' swirl shader + orbiting particles
     if (this.dungeonMeshes.returnPortalMesh) this.dungeonMeshes.returnPortalMesh.userData.portalUpdate?.(dt);
     if (this.dungeonMeshes.portalMesh) this.dungeonMeshes.portalMesh.userData.portalUpdate?.(dt);
+
+    // desktop: mouse-hover the town dungeon portal to spin it up + brighten it,
+    // and click while hovering to teleport (same action as the interact prompt)
+    this.updatePortalHover();
 
     // ---- DUNGEON: descend stairs (gold ring) + return-to-town portal ----
     if (!this.inTown) {

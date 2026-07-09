@@ -305,7 +305,9 @@ export class Player {
     this.resource -= basicCost;
     this.attackCd = basic.cooldown;
     this.attackAnim = 0.22;
-    this.faceAimTimer = 0.8;
+    // Brief facing settle toward the target, only applied while stationary (see
+    // the facing block in update). Kept short so it never fights move-direction.
+    this.faceAimTimer = 0.25;
     const now = performance.now();
     // Combo cycle: pick the next melee variation, resetting to the first swing
     // if it's been a beat since the last attack so the combo doesn't carry
@@ -356,7 +358,7 @@ export class Player {
     this.abilityCds[index] = cd;
     this.abilityCdMax[index] = cd; // remember the true duration so the UI wheel is accurate
     this.attackAnim = 0.25;
-    this.faceAimTimer = 0.8;
+    this.faceAimTimer = 0.25; // brief stationary-only facing settle (see update)
     if (this.anim) this.anim.playAttack();
     ab.exec(game, this);
   }
@@ -462,13 +464,18 @@ export class Player {
       }
     }
 
-    // mesh sync + facing: aim while fighting, movement direction otherwise
+    // mesh sync + facing. The body follows MOVEMENT direction whenever the hero
+    // is walking (the loved feel); aiming only steers the body when the hero is
+    // essentially stationary, so it settles toward the target between steps
+    // instead of snapping to the enemy and back every frame while strafing.
+    // Aim itself (where shots/melee are directed) is decoupled: it always uses
+    // aimAngle/aimDir, so facing changes here never affect where attacks fire.
     this.mesh.position.copy(this.pos);
     this.faceAimTimer = Math.max(0, this.faceAimTimer - dt);
     const movingNow = !!(this.moveDir.x || this.moveDir.z) || !!this.dash;
     let targetRot = this.visualAngle;
-    if (this.aiming || this.faceAimTimer > 0) targetRot = this.aimAngle;
-    else if (movingNow) targetRot = Math.atan2(this.moveDir.z, this.moveDir.x);
+    if (movingNow) targetRot = Math.atan2(this.moveDir.z, this.moveDir.x);
+    else if (this.aiming || this.faceAimTimer > 0) targetRot = this.aimAngle;
     // shortest-path smooth turn
     let diff = targetRot - this.visualAngle;
     while (diff > Math.PI) diff -= Math.PI * 2;
