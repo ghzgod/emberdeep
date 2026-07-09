@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FLOOR, WALL } from './dungeon.js';
-import { TILE, tileToWorld } from './meshbuilder.js';
+import { TILE, tileToWorld, buildNpcModel, pushNpcAnimDriver } from './meshbuilder.js';
 import { makeWoodTexture, makePaintingTexture, makePlankTexture, makeHearthStoneTexture, makeTavernSignTexture } from './textures.js';
 
 // "The Sleeping Golem" — the tavern interior. Warm, safe, and populated.
@@ -178,6 +178,25 @@ export function buildTavernInterior() {
   keeper.position.set(keeperPos.x + TILE / 2, 0, keeperPos.z);
   keeper.rotation.y = 0; // face the customer side (+z), not the back wall
   group.add(keeper);
+
+  // --- Modeled human Barlow (preferred) ---
+  // Replace the box barkeep's visuals with a burly KayKit knight-body model
+  // (Barlow's voice is male, am_liam). The `keeper` Group stays the transform
+  // anchor (position + the +z facing), so only the look changes. If the GLB
+  // isn't loaded, buildNpcModel returns null and the box barkeep above stays
+  // visible as the fallback. He keeps his held mug in hand.
+  const barlow = buildNpcModel('knight', 'Barlow', { gender: 'male', skinTone: 'tan' });
+  if (barlow) {
+    for (let i = keeper.children.length - 1; i >= 0; i--) {
+      const c = keeper.children[i];
+      if (c === heldMug) { keeper.remove(c); barlow.mesh.add(c); c.position.set(0.28, 1.12, 0.34); }
+      else { keeper.remove(c); c.geometry?.dispose?.(); }
+    }
+    keeper.add(barlow.mesh);
+    // Idle mixer ticked via smokePuffs each frame; Barlow faces +z already, so
+    // the head just follows the idle clip (no per-frame look-at target).
+    pushNpcAnimDriver(smokePuffs, barlow, null);
+  }
 
   // ---- back-bar: three stocked shelves with bracket supports, plus jugs,
   // stacked tankards, kegs and casks so the wall behind Barlow reads as a
@@ -435,10 +454,15 @@ export function buildTavernInterior() {
     group.add(mug2, plate, loaf, jugT);
   }
 
-  // ---- patrons: seated regulars with faces and drinks ----
+  // ---- patrons: regulars with faces and drinks ----
+  // Body/gender per patron matches its chat voice (see game.js patronChat):
+  // the sober regular speaks with af_sarah (female) -> mage body; the tipsy
+  // one speaks with bm_daniel (male) -> ranger body. Each gets a modeled
+  // KayKit adventurer when the GLB is loaded, and keeps its box build as the
+  // fallback so a patron is never invisible.
   const patronDefs = [
-    { tile: [3, 4], angle: 0.9, robe: 0x5a4a6a, hair: 0x3a2a1a, name: 'patron' },
-    { tile: [8, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk' },
+    { tile: [3, 4], angle: 0.9, robe: 0x5a4a6a, hair: 0x3a2a1a, name: 'patron', cls: 'mage', gender: 'female', skin: 'light', npcName: 'Tavern Patron' },
+    { tile: [8, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk', cls: 'ranger', gender: 'male', skin: 'fair', npcName: 'Tipsy Regular' },
   ];
   for (const def of patronDefs) {
     const w = tileToWorld(def.tile[0], def.tile[1]);
@@ -467,6 +491,22 @@ export function buildTavernInterior() {
     patron.add(body, head, hair, eyeL, eyeR, nose, arm, pMug);
     patron.position.set(px, 0.18, pz); // perched on the stool
     patron.rotation.y = Math.atan2(w.x - px, w.z - pz); // face the table
+
+    // Modeled human patron (preferred): swap the box visuals for a KayKit
+    // adventurer standing at the stool, keeping the mug in hand. The `patron`
+    // Group stays the transform anchor (position + table-facing yaw).
+    const pnpc = buildNpcModel(def.cls, def.npcName, { gender: def.gender, skinTone: def.skin });
+    if (pnpc) {
+      for (let i = patron.children.length - 1; i >= 0; i--) {
+        const c = patron.children[i];
+        if (c === pMug) { patron.remove(c); pnpc.mesh.add(c); c.position.set(0.24, 1.05, 0.28); }
+        else { patron.remove(c); c.geometry?.dispose?.(); }
+      }
+      pnpc.mesh.position.y = -0.18; // undo the stool-perch lift so feet reach the floor
+      patron.add(pnpc.mesh);
+      pushNpcAnimDriver(smokePuffs, pnpc, null);
+    }
+
     group.add(patron);
     patronMeshes.push({ mesh: patron, x: px, z: pz, drunk: def.name === 'drunk' });
   }

@@ -110,6 +110,14 @@ export const ENEMY_TYPES = {
   },
 };
 
+// The Dungeon Lord (act 5) chases at ~2% under the hero's own run speed so it
+// nearly keeps up and reads as a genuine threat, instead of the ~3.1 crawl the
+// generic act-scaled boss speed gave it. Derived from the class base run
+// speeds in classes.js (knight 6.3 / mage 6.0 / ranger 6.9): 6.3 * 0.98 ~= 6.17
+// tracks the mid/knight hero closely while still letting the faster ranger open
+// a small gap. Scoped to act 5 only; every other act lord keeps 2.5 + act*0.12.
+const DUNGEON_LORD_SPEED = 6.3 * 0.98;
+
 const MINIBOSS_NAMES = {
   skeleton: 'Gravelord Ossus',
   spider: 'Broodmother Vex',
@@ -606,8 +614,8 @@ export class Boss extends Enemy {
     this.maxHp = 560 + act * 620 + floor * 28;
     this.hp = this.maxHp;
     this.damage = 18 + act * 7;
-    this.speed = 2.5 + act * 0.12;
-    this.radius = 1.0;
+    this.speed = act === 5 ? DUNGEON_LORD_SPEED : 2.5 + act * 0.12;
+    this.radius = act === 5 ? 1.4 : 1.0;
     this.xp = 220 + act * 160;
     this.goldRange = [60 + act * 25, 120 + act * 40];
     this.phase = 1;
@@ -662,7 +670,10 @@ export class Boss extends Enemy {
     game.shake(0.7);
     game.particles.ring(this.pos.x, 1, this.pos.z, 6, 0xb35eff);
     game.ui.floaters.spawn(this.pos, n === 2 ? 'THE LORD CALLS HIS DEAD' : 'THE LORD IS ENRAGED', 'crit');
-    if (n === 3) { this.speed = 3.8; this.damage *= 1.3; }
+    // Enrage speed: act 5 is already near hero run speed, so nudge it a touch
+    // faster rather than snapping it back down to the generic 3.8 the other
+    // lords use (which would make the enraged Dungeon Lord SLOWER than before).
+    if (n === 3) { this.speed = this.act === 5 ? DUNGEON_LORD_SPEED * 1.04 : 3.8; this.damage *= 1.3; }
   }
 
   fireBarrage(game) {
