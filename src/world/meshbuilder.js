@@ -30,6 +30,10 @@ export function buildNpcModel(classId, name, opts = {}) {
   const hero = buildAnimatedHero(classId, name || 'Townsfolk', opts);
   if (!hero) return null;
   const mesh = hero.mesh;
+  // Mark the rig as a townsperson so the shared hero lookup below can tell
+  // NPC bodies apart from actual player heroes (both come from the same
+  // KayKit builder and otherwise look identical to a scene query).
+  mesh.userData.townNpc = true;
   mesh.scale.multiplyScalar(NPC_SCALE);
   // Find the rig's head bone once so we can nudge it toward the player. Every
   // KayKit adventurer rig names it "head" (verified against the GLBs), same as
@@ -61,7 +65,11 @@ export function buildNpcModel(classId, name, opts = {}) {
       to.normalize();
       const parent = bone.parent;
       parent.updateWorldMatrix(true, false);
-      const parentInv = new THREE.Quaternion().setFromRotationMatrix(parent.matrixWorld).invert();
+      // normalize(): the rig is uniformly scaled (NPC_SCALE etc.), which makes
+      // setFromRotationMatrix return a non-unit quaternion; left unnormalized
+      // it inflates angleTo below past the bail-out gate and the head never
+      // turns at all.
+      const parentInv = new THREE.Quaternion().setFromRotationMatrix(parent.matrixWorld).normalize().invert();
       const worldLook = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), to);
       const localLook = parentInv.multiply(worldLook);
       const angle = bone.quaternion.angleTo(localLook);
@@ -69,6 +77,42 @@ export function buildNpcModel(classId, name, opts = {}) {
       bone.quaternion.slerp(localLook, Math.min(1, (maxAngle / Math.max(angle, 0.001)) * 0.3));
     },
   };
+}
+
+// Eyes-on-you for the stationary townsfolk (vendors, barkeep, patrons): find
+// the nearest player hero within glance range of an NPC without any game.js
+// plumbing. Hero meshes are located by scene query from the NPC's own scene
+// root: every buildAnimatedHero rig carries userData.headAnchor (heroModel.js
+// sets it for helmet seating), and buildNpcModel marks its own rigs with
+// userData.townNpc above, so "headAnchor and not townNpc" is exactly the set
+// of player heroes (local + co-op remotes; tracking whichever is nearest is
+// the right read in co-op anyway). The list is re-collected at most once a
+// second, or immediately when a cached hero left the scene (the player mesh
+// is rebuilt on gear swaps), so the per-frame cost is a few distance checks.
+const NPC_LOOK_RANGE = 6;
+const _heroLookup = { root: null, heroes: [], nextScanAt: 0 };
+const _npcWorldPos = new THREE.Vector3();
+const _heroWorldPos = new THREE.Vector3();
+function nearestHeroTarget(npcMesh) {
+  let root = npcMesh;
+  while (root.parent) root = root.parent;
+  const now = performance.now();
+  if (root !== _heroLookup.root || now >= _heroLookup.nextScanAt || _heroLookup.heroes.some((h) => !h.parent)) {
+    _heroLookup.root = root;
+    _heroLookup.nextScanAt = now + 1000;
+    _heroLookup.heroes.length = 0;
+    root.traverse((o) => { if (o.userData.headAnchor && !o.userData.townNpc) _heroLookup.heroes.push(o); });
+  }
+  if (!_heroLookup.heroes.length) return null;
+  npcMesh.getWorldPosition(_npcWorldPos);
+  let best = null;
+  let bestD = NPC_LOOK_RANGE;
+  for (const h of _heroLookup.heroes) {
+    h.getWorldPosition(_heroWorldPos);
+    const d = Math.hypot(_heroWorldPos.x - _npcWorldPos.x, _heroWorldPos.z - _npcWorldPos.z);
+    if (d < bestD) { bestD = d; best = [_heroWorldPos.x, _heroWorldPos.z]; }
+  }
+  return best;
 }
 
 // Register an NPC anim controller so its mixer advances every frame WITHOUT
@@ -79,7 +123,10 @@ export function buildNpcModel(classId, name, opts = {}) {
 // and drive mixer.update + the look-at. `kind:'firefly'` then makes game.js's
 // loop hit an early `continue` after only writing position.y on our throwaway
 // dummy Object3D (never added to any scene), so nothing else is disturbed.
-// `getTarget()` returns [x,z] to glance at (the player) or null to relax.
+// `getTarget()` returns [x,z] to glance at or null to relax; when the caller
+// passes no getTarget the driver defaults to tracking the nearest player hero
+// within NPC_LOOK_RANGE (see nearestHeroTarget above), which is what every
+// stationary townsperson wants.
 export function pushNpcAnimDriver(smokePuffs, npc, getTarget) {
   if (!smokePuffs) return;
   const SPEED = 1;
@@ -94,7 +141,7 @@ export function pushNpcAnimDriver(smokePuffs, npc, getTarget) {
       const dt = Math.min(0.1, Math.max(0, (v - this._phase) / SPEED));
       this._phase = v;
       npc.tick(dt);
-      const t = getTarget ? getTarget() : null;
+      const t = getTarget ? getTarget() : nearestHeroTarget(npc.mesh);
       if (t) npc.lookAt(t[0], t[1]); else npc.lookAt(null);
     },
   };
@@ -722,9 +769,9 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
         // box keeper stood; the counter (0.8 tall) is in front of it.
         keeper.add(npc.mesh);
         // Drive the model's idle mixer every frame through the smokePuffs tick
-        // (no game.js changes). updateVendors already yaws the whole keeper to
-        // face a nearby player, so the head just follows the idle clip (no
-        // per-frame look-at target needed here).
+        // (no game.js changes). With no explicit target the driver defaults to
+        // the nearest-hero glance (nearestHeroTarget), so the keeper's head
+        // tracks a close-by player on top of the body yaw updateVendors does.
         pushNpcAnimDriver(smokePuffs, npc, null);
       }
 
@@ -1007,7 +1054,7 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       group.add(rune);
     }
   }
-  // --- World beyond the town walls: forest ring, horizon, a wandering critter ---
+  // --- World beyond the town walls: forest ring + horizon ground ---
   if (town) buildTownSurroundings(group, dungeon, smokePuffs);
 
   return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh, smokePuffs, breakables, townGlows };
@@ -1590,19 +1637,7 @@ function buildTownSurroundings(group, dungeon, smokePuffs) {
   trunks.instanceMatrix.needsUpdate = true; foliage.instanceMatrix.needsUpdate = true;
   group.add(trunks, foliage);
 
-  // one shy forest critter ambling along a path just outside the walls
-  const deer = buildCritter(); deer.position.set(cx + extent * 0.46, 0, cz); group.add(deer);
-  if (smokePuffs) smokePuffs.push({ mesh: deer, kind: 'critter', cx, cz, radius: extent * 0.46, baseY: 0, phase: 0, speed: 0.5, angle: 0 });
-}
-
-function buildCritter() {
-  const g = new THREE.Group();
-  const hide = new THREE.MeshStandardMaterial({ color: 0x7a5636, roughness: 1, flatShading: true });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.42, 1.0), hide); body.position.y = 0.72; g.add(body);
-  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.5, 0.22), hide); neck.position.set(0, 0.98, 0.5); neck.rotation.x = -0.5; g.add(neck);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.36), hide); head.position.set(0, 1.2, 0.66); g.add(head);
-  for (const dx of [-0.14, 0.14]) { const ant = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.28, 4), new THREE.MeshStandardMaterial({ color: 0x4a3520, flatShading: true })); ant.position.set(dx, 1.42, 0.64); g.add(ant); }
-  for (const [dx, dz] of [[-0.14, 0.38], [0.14, 0.38], [-0.14, -0.38], [0.14, -0.38]]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.55, 0.1), hide); leg.position.set(dx, 0.28, dz); g.add(leg); }
-  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.18), hide); tail.position.set(0, 0.78, -0.56); g.add(tail);
-  return g;
+  // (The old lone "forest critter" that ambled a circle here is gone: it was a
+  // rigid box deer with no walk animation, read as a floating dog and had no
+  // modeled/animated replacement available locally, so it was cut outright.)
 }

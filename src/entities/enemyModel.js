@@ -227,6 +227,9 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
   for (let i = group.children.length - 1; i >= 0; i--) {
     const c = group.children[i];
     if (c.name === 'MinibossCrown') { crown = c; continue; }
+    // the overhead health bar sprite (enemies.js) also survives the swap; its
+    // owner re-seats it above the modeled height via userData.modelHeight
+    if (c.name === 'HpBar') continue;
     group.remove(c);
     c.geometry?.dispose?.();
     if (c.material) (Array.isArray(c.material) ? c.material : [c.material]).forEach((m) => m.dispose?.());
@@ -236,6 +239,9 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
   group.userData.gait = null; // modeled creatures animate via mixer, not the box gait rig
   group.userData.modeled = true;
   group.userData.footprintRadius = footprintRadius;
+  // real ground-to-crown height in group-local units, for the overhead health
+  // bar (enemies.js) to seat itself above the modeled head
+  group.userData.modelHeight = targetHeight;
 
   const mixer = new THREE.AnimationMixer(scene);
   const clipSetId = TYPE_CLIP_SET[modelKey] || 'biped';

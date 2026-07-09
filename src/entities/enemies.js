@@ -125,6 +125,30 @@ const MINIBOSS_NAMES = {
   golem: 'The Unmoved Colossus',
 };
 
+// ---------------- Overhead health bars ----------------
+// WoW-style: a small, thin billboarded bar floating just above each enemy's
+// head. Hidden at full HP; appears on first damage; red fill drains
+// left-to-right over a dark backing, with a gold border for elites,
+// minibosses and act bosses. One tiny canvas per enemy, redrawn ONLY when the
+// HP fraction actually changes (the sprite itself costs nothing per frame).
+const HPBAR_W = 64;
+const HPBAR_H = 8;
+function drawHpBar(bar) {
+  const ctx = bar.ctx;
+  ctx.fillStyle = bar.gilded ? '#e8b23a' : '#0c0a08';
+  ctx.fillRect(0, 0, HPBAR_W, HPBAR_H);
+  ctx.fillStyle = '#221012';
+  ctx.fillRect(1, 1, HPBAR_W - 2, HPBAR_H - 2);
+  const w = Math.round((HPBAR_W - 2) * Math.max(0, Math.min(1, bar.frac)));
+  if (w > 0) {
+    ctx.fillStyle = '#c62a1e';
+    ctx.fillRect(1, 1, w, HPBAR_H - 2);
+    ctx.fillStyle = '#e8604a'; // thin top highlight so the fill reads as a bar, not a smear
+    ctx.fillRect(1, 1, w, 2);
+  }
+  bar.texture.needsUpdate = true;
+}
+
 // Ghost ambient moans: very seldom, and never in a chorus. A module-level
 // throttle caps how often ANY ghost may moan (across the whole pack), on top
 // of each ghost's own long randomized cooldown.
@@ -224,6 +248,76 @@ export class Enemy {
     let s = this.speed;
     for (const st of this.statuses) if (st.slow) s *= st.slow.mult;
     return s;
+  }
+
+  // Overhead health bar: lazily built on the first frame this enemy is seen
+  // below full HP, then only re-drawn when the HP fraction changes. Rides the
+  // enemy's own mesh group as a child sprite (billboarding is free with
+  // THREE.Sprite), so scene add/remove and death cleanup need no extra
+  // plumbing anywhere. Called every frame from update() below.
+  _updateHpBar() {
+    if (this.hp >= this.maxHp || this.hp <= 0) {
+      if (this._hpBar) this._hpBar.sprite.visible = false;
+      return;
+    }
+    let bar = this._hpBar;
+    if (!bar) {
+      const canvas = document.createElement('canvas');
+      canvas.width = HPBAR_W;
+      canvas.height = HPBAR_H;
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+      // Named so attachEnemyModel keeps it (like the miniboss crown) when the
+      // box placeholder's children are swapped for the modeled creature.
+      sprite.name = 'HpBar';
+      sprite.renderOrder = 999; // draw over world geometry, same spirit as the crown glow
+      bar = this._hpBar = {
+        canvas, texture, sprite,
+        ctx: canvas.getContext('2d'),
+        gilded: this.elite || this.miniboss || !!this.isBoss,
+        frac: -1,
+        seated: false,
+        modeled: false,
+      };
+      this.mesh.add(sprite);
+    }
+    // Seat the bar just above the measured head top, in the group's local
+    // units (update() drives the group scale, which the sprite inherits).
+    // Re-seat if the modeled GLB swapped in after the bar first appeared,
+    // since the model's real height differs from the box rig's.
+    const modeled = !!this.mesh.userData.modeled;
+    if (!bar.seated || bar.modeled !== modeled) {
+      bar.seated = true;
+      bar.modeled = modeled;
+      // steady group scale (update() below drives mesh.scale between this and
+      // a brief windup pulse; size the bar against the steady value)
+      const scl = this.miniboss ? 1.5 : 1;
+      let localTop;
+      if (modeled && this.mesh.userData.modelHeight) {
+        // measured by enemyModel.js when it scaled the GLB to its target height
+        localTop = this.mesh.userData.modelHeight;
+      } else {
+        // box rig: measure once, with the bar sprite detached so it can't
+        // inflate its own measurement (Box3 includes invisible children)
+        this.mesh.remove(bar.sprite);
+        const box = new THREE.Box3().setFromObject(this.mesh);
+        this.mesh.add(bar.sprite);
+        localTop = (box.max.y - this.mesh.position.y) / (this.mesh.scale.x || 1);
+      }
+      // width ~ the creature's shoulder width, thin, floating a bit above the
+      // crown (and above the miniboss crown ring, which sits at +0.18)
+      const w = Math.max(0.55, Math.min(1.7, this.visualRadius * 1.8)) / scl;
+      bar.sprite.scale.set(w, w * (HPBAR_H / HPBAR_W), 1);
+      bar.sprite.position.set(0, localTop + 0.34 / scl, 0);
+    }
+    const frac = this.hp / this.maxHp;
+    if (Math.abs(frac - bar.frac) > 0.002) {
+      bar.frac = frac;
+      drawHpBar(bar);
+    }
+    bar.sprite.visible = true;
   }
 
   // Visual footprint radius for anti-clipping (separation from other enemies
@@ -559,6 +653,8 @@ export class Enemy {
         o.material.emissive.setScalar(this.hitFlash > 0 ? 0.6 : 0);
       }
     });
+    // overhead health bar (appears once damaged; redrawn only on HP change)
+    this._updateHpBar();
   }
 
   executeAttack(game, distToTarget, target) {
