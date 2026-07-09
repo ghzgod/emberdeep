@@ -289,6 +289,156 @@ function splitRogueHood(headMesh) {
   return hood;
 }
 
+// The KayKit mage bakes a ponytail INTO the single skinned Mage_Head mesh:
+// a hair bun (with a bead) plus a purple tie band, hanging from the back of
+// the skull down the neck. There is no separate hair node to toggle, so a
+// male mage needs the tail removed at geometry level. Luckily the tail is
+// authored as two self-contained triangle islands that merely intersect the
+// skull surface from outside, so index-buffer connectivity finds them cleanly:
+// drop every triangle of any island whose bounding box sits entirely in the
+// tail region (behind the skull, below the crown, near the center line - the
+// bounds below are measured from Mage.glb in the head's local space, where
+// the rig faces +Z and the head spans y 1.07..2.20, z -0.75..0.52).
+// One catch: the skull surface has a small authored hole where the tail
+// attached (hidden-face-removed under the bun), a closed 8-vertex rim at
+// roughly y 1.30..1.46, z -0.47..-0.35. Removing the tail exposes it, showing
+// the inside of the face through the nape. So after stripping we cap that rim
+// with a triangle fan: new vertices reuse the rim's positions, normals and
+// skin weights, but all get one constant UV inside the hair atlas tile so the
+// cap renders as flat hair color instead of interpolating across the atlas.
+const MAGE_TAIL_MAX_Z = -0.3;
+const MAGE_TAIL_MAX_Y = 1.5;
+const MAGE_TAIL_MAX_ABS_X = 0.25;
+// Hole-rim search window, slightly wider than the measured rim so small asset
+// tweaks stay covered. Kept clear of the neck opening (which is lower and
+// further forward) so the cap can never seal the neck.
+const MAGE_HOLE_MAX_Z = -0.2;
+const MAGE_HOLE_MAX_Y = 1.62;
+const MAGE_HOLE_MAX_ABS_X = 0.3;
+// Center of the hair color tile in the shared 8x8 atlas (tile x=1, y=0).
+const MAGE_HAIR_UV = [0.1875, 0.0625];
+
+let maleMageHeadGeo = null; // built once; shared by every male mage instance
+
+function stripMagePonytail(srcGeo) {
+  const pos = srcGeo.getAttribute('position');
+  const idx = srcGeo.getIndex();
+  if (!pos || !idx) return null;
+  const vCount = pos.count;
+  // 1. Triangle-connectivity islands (union-find over the index buffer).
+  const parent = new Uint32Array(vCount);
+  for (let i = 0; i < vCount; i++) parent[i] = i;
+  const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  for (let t = 0; t < idx.count; t += 3) {
+    const ra = find(idx.getX(t)), rb = find(idx.getX(t + 1)), rc = find(idx.getX(t + 2));
+    parent[rb] = ra; parent[rc] = ra;
+  }
+  // 2. Per-island bounds; islands fully inside the tail region are doomed.
+  const boxes = new Map();
+  for (let t = 0; t < idx.count; t++) {
+    const vi = idx.getX(t);
+    const r = find(vi);
+    let b = boxes.get(r);
+    if (!b) { b = { maxY: -Infinity, maxZ: -Infinity, maxAbsX: 0 }; boxes.set(r, b); }
+    if (pos.getY(vi) > b.maxY) b.maxY = pos.getY(vi);
+    if (pos.getZ(vi) > b.maxZ) b.maxZ = pos.getZ(vi);
+    const ax = Math.abs(pos.getX(vi));
+    if (ax > b.maxAbsX) b.maxAbsX = ax;
+  }
+  const doomed = new Set();
+  for (const [r, b] of boxes) {
+    if (b.maxZ < MAGE_TAIL_MAX_Z && b.maxY < MAGE_TAIL_MAX_Y && b.maxAbsX < MAGE_TAIL_MAX_ABS_X) doomed.add(r);
+  }
+  if (!doomed.size) return null; // nothing matched: unexpected asset, leave stock
+  // 3. Drop doomed triangles; find the exposed hole rim among what is kept.
+  // Boundary edges (used by exactly one kept triangle) are collected with
+  // position-welded endpoints so duplicated seam vertices do not read as fake
+  // boundaries, and each edge remembers its kept-triangle winding (a -> b) so
+  // the cap fan below can match the surrounding surface orientation.
+  const weld = new Map();
+  const canon = new Uint32Array(vCount);
+  for (let i = 0; i < vCount; i++) {
+    const key = pos.getX(i).toFixed(5) + ',' + pos.getY(i).toFixed(5) + ',' + pos.getZ(i).toFixed(5);
+    const c = weld.get(key);
+    if (c === undefined) { weld.set(key, i); canon[i] = i; } else canon[i] = c;
+  }
+  const kept = [];
+  const edges = new Map(); // canonKey -> { a, b, count }
+  const noteEdge = (a, b) => {
+    const ca = canon[a], cb = canon[b];
+    const key = ca < cb ? ca + '_' + cb : cb + '_' + ca;
+    const e = edges.get(key);
+    if (e) e.count++;
+    else edges.set(key, { a, b, count: 1 });
+  };
+  for (let t = 0; t < idx.count; t += 3) {
+    const a = idx.getX(t), b = idx.getX(t + 1), c = idx.getX(t + 2);
+    if (doomed.has(find(a))) continue;
+    kept.push(a, b, c);
+    noteEdge(a, b); noteEdge(b, c); noteEdge(c, a);
+  }
+  const inHole = (vi) => pos.getZ(vi) < MAGE_HOLE_MAX_Z && pos.getY(vi) < MAGE_HOLE_MAX_Y
+    && Math.abs(pos.getX(vi)) < MAGE_HOLE_MAX_ABS_X;
+  const rim = [];
+  for (const e of edges.values()) {
+    if (e.count === 1 && inHole(e.a) && inHole(e.b)) rim.push(e);
+  }
+  // 4. Rebuild the geometry with the doomed triangles gone and, if a rim was
+  // exposed, a cap fan over it: per rim edge two duplicated edge vertices plus
+  // one shared center vertex, all with the constant hair UV.
+  const nrm = srcGeo.getAttribute('normal');
+  const newVerts = rim.length ? rim.length * 2 + 1 : 0;
+  const out = new THREE.BufferGeometry();
+  const attrNames = ['position', 'normal', 'uv', 'skinIndex', 'skinWeight'];
+  const outAttrs = {};
+  for (const name of attrNames) {
+    const src = srcGeo.getAttribute(name);
+    if (!src) continue;
+    const arr = new src.array.constructor((vCount + newVerts) * src.itemSize);
+    arr.set(src.array);
+    outAttrs[name] = new THREE.BufferAttribute(arr, src.itemSize, src.normalized);
+    out.setAttribute(name, outAttrs[name]);
+  }
+  if (rim.length) {
+    const copyVert = (dst, srcIdx) => {
+      for (const name of attrNames) {
+        const at = outAttrs[name];
+        if (!at) continue;
+        for (let k = 0; k < at.itemSize; k++) at.array[dst * at.itemSize + k] = at.array[srcIdx * at.itemSize + k];
+      }
+      outAttrs.uv.array[dst * 2] = MAGE_HAIR_UV[0];
+      outAttrs.uv.array[dst * 2 + 1] = MAGE_HAIR_UV[1];
+    };
+    const center = vCount + rim.length * 2;
+    const cp = new THREE.Vector3(), cn = new THREE.Vector3();
+    rim.forEach((e, i) => {
+      copyVert(vCount + i * 2, e.a);
+      copyVert(vCount + i * 2 + 1, e.b);
+      cp.x += pos.getX(e.a) + pos.getX(e.b); cp.y += pos.getY(e.a) + pos.getY(e.b); cp.z += pos.getZ(e.a) + pos.getZ(e.b);
+      if (nrm) { cn.x += nrm.getX(e.a) + nrm.getX(e.b); cn.y += nrm.getY(e.a) + nrm.getY(e.b); cn.z += nrm.getZ(e.a) + nrm.getZ(e.b); }
+    });
+    cp.divideScalar(rim.length * 2);
+    cn.normalize();
+    copyVert(center, rim[0].a); // seed skin weights from a rim vertex, then overwrite pos/normal
+    outAttrs.position.array[center * 3] = cp.x;
+    outAttrs.position.array[center * 3 + 1] = cp.y;
+    outAttrs.position.array[center * 3 + 2] = cp.z;
+    if (outAttrs.normal) {
+      outAttrs.normal.array[center * 3] = cn.x;
+      outAttrs.normal.array[center * 3 + 1] = cn.y;
+      outAttrs.normal.array[center * 3 + 2] = cn.z;
+    }
+    // The kept triangle walks the rim edge a -> b, so the missing neighbor
+    // (our cap) must walk it b -> a to keep the same outward winding.
+    rim.forEach((e, i) => {
+      kept.push(vCount + i * 2 + 1, vCount + i * 2, center);
+    });
+  }
+  const IndexArr = vCount + newVerts > 65535 ? Uint32Array : Uint16Array;
+  out.setIndex(new THREE.BufferAttribute(new IndexArr(kept), 1));
+  return out;
+}
+
 const CLIP_PATTERNS = {
   idle: [/^idle$/i, /idle_?a/i, /idle/i],
   run: [/^running_a$/i, /run/i, /walk/i],
@@ -363,6 +513,14 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       if (o.isSkinnedMesh && /Head.*Hood|Hood.*Head|Hooded/i.test(o.name)) hoodedHead = o;
     }
   });
+  // Only female mages keep the baked-in ponytail; male mages get the stripped
+  // head (see stripMagePonytail above). Built once and cached - skeletonClone
+  // hands every hero the SAME shared geometry instance, so swapping in a
+  // separate stripped instance is what keeps female/male heroes independent.
+  if (classId === 'mage' && gender === 'male' && headMesh) {
+    if (!maleMageHeadGeo) maleMageHeadGeo = stripMagePonytail(headMesh.geometry);
+    if (maleMageHeadGeo) headMesh.geometry = maleMageHeadGeo;
+  }
   // The KayKit rigs bake EVERY weapon/shield variant for a class into the
   // hand bones at once (e.g. the knight ships 1H_Sword, 2H_Sword AND
   // 1H_Sword_Offhand plus four different shields, all simultaneously
@@ -559,12 +717,15 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       // variant swings; other classes never set _swingSweepActive.
       if (this._swingSweepActive) {
         this._swingSweepT = (this._swingSweepT || 0) + dt;
-        const dur = 0.26;
+        const dur = 0.36;
         const p = Math.min(1, this._swingSweepT / dur);
         let off;
-        if (p < 0.22) off = -0.42 * (p / 0.22);                       // cock back
-        else if (p < 0.68) off = -0.42 + 1.12 * ((p - 0.22) / 0.46);  // drive through
-        else off = 0.7 * (1 - (p - 0.68) / 0.32);                     // recover to 0
+        // Big theatrical arc: wind back ~-0.95 rad then drive through to ~+1.55
+        // rad (times mag) - the torso visibly carries the blade across a huge
+        // sweep instead of a small wiggle.
+        if (p < 0.22) off = -0.95 * (p / 0.22);                        // cock back hard
+        else if (p < 0.7) off = -0.95 + 2.5 * ((p - 0.22) / 0.48);     // drive all the way through
+        else off = 1.55 * (1 - (p - 0.7) / 0.3);                       // recover to 0
         this._swingSweepOffset = off * this._swingSweepMag * this._swingSweepDir;
         if (p >= 1) { this._swingSweepActive = false; this._swingSweepOffset = 0; }
       } else if (this._swingSweepOffset) {
@@ -602,7 +763,10 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       // Small per-swing timescale jitter so the arc's speed/range of motion is
       // never identical twice; centered on the previous fixed 1.8 so DPS pacing
       // (driven by player.js cooldowns, not clip length) is unaffected.
-      a.setEffectiveTimeScale(variant ? 1.6 + Math.random() * 0.5 : 1.8);
+      // Slower playback on the combo swings so the full arm arc actually READS
+      // as a big swing instead of a blur; DPS pacing is cooldown-driven so this
+      // only changes the visual. Random jitter keeps repeats varied.
+      a.setEffectiveTimeScale(variant ? 1.15 + Math.random() * 0.35 : 1.8);
       a.setEffectiveWeight(1);
       a.play();
       // Tiny random root lean for the swing: a left/right/forward tilt that reads
@@ -610,12 +774,12 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       // hero moves or idles (setLocomotion resets rotation.z; _swingTilt below
       // eases rotation.x back). Only for the randomized (knight) swings.
       if (variant) {
-        this._swingTilt = (Math.random() - 0.5) * 0.14;
+        this._swingTilt = (Math.random() - 0.5) * 0.26;
         // Wide body sweep: the torso rotates through the cut so the blade visibly
-        // carves a broad arc (matching the wide hit arc in classes.js). Big for
-        // the horizontal cleaves, small for the overhead chop and forward stab.
-        // Direction alternates so consecutive cleaves sweep opposite ways.
-        const mag = key === 'chop' ? 0.3 : key === 'stab' ? 0.22 : 1.0;
+        // carves a HUGE arc (matching the wide hit arc in classes.js). Full-body
+        // sweep for the horizontal cleaves, still-substantial for the overhead
+        // chop and forward stab. Direction alternates between cleaves.
+        const mag = key === 'chop' ? 0.55 : key === 'stab' ? 0.4 : 1.0;
         this._swingSweepDir = (key === 'slice_diagonal') ? -1
           : (this._swingAlt = !this._swingAlt) ? 1 : -1;
         this._swingSweepMag = mag;
