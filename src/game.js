@@ -3113,7 +3113,13 @@ export class Game {
     // vsyncs do not consume clock.getDelta(), so dt below stays sane.
     const minGap = this._minFrameInterval(now);
     if (this._lastFrameT !== undefined && now - this._lastFrameT < minGap) return;
-    this._lastFrameT = now;
+    // Phase-locked cap: advance the frame clock by whole steps of minGap
+    // instead of snapping to `now`. Snapping drifts against vsync on high
+    // refresh displays, so accepted frames land at uneven intervals (e.g.
+    // 8/25/8/25ms on 120Hz) - an uneven dt the camera lerp renders as the
+    // world visibly juddering while moving or rotating. The max() guard
+    // resyncs after long stalls (tab hidden) so we never fast-forward.
+    this._lastFrameT = this._lastFrameT === undefined ? now : Math.max(this._lastFrameT + minGap, now - minGap);
     const dt = Math.min(0.05, this.clock.getDelta());
 
     // Tab backgrounded: browsers keep firing rAF at ~1fps, which would let
