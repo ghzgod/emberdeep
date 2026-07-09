@@ -1,4 +1,4 @@
-import { FLOOR, WALL, DOOR, PIT } from '../world/dungeon.js';
+import { FLOOR, WALL, DOOR, PIT, BRIDGE } from '../world/dungeon.js';
 import { TILE } from '../world/meshbuilder.js';
 
 // Fog-of-war minimap on a small canvas, revealed as the player explores.
@@ -18,6 +18,7 @@ export class Minimap {
     // town is small and safe — reveal the whole map immediately
     this.explored = Array.from({ length: dungeon.size }, () =>
       new Array(dungeon.size).fill(!!dungeon.town));
+    this._orient = undefined; // re-seed the smoothed map orientation next draw
   }
 
   // colors mirror the actual ground: grass/cobble in town, themed stone below
@@ -52,7 +53,53 @@ export class Minimap {
     }
   }
 
-  // Player-centered and rotated so the camera's forward is always "up".
+  // Is the tile at (tx,ty) walkable (open) for corridor detection?
+  walkable(tx, ty) {
+    const t = this.dungeon.grid[ty]?.[tx];
+    return t === FLOOR || t === DOOR || t === BRIDGE;
+  }
+
+  // Detects whether the player stands in a 1-wide corridor and, if so, returns
+  // the extra map rotation that aligns that corridor vertically (camera N/S) on
+  // the minimap. A corridor along an axis has walls on both sides of the
+  // perpendicular axis and open tiles along it. Returns null when not clearly
+  // in a corridor (rooms/junctions), so the caller falls back to camYaw.
+  corridorAlign(player, camYaw) {
+    const tx = Math.floor(player.pos.x / TILE);
+    const ty = Math.floor(player.pos.z / TILE);
+    if (!this.walkable(tx, ty)) return null;
+    const open = (dx, dy) => this.walkable(tx + dx, ty + dy);
+    const openW = open(-1, 0), openE = open(1, 0);
+    const openN = open(0, -1), openS = open(0, 1);
+    // horizontal corridor: open left/right, walled above/below
+    const horiz = openW && openE && !openN && !openS;
+    // vertical corridor: open up/down, walled left/right
+    const vert = openN && openS && !openW && !openE;
+    if (horiz === vert) return null; // neither, or an ambiguous junction
+    // World +x (grid east/west) maps to the minimap's horizontal axis. A
+    // horizontal corridor should be turned a quarter turn so it runs vertical;
+    // a vertical corridor is already vertical. Snap to whichever quarter-turn
+    // of camYaw keeps the arrow's up/down feel closest to the camera heading.
+    const base = horiz ? Math.PI / 2 : 0;
+    // choose base or base+PI, whichever is nearest camYaw, so forward stays "up"
+    let target = base;
+    if (Math.abs(this.angDiff(base + Math.PI, camYaw)) < Math.abs(this.angDiff(base, camYaw))) {
+      target = base + Math.PI;
+    }
+    return target;
+  }
+
+  // shortest signed difference a-b wrapped to (-PI, PI]
+  angDiff(a, b) {
+    let d = (a - b) % (Math.PI * 2);
+    if (d > Math.PI) d -= Math.PI * 2;
+    if (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  }
+
+  // Player-centered and rotated so the camera's forward is always "up" (or, in
+  // a 1-wide corridor, so the hallway runs vertically). The chosen orientation
+  // is smoothed (lerp) so it never snaps.
   draw(player, camYaw = 0) {
     if (!this.dungeon) return;
     const { ctx, canvas } = this;
@@ -62,14 +109,23 @@ export class Minimap {
     const px = (player.pos.x / TILE) * s;
     const pz = (player.pos.z / TILE) * s;
 
+    // Corridor auto-orient: in a 1-wide hallway, align it vertically; otherwise
+    // fall back to camYaw. Smoothly rotate the map orientation toward the target
+    // (lerp along the shortest arc) so it eases rather than snapping.
+    const align = this.dungeon.town ? null : this.corridorAlign(player, camYaw);
+    const targetOrient = align ?? camYaw;
+    if (this._orient === undefined) this._orient = targetOrient;
+    this._orient += this.angDiff(targetOrient, this._orient) * 0.12;
+    const orient = this._orient;
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.save();
-    // rotate the whole map about the player so their heading points up
+    // rotate the whole map about the player by the smoothed orientation
     ctx.translate(cx, cy);
-    ctx.rotate(camYaw);
+    ctx.rotate(orient);
     ctx.translate(-px, -pz);
 
     for (let y = 0; y < n; y++) {
@@ -110,8 +166,8 @@ export class Minimap {
     // (the map rotates by camYaw, so project the world facing vector through it)
     const face = player.visualAngle ?? 0;
     const fx = Math.cos(face), fz = Math.sin(face);
-    const sx = fx * Math.cos(camYaw) - fz * Math.sin(camYaw);
-    const sy = fx * Math.sin(camYaw) + fz * Math.cos(camYaw);
+    const sx = fx * Math.cos(orient) - fz * Math.sin(orient);
+    const sy = fx * Math.sin(orient) + fz * Math.cos(orient);
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(Math.atan2(sy, sx) + Math.PI / 2); // arrow art points up by default
@@ -128,7 +184,7 @@ export class Minimap {
     // subtle compass "N" so rotation is legible
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate(camYaw);
+    ctx.rotate(orient);
     ctx.fillStyle = 'rgba(232,192,90,0.7)';
     ctx.font = 'bold 10px Georgia';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
