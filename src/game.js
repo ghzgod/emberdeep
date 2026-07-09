@@ -134,12 +134,13 @@ export class Game {
       savedSettings || {}
     );
     // first-ever visit: run the dialogue-forward auto-balance so the mix is
-    // sane out of the box (speech reference, sfx -6dB, music -12dB)
+    // sane out of the box (speech reference, sfx -6dB, music pulled well down
+    // to ~0.15 so it stays a background bed and never buries dialogue)
     if (firstVisit) {
       const db = (d) => Math.pow(10, d / 20);
       Object.assign(this.settings, {
         speechVolume: 1.0, voiceChatVolume: 1.0,
-        sfxVolume: +db(-6).toFixed(2), musicVolume: +db(-12).toFixed(2), masterVolume: 0.85,
+        sfxVolume: +db(-6).toFixed(2), musicVolume: 0.15, masterVolume: 0.85,
       });
     }
     // Battery saver: skip the heavy in-browser ML (TensorFlow.js movement net)

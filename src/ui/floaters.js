@@ -56,6 +56,17 @@ export class Floaters {
     t.el.style.top = `${(-this._v.y * 0.5 + 0.5) * window.innerHeight}px`;
   }
 
+  // Project a world point to screen pixels, reusing the same math the floaters
+  // use. Returns { x, y, onScreen }: onScreen is false when the point is behind
+  // the camera (project z > 1), so callers can hide their overlay in that case.
+  // x/y are still valid-ish when behind camera but should not be trusted.
+  worldToScreen(x, y, z) {
+    this._v.set(x, y, z).project(this.camera);
+    const sx = (this._v.x * 0.5 + 0.5) * window.innerWidth;
+    const sy = (-this._v.y * 0.5 + 0.5) * window.innerHeight;
+    return { x: sx, y: sy, onScreen: this._v.z <= 1 };
+  }
+
   spawn(worldPos, text, cssClass = '', dur = LIFE) {
     // Collapse an exact-duplicate that just appeared at the same spot (e.g. a
     // chest firing gold + loot on the same frame doubling a line).
