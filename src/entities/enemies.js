@@ -39,7 +39,14 @@ export const ENEMY_TYPES = {
   },
   spider: {
     name: 'Cave Spider',
-    base: { hp: 24, damage: 8, speed: 5.6, xp: 8, gold: [1, 4] },
+    // speed was 5.6: the spider rig has no distinct run clip (walk and run
+    // resolve to the same Spider_Walk animation, see enemyModel.js
+    // STRIDE_TABLE), so its gait timescale is clamped to 2.5x a ~1.9u/s
+    // natural stride (4.75u/s max believable coverage). 5.6 still overshot
+    // that after the stride-matching fix landed; trimmed ~7% so the residual
+    // gap is small enough not to read as gliding (gameplay-safe, still the
+    // fastest non-boss chaser on the floor).
+    base: { hp: 24, damage: 8, speed: 5.2, xp: 8, gold: [1, 4] },
     perFloor: { hp: 9, damage: 2.6, xp: 3 },
     attack: { kind: 'melee', range: 1.3, cooldown: 0.85, windup: 0.18 },
     aggroRange: 11, radius: 0.35,
@@ -417,10 +424,17 @@ export class Enemy {
   // Also drives the modeled-creature AnimationMixer (walk/idle crossfade) when
   // a GLB has swapped in for this enemy; box-gait stays as the fallback path
   // for any type that has no model mapping or whose model hasn't loaded yet.
-  _animateGait(dt, speed01 = 0, animDt = dt) {
+  // `actualSpeed` is the creature's real horizontal speed in world units/sec
+  // (as opposed to speed01, which is that same movement normalized 0..1
+  // against THIS type's own top speed) - modeled creatures need the real
+  // value to match their clip's timescale against its actual natural stride
+  // speed (see enemyModel.js STRIDE_TABLE), otherwise a fast type (spider,
+  // ghoul) and a slow one both read as "near top speed" identically even
+  // though their legs need to move at very different rates to sell it.
+  _animateGait(dt, speed01 = 0, animDt = dt, actualSpeed = 0) {
     const anim = this.mesh.userData?.anim;
     if (anim) {
-      anim.setLocomotion(speed01);
+      anim.setLocomotion(actualSpeed);
       if (animDt > 0) anim.update(animDt);
       return;
     }
@@ -488,7 +502,7 @@ export class Enemy {
         anim.lookAtTarget?.(player.pos.x, player.pos.y + 1.0, player.pos.z);
       }
     }
-    this._animateGait(dt, topSpeed > 0 ? Math.min(1, moved / topSpeed) : 0, animDt);
+    this._animateGait(dt, topSpeed > 0 ? Math.min(1, moved / topSpeed) : 0, animDt, dt > 0 ? moved / dt : 0);
     // Wraiths leave a wispy stream behind them as they drift (self-fading, so
     // it's RAM-bounded via the particle system's own lifetimes).
     if (this.typeId === 'ghost' && this.state === 'chase') {

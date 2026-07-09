@@ -125,6 +125,37 @@ const CLIP_SETS = {
   bipedPunch: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: ['Punch', 'Weapon'], death: 'Death' },
 };
 
+// Stride matching: natural horizontal speed (world units/sec) each rig's
+// walk/run clip visually covers at THREE's default timescale of 1, tuned per
+// clip family (not per exact type, since every type in a family shares the
+// same clip). setLocomotion() below divides the creature's ACTUAL speed by
+// whichever of these applies to pick a timescale, so fast movers (ghoul,
+// spider, demon) get a genuinely quicker-cadence gait instead of the same
+// clip just playing back faster than its legs can visually cover (the
+// "gliding" the clip plays at a fixed-ish rate while ENEMY_TYPES speed varies
+// far more, so the feet appear to slide across the ground on fast types).
+// `crossover`: actual speed above which a family with a distinct run clip
+// switches from walk to run (run's bigger per-cycle stride reads more
+// natural than a walk clip cranked to a high timescale). Spider has no
+// distinct run clip in this pack (CLIP_SETS.spider.run === its walk clip), so
+// it always resolves to the same action and crossover never fires for it.
+// Floating types (imp/ghost/dragon) are intentionally absent here: they hover
+// rather than stride, so they're exempt and handled by a separate mild
+// flap-rate scale in setLocomotion.
+const STRIDE_TABLE = {
+  skeleton: { walk: 1.6, run: 3.5, crossover: 2.4 },
+  skeletonCaster: { walk: 1.6, run: 3.5, crossover: 2.4 },
+  skeletonGolem: { walk: 1.6, run: 3.5, crossover: 2.4 },
+  spider: { walk: 1.9, run: 1.9, crossover: 999 },
+  biped: { walk: 1.8, run: 3.8, crossover: 2.7 },
+  bipedPunch: { walk: 1.8, run: 3.8, crossover: 2.7 },
+};
+const STRIDE_TS_MIN = 0.5;
+const STRIDE_TS_MAX = 2.5;
+// Reference speed for the mild fly-anim scaling floating types get instead of
+// full stride matching (roughly the mid-point of imp/ghost base speeds).
+const HOVER_REFERENCE_SPEED = 4.3;
+
 const TYPE_CLIP_SET = {
   skeleton: 'skeleton',
   spider: 'spider',
@@ -372,6 +403,11 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
   };
   actions.idle = mk(clipNames.idle);
   actions.walk = mk(clipNames.walk);
+  // Distinct run clip for stride matching (see STRIDE_TABLE above). Some
+  // families (spider) point walk and run at the same clip name, in which case
+  // mixer.clipAction returns the SAME action for both and there is no real
+  // "run" state to switch to; setLocomotion checks for that via hasRun below.
+  actions.run = mk(clipNames.run);
   // Attack VARIETY: register every attack clip this family lists that the GLB
   // actually has (1-3), each as its own one-shot action, so playAttack() can
   // pick a different swing/spell each time instead of always the same one.
@@ -392,28 +428,62 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
   actions.flourish = clipNames.flourish ? mk(clipNames.flourish, true) : null;
   (actions.idle || actions.walk)?.play();
 
+  // Stride-matching config for this instance (null for floating/hover types,
+  // which are exempt - see STRIDE_TABLE above). `hasRun` is false when the
+  // family has no distinct run clip (walk and run resolved to the same
+  // THREE.AnimationAction), so setLocomotion never tries to switch to it.
+  const strideCfg = STRIDE_TABLE[clipSetId] || null;
+  const stride = strideCfg
+    ? { ...strideCfg, hasRun: !!(actions.run && actions.run !== actions.walk) }
+    : null;
+
   const anim = {
     mixer,
     actions,
     headBone,
     allowLookAt,
+    stride,
     current: 'idle',
     _attackT: 0,
     _lookQuat: headBone ? new THREE.Quaternion() : null,
-    // Called every animated frame from Enemy._animateGait's modeled path.
-    // `moving01` is 0..1 (how much of top speed the mob is actually covering
-    // this frame), mirroring the box gait's own drive signal.
-    setLocomotion(moving01) {
-      const want = moving01 > 0.05 ? 'walk' : 'idle';
+    // Crossfades from whatever's currently playing to `want` (idle/walk/run),
+    // used by both the stride-matched and hover locomotion paths below.
+    _goTo(want) {
+      if (want === this.current || !this.actions[want]) return;
+      const from = this.actions[this.current];
+      const to = this.actions[want];
+      to.reset().play();
+      if (from && from !== to) from.crossFadeTo(to, 0.15, false);
+      this.current = want;
+    },
+    // Called every animated frame from Enemy._animateGait's modeled path with
+    // the creature's ACTUAL horizontal speed in world units/sec (not a 0..1
+    // fraction of its own top speed) so the clip's timescale can be matched
+    // against its real natural stride speed instead of drifting relative to
+    // whatever that particular type's top speed happens to be.
+    setLocomotion(actualSpeed) {
       if (this._attackT > 0) return; // let an in-flight attack clip finish
-      if (want !== this.current && this.actions[want]) {
-        const from = this.actions[this.current];
-        const to = this.actions[want];
-        to.reset().play();
-        if (from && from !== to) from.crossFadeTo(to, 0.15, false);
-        this.current = want;
+      const moving = actualSpeed > 0.12;
+      if (!this.stride) {
+        // Floating/hover types: exempt from stride matching (they don't
+        // touch a stride to the ground), but still get a mild fly-anim rate
+        // bump on top of speed so a sprinting dragon flaps a bit quicker
+        // than an idle-chasing imp, without pretending it's ground contact.
+        this._goTo(moving ? 'walk' : 'idle');
+        if (this.actions.walk) {
+          const ratio = actualSpeed / HOVER_REFERENCE_SPEED;
+          this.actions.walk.setEffectiveTimeScale(THREE.MathUtils.clamp(0.8 + ratio * 0.35, 0.75, 1.35));
+        }
+        return;
       }
-      if (this.actions.walk) this.actions.walk.setEffectiveTimeScale(0.7 + moving01 * 0.8);
+      const useRun = this.stride.hasRun && actualSpeed > this.stride.crossover;
+      const want = !moving ? 'idle' : useRun ? 'run' : 'walk';
+      this._goTo(want);
+      if (moving) {
+        const natural = useRun ? this.stride.run : this.stride.walk;
+        const ts = THREE.MathUtils.clamp(actualSpeed / natural, STRIDE_TS_MIN, STRIDE_TS_MAX);
+        this.actions[want]?.setEffectiveTimeScale(ts);
+      }
     },
     // Picks a random variant when the type has more than one attack clip (see
     // CLIP_SETS above), so the same mob doesn't play one identical swing every
