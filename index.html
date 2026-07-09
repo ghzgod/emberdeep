@@ -150,6 +150,7 @@
           <div class="loading-bar-outer"><div id="confirm-progress-bar" class="loading-bar-inner"></div></div>
           <p id="confirm-progress-text" class="hint"></p>
         </div>
+        <label id="confirm-dontshow-row" class="hidden"><span class="toggle"><input type="checkbox" id="confirm-dontshow"><span class="toggle-track"><span class="toggle-knob"></span></span></span> Do not show again</label>
         <div class="buy-actions">
           <button id="btn-confirm-ok" class="menu-btn">OK</button>
           <button id="btn-confirm-cancel" class="menu-btn">Cancel</button>
@@ -253,11 +254,38 @@
           <ellipse cx="10.3" cy="14.3" rx="1.1" ry="1.7" fill="#ff8f7a" opacity="0.75"/>
         </svg>
       </button>
-      <button id="touch-inv" aria-label="Inventory">🎒</button>
-      <button id="touch-mic" class="hidden" aria-label="Push to talk">🎤</button>
-      <button id="touch-pause" aria-label="Menu">⚙️</button>
-      <button id="touch-rotl" aria-label="Rotate camera left">↺</button>
-      <button id="touch-rotr" aria-label="Rotate camera right">↻</button>
+      <button id="touch-inv" aria-label="Inventory">
+        <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>
+          <path d="M5 8h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 20H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 8Z"/>
+          <path d="M3.5 13h17"/>
+        </svg>
+      </button>
+      <button id="touch-mic" class="hidden" aria-label="Push to talk">
+        <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="10" rx="3"/>
+          <path d="M6 11a6 6 0 0 0 12 0"/>
+          <path d="M12 17v3"/>
+        </svg>
+      </button>
+      <button id="touch-pause" aria-label="Menu">
+        <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.2"/>
+          <path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4 5.3 5.3"/>
+        </svg>
+      </button>
+      <button id="touch-rotl" aria-label="Rotate camera left">
+        <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 5v5h5"/>
+          <path d="M4 10a8 8 0 1 1-1.5 4.7"/>
+        </svg>
+      </button>
+      <button id="touch-rotr" aria-label="Rotate camera right">
+        <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20 5v5h-5"/>
+          <path d="M20 10a8 8 0 1 0 1.5 4.7"/>
+        </svg>
+      </button>
       <button id="touch-menu-toggle" title="Menu" aria-label="Menu"></button>
       <!-- First-time 3-step contextual tutorial, first Embervale visit only.
            Each step is a small pulsing ring + short label right over the zone
@@ -375,8 +403,8 @@
         </label>
         <p class="hint">Controls how many dynamic torch lights are lit at once. Lower it if the game runs slowly.</p>
         <label>Screen Shake <span class="toggle"><input type="checkbox" id="set-shake" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
-        <label>Full AI & Natural Voices <span class="toggle"><input type="checkbox" id="set-ai-voice"><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
-        <p id="battery-status-hint" class="hint"></p>
+        <label>In-Game AI <span class="toggle"><input type="checkbox" id="set-ingame-ai"><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
+        <label>In-Game Natural Voices <span class="toggle"><input type="checkbox" id="set-natural-voice"><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <label>Enemy Taunts (spoken) <span class="toggle"><input type="checkbox" id="set-taunts" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <p id="voice-engine-status" class="hint hidden"></p>
         <div id="voice-engine-bar" class="hidden"><div id="voice-engine-fill"></div></div>
@@ -396,6 +424,10 @@
           <span id="voice-slider-wrap"><span id="voice-level-fill"></span><input type="range" id="set-voice-thresh" min="3" max="60" value="12"></span><span id="set-voice-thresh-val"></span>
         </label>
         <p id="voice-meter-hint" class="hint hidden">Speak: your live level fills this slider and turns green past the knob. Set the knob just under your voice.</p>
+        <div id="ptt-meter-row" class="hidden">Mic Level
+          <span id="ptt-meter-track"><span id="ptt-level-fill"></span></span>
+        </div>
+        <p id="ptt-meter-hint" class="hint hidden">Hold your push-to-talk key and speak - this shows your live mic level.</p>
         <div id="mic-test-row" class="hidden"><button id="btn-mic-test" class="menu-btn small">🎤 Test mic (hear yourself)</button></div>
         <div class="keybind-header">Key Bindings <span class="hint">(desktop)</span></div>
         <div id="keybinds"></div>

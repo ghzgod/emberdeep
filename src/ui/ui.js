@@ -100,10 +100,14 @@ export class UI {
   // OK/confirm, false on cancel, outside-click, or Esc. Pass notice: true for
   // a single-button acknowledgement (no cancel button). danger: true reuses
   // the destroy-modal's red styling on the card and confirm button.
-  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false } = {}) {
+  // dontShow: true adds a "Do not show again" checkbox to the modal. When
+  // present, the promise resolves to an object { confirmed, dontShow } instead
+  // of a bare boolean, so the caller can persist the preference.
+  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false, dontShow = false } = {}) {
     return new Promise((resolve) => {
       const modal = $('confirm-modal'), card = $('confirm-card');
       const okBtn = $('btn-confirm-ok'), cancelBtn = $('btn-confirm-cancel');
+      const dontRow = $('confirm-dontshow-row'), dontBox = $('confirm-dontshow');
       $('confirm-title').textContent = title;
       $('confirm-message').textContent = message;
       card.classList.toggle('danger', !!danger);
@@ -111,14 +115,17 @@ export class UI {
       okBtn.classList.toggle('danger', !!danger);
       cancelBtn.classList.toggle('hidden', !!notice);
       cancelBtn.textContent = cancelText;
+      if (dontRow) dontRow.classList.toggle('hidden', !dontShow);
+      if (dontBox) dontBox.checked = false;
       modal.classList.remove('hidden');
       audio.play('ui_open');
       const cleanup = (confirmed) => {
         modal.classList.add('hidden');
+        if (dontRow) dontRow.classList.add('hidden');
         okBtn.onclick = null; cancelBtn.onclick = null;
         modal.removeEventListener('click', onBackdrop);
         document.removeEventListener('keydown', onKey);
-        resolve(confirmed);
+        resolve(dontShow ? { confirmed, dontShow: !!(dontBox && dontBox.checked) } : confirmed);
       };
       const onBackdrop = (e) => { if (e.target === modal) cleanup(false); };
       const onKey = (e) => { if (e.key === 'Escape') cleanup(false); };
@@ -147,39 +154,44 @@ export class UI {
   //
   // toggleEl, if given, is the checkbox that triggered this (Settings' live
   // toggle) so it can be flipped back to reflect a cancelled/reverted choice.
-  async promptBatterySaverChoice(turningOn = true, toggleEl = null) {
+  // skipExplainer: the Settings toggles show their own one-time explainer in
+  // onAiVoiceToggle, so they skip this method's built-in Confirm/Cancel prompt.
+  // The boot first-launch prompt still uses the built-in explainer.
+  async promptBatterySaverChoice(turningOn = true, toggleEl = null, skipExplainer = false) {
     const s = this.game.settings;
     const wasOn = s.batterySaver !== true; // full-AI state before this prompt
-    const confirmed = await this.confirmModal({
-      title: 'Full AI & Natural Voices',
-      message: turningOn
-        ? 'Turning this ON enables smarter bosses that learn over time and natural neural voices. Uses more battery and memory, and may download voices once.'
-        : 'Turning this OFF switches to basic built-in voices with no learning AI, to save battery and memory.',
-      confirmText: 'Confirm', cancelText: 'Cancel',
-    });
-
-    if (!confirmed) {
-      // Cancelled: revert to whatever was active before, no change applied.
-      if (toggleEl) toggleEl.checked = wasOn;
-      this.reflectBatteryStatus();
+    const afterState = () => {
+      this._syncAiVoiceToggles?.();
       if (this.screens.settings.classList.contains('visible')) this.reflectNeuralStatus();
-      return;
+    };
+    if (!skipExplainer) {
+      const confirmed = await this.confirmModal({
+        title: 'Full AI & Natural Voices',
+        message: turningOn
+          ? 'Turning this ON enables smarter bosses that learn over time and natural neural voices. Uses more battery and memory, and may download voices once.'
+          : 'Turning this OFF switches to basic built-in voices with no learning AI, to save battery and memory.',
+        confirmText: 'Confirm', cancelText: 'Cancel',
+      });
+      if (!confirmed) {
+        // Cancelled: revert to whatever was active before, no change applied.
+        if (toggleEl) toggleEl.checked = wasOn;
+        afterState();
+        return;
+      }
     }
 
     if (!turningOn) {
-      // Confirmed turning full AI OFF: nothing to download, just persist.
+      // Turning full AI OFF: nothing to download, just persist.
       s.batterySaver = true;
       this.game.saveSettings();
       const { roaster } = await import('../ai/roaster.js');
       roaster.batterySaver = true;
-      this.reflectBatteryStatus();
-      if (this.screens.settings.classList.contains('visible')) this.reflectNeuralStatus();
+      afterState();
       return;
     }
 
-    // Player confirmed turning full AI ON. Warn first on a device that would
-    // OOM on the heavy download, same safeguard the "Retry neural voices"
-    // button uses.
+    // Turning full AI ON. Warn first on a device that would OOM on the heavy
+    // download, same safeguard the "Retry neural voices" button uses.
     const { neuralVoice } = await import('../ai/neuralVoice.js');
     if (neuralVoice.memoryConstrained && neuralVoice.status !== 'ready') {
       const ok = await this.confirmModal({
@@ -187,7 +199,7 @@ export class UI {
         message: 'Neural voices are a large download (about 90 MB) and can crash the browser on phones and low-memory devices. Try anyway?',
         confirmText: 'Download', cancelText: 'Keep standard', danger: true,
       });
-      if (!ok) { if (toggleEl) toggleEl.checked = wasOn; this.reflectBatteryStatus(); return; } // stays as it was
+      if (!ok) { if (toggleEl) toggleEl.checked = wasOn; afterState(); return; } // stays as it was
       neuralVoice._optIn = true;
     }
 
@@ -197,8 +209,7 @@ export class UI {
       this.game.saveSettings();
       const { roaster } = await import('../ai/roaster.js');
       roaster.batterySaver = false;
-      this.reflectBatteryStatus();
-      if (this.screens.settings.classList.contains('visible')) this.reflectNeuralStatus();
+      afterState();
       return;
     }
 
@@ -208,8 +219,7 @@ export class UI {
     const { roaster } = await import('../ai/roaster.js');
     roaster.batterySaver = s.batterySaver;
     if (toggleEl) toggleEl.checked = !s.batterySaver;
-    this.reflectBatteryStatus();
-    if (this.screens.settings.classList.contains('visible')) this.reflectNeuralStatus();
+    afterState();
   }
 
   // Drives the confirm modal into a non-dismissible download-progress state
@@ -270,14 +280,31 @@ export class UI {
     });
   }
 
-  // One-line summary shown under the "AI & Voice Mode" button in Settings.
-  reflectBatteryStatus() {
-    const el = $('battery-status-hint');
-    if (!el) return;
-    const on = this.game.settings.batterySaver === true;
-    el.textContent = on
-      ? 'Battery Saver is ON: basic built-in voices, no learning AI.'
-      : 'Battery Saver is OFF: full neural voices and learning AI enabled.';
+  // Handles either of the two Settings toggles ("In-Game AI" /
+  // "In-Game Natural Voices"). On the FIRST change of a given toggle, shows a
+  // one-time explainer modal describing what it does and its battery impact,
+  // with a "Do not show again" checkbox persisted to localStorage. Once
+  // dismissed with that checked, further toggling is silent. Both toggles map
+  // to the same underlying full-AI state, so we keep them in sync afterwards.
+  async onAiVoiceToggle(which, turningOn, sync) {
+    const key = which === 'ai' ? 'emberdeep-ai-modal-hide-v1' : 'emberdeep-voice-modal-hide-v1';
+    const seen = localStorage.getItem(key) === '1';
+    if (!seen) {
+      const msg = which === 'ai'
+        ? 'In-Game AI powers smarter bosses that learn and adapt over time. It runs machine learning in your browser, which uses more battery and memory. Turn it off to save power.'
+        : 'In-Game Natural Voices give characters lifelike neural speech instead of your browser\'s basic built-in voices. The voice model is a one-time large download and uses more battery and memory.';
+      const res = await this.confirmModal({
+        title: which === 'ai' ? 'In-Game AI' : 'In-Game Natural Voices',
+        message: msg,
+        confirmText: 'Got it', cancelText: 'Cancel', dontShow: true,
+      });
+      if (!res.confirmed) { sync(); return; } // cancelled: revert both toggles
+      if (res.dontShow) localStorage.setItem(key, '1');
+    }
+    // Apply the requested state through the shared battery-saver path (handles
+    // the neural-voice download when turning natural voices on).
+    await this.promptBatterySaverChoice(turningOn, null, true);
+    sync();
   }
 
   // ---------- menu wiring ----------
@@ -871,13 +898,22 @@ export class UI {
     shake.checked = s.screenShake;
     shake.onchange = () => { s.screenShake = shake.checked; this.game.saveSettings(); };
 
-    // Full AI & Natural Voices: checked = NOT battery saver (checked = full AI on).
-    // Flipping it opens a plain Confirm/Cancel explainer; Cancel reverts the
-    // toggle, Confirm applies the new state (see promptBatterySaverChoice).
-    const aiVoice = $('set-ai-voice');
-    aiVoice.checked = s.batterySaver !== true;
-    aiVoice.onchange = () => this.promptBatterySaverChoice(aiVoice.checked, aiVoice);
-    this.reflectBatteryStatus();
+    // "In-Game AI" and "In-Game Natural Voices" are two independent-looking
+    // toggles that both drive the same underlying full-AI state (NOT battery
+    // saver). Checked = the heavy features are on. Each toggle, the FIRST time
+    // it is changed, shows a one-time explainer modal (with a "Do not show
+    // again" persisted in localStorage); after that it toggles silently.
+    const aiToggle = $('set-ingame-ai');
+    const voiceToggle = $('set-natural-voice');
+    const syncAiVoiceToggles = () => {
+      const on = s.batterySaver !== true;
+      aiToggle.checked = on;
+      voiceToggle.checked = on;
+    };
+    syncAiVoiceToggles();
+    aiToggle.onchange = () => this.onAiVoiceToggle('ai', aiToggle.checked, syncAiVoiceToggles);
+    voiceToggle.onchange = () => this.onAiVoiceToggle('voice', voiceToggle.checked, syncAiVoiceToggles);
+    this._syncAiVoiceToggles = syncAiVoiceToggles;
 
     const taunts = $('set-taunts');
     taunts.checked = s.taunts !== false;
@@ -922,6 +958,10 @@ export class UI {
       // slider track, knob = cutoff) - voice-activated only.
       vRow.classList.toggle('hidden', mode !== 'auto');
       $('voice-meter-hint').classList.toggle('hidden', mode !== 'auto');
+      // Push-to-talk has no trigger knob, but still shows a plain live meter so
+      // the player can confirm the mic is picking them up.
+      $('ptt-meter-row').classList.toggle('hidden', mode !== 'ptt');
+      $('ptt-meter-hint').classList.toggle('hidden', mode !== 'ptt');
       // The hear-yourself mic test is useful in any mic mode (PTT or auto).
       $('mic-test-row').classList.toggle('hidden', mode === 'off');
       $('touch-mic').classList.toggle('hidden', mode !== 'ptt');
@@ -983,16 +1023,22 @@ export class UI {
       if (!this.screens.settings.classList.contains('visible')) return;
       const { voice } = await import('../net/voice.js');
       const fill = $('voice-level-fill');
-      if (!fill) return;
+      const pttFill = $('ptt-level-fill');
+      if (!fill && !pttFill) return;
       if (voice.active) {
         // map the level onto the slider's own min..max scale so the fill lines
-        // up with where the knob sits for the same value
+        // up with where the knob sits for the same value (auto trigger slider)
         const min = +vThresh.min, max = +vThresh.max;
         const frac = Math.max(0, Math.min(1, (voice.level - min) / (max - min)));
-        fill.style.width = `${frac * 100}%`;
-        fill.classList.toggle('hot', voice.level >= voice.threshold);
+        if (fill) {
+          fill.style.width = `${frac * 100}%`;
+          fill.classList.toggle('hot', voice.level >= voice.threshold);
+        }
+        // PTT meter is a plain 0..100 level bar (no cutoff knob to line up to)
+        if (pttFill) pttFill.style.width = `${Math.max(0, Math.min(100, voice.level))}%`;
       } else {
-        fill.style.width = '0%';
+        if (fill) fill.style.width = '0%';
+        if (pttFill) pttFill.style.width = '0%';
       }
     }, 120);
   }
@@ -1137,17 +1183,36 @@ export class UI {
 
   esc(s) { return String(s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
 
-  // Themed subtitle bar for character speech (vendors, NPCs, enemies).
-  showSubtitle(speaker, text, durationMs = 4200) {
+  // Themed subtitle bar for character speech (vendors, NPCs, enemies). The
+  // caption holds on screen until speech is done, then fades out slowly (via a
+  // CSS opacity/visibility transition, never an abrupt display:none snap).
+  //
+  // holdUntilDismissed: when true the auto-hide timer is skipped and the
+  // caption stays until dismissSubtitle() is called by whoever knows when the
+  // real speech ended (e.g. a neuralVoice src.onended / speechSynthesis onend).
+  // Otherwise durationMs is a best-effort fallback estimate.
+  showSubtitle(speaker, text, durationMs = 4200, holdUntilDismissed = false) {
     const el = $('subtitle');
     $('subtitle-speaker').textContent = speaker;
     $('subtitle-text').textContent = text;
-    el.classList.remove('hidden');
+    el.classList.remove('hidden', 'fading');
     // the interact prompt sits in the same spot — hide it so they don't overlap
     $('interact-prompt').classList.add('hidden');
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(this._subT);
-    this._subT = setTimeout(() => el.classList.add('hidden'), durationMs);
+    clearTimeout(this._subFadeT);
+    if (!holdUntilDismissed) this._subT = setTimeout(() => this.dismissSubtitle(), durationMs);
+  }
+
+  // Fade the caption out (slow opacity/visibility transition), then park it
+  // fully hidden once the transition has run. Safe to call more than once.
+  dismissSubtitle() {
+    const el = $('subtitle');
+    if (el.classList.contains('hidden')) return;
+    clearTimeout(this._subT);
+    el.classList.add('fading'); // CSS drives opacity/visibility to 0 over 0.6s
+    clearTimeout(this._subFadeT);
+    this._subFadeT = setTimeout(() => { el.classList.add('hidden'); el.classList.remove('fading'); }, 650);
   }
 
   // Kick off (or re-show) the neural voice download with live progress + retry.
@@ -1184,11 +1249,11 @@ export class UI {
   }
 
   reflectNeuralStatus() {
-    // Battery saver bypasses the neural engine entirely: show that instead of a
-    // load state, and don't offer a "retry neural voices" that would ignore it.
+    // Battery saver bypasses the neural engine entirely: hide the load state
+    // and the "retry neural voices" button rather than nagging with a hint;
+    // the toggles above already say what mode you are in.
     if (this.game.settings.batterySaver === true) {
-      $('voice-engine-status').classList.remove('hidden');
-      $('voice-engine-status').textContent = 'Battery saver on. Using your browser\'s built-in voices.';
+      $('voice-engine-status').classList.add('hidden');
       $('voice-engine-bar').classList.add('hidden');
       $('btn-voice-retry').classList.add('hidden');
       return;
@@ -1252,7 +1317,7 @@ export class UI {
     $('set-quality').value = s.quality;
     this._syncQualitySelect?.();
     $('set-shake').checked = s.screenShake;
-    $('set-ai-voice').checked = s.batterySaver !== true;
+    this._syncAiVoiceToggles?.();
   }
 
   // ---------- hotbar ----------
@@ -1719,6 +1784,15 @@ export class UI {
         el.onmouseleave = () => this.hideTooltip();
         // stats panel first; unequipping is a button on that panel
         el.onclick = () => this.selectItem(item, slotName);
+      } else {
+        // One-tap fill: click an empty slot to equip the best-scoring eligible
+        // item from the pack for that slot (respecting class-lock rules).
+        const best = this.bestBagItemForSlot(slotName);
+        if (best) {
+          el.classList.add('fillable');
+          el.title = `Equip best: ${best.name}`;
+          el.onclick = () => { this.game.equip(best); this.renderInventory(); };
+        }
       }
       equipWrap.appendChild(el);
     }
@@ -1854,6 +1928,35 @@ export class UI {
     const name = ({ damagePct: 'Damage', maxHp: 'Max Health', armor: 'Armor', crit: 'Crit Chance', speed: 'Move Speed', regen: 'Resource Regen', cdr4: 'Ult Cooldown' })[k] || k;
     const sign = k === 'cdr4' ? '-' : '+';
     return { val: `${sign}${v}${pct ? '%' : ''}`, name };
+  }
+
+  // Best pack item to drop into an empty equip slot, or null if none fit.
+  // Only gear for that slot the hero may actually wear (class-lock respected);
+  // scored by the same affinity-adjusted stat weights compareNote uses, with
+  // item level then rarity as tie-breakers.
+  bestBagItemForSlot(slotName) {
+    const p = this.game.player;
+    const W = { maxHp: 0.15, armor: 1, crit: 1.5, speed: 1, regen: 0.8, damagePct: 1.2, cdr4: 1 };
+    const RANK = { common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4 };
+    const score = (it) => {
+      const scale = (it.affinity && it.affinity !== p.classId) ? 0.5 : 1;
+      let total = 0;
+      for (const [k, v] of Object.entries(it.stats || {})) total += (v * scale) * (W[k] || 1);
+      return total;
+    };
+    let best = null, bestScore = -Infinity;
+    for (const it of p.inventory) {
+      if (it.consumable || it.slot !== slotName) continue;
+      if (it.forClass && it.forClass !== p.classId) continue; // can't wield
+      const s = score(it);
+      const better = s > bestScore
+        || (s === bestScore && best && (
+          (it.ilvl ?? 0) > (best.ilvl ?? 0)
+          || ((it.ilvl ?? 0) === (best.ilvl ?? 0) && (RANK[it.rarity] ?? 0) > (RANK[best.rarity] ?? 0))
+        ));
+      if (better) { best = it; bestScore = s; }
+    }
+    return best;
   }
 
   // Compare a gear item against what's equipped in its slot: per-stat deltas
