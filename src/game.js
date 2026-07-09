@@ -109,6 +109,46 @@ export class Game {
     }, { passive: true });
     window.addEventListener('touchend', () => { this._pinch = null; }, { passive: true });
 
+    // Two-thumb twist: when both touches orbit their midpoint (the angle of the
+    // segment between them changes) with little radial change, rotate the camera
+    // slowly - same effect as holding a rotate button. Radial-dominant motion is
+    // pinch zoom (handled above, untouched) and never twists; a joystick finger
+    // that is actively steering never twists either. The measured rotation is
+    // accumulated into _twistPending and drained smoothly (rate-clamped) by the
+    // camera input block in updatePlaying, so the motion is always lerped.
+    this._twist = null;
+    this._twistPending = 0;
+    const twistSample = (e) => ({
+      ang: Math.atan2(
+        e.touches[1].clientY - e.touches[0].clientY,
+        e.touches[1].clientX - e.touches[0].clientX),
+      dist: Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY),
+    });
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) this._twist = twistSample(e);
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if (this.state !== 'playing' || e.touches.length !== 2 || !this._twist) return;
+      const prev = this._twist;
+      const cur = twistSample(e);
+      this._twist = cur;
+      // one finger is the joystick and it is steering: two-finger play, not a gesture
+      const t = this.touch;
+      if (t?.joyActive && Math.hypot(t.move.x, t.move.z) > 0.2) return;
+      let da = cur.ang - prev.ang;
+      if (da > Math.PI) da -= Math.PI * 2;
+      if (da < -Math.PI) da += Math.PI * 2;
+      // require a clearly rotational motion: the swept arc must dominate the
+      // radial (pinch) change; jitter and touch-order flips are ignored outright
+      const arc = Math.abs(da) * cur.dist * 0.5;
+      const radial = Math.abs(cur.dist - prev.dist);
+      if (Math.abs(da) < 0.004 || Math.abs(da) > 0.5 || arc < radial * 2) return;
+      this._twistPending += da;
+    }, { passive: true });
+    window.addEventListener('touchend', () => { this._twist = null; }, { passive: true });
+
     // lights
     this.ambient = new THREE.AmbientLight(0x8a7a9a, 0.55);
     this.scene.add(this.ambient);
@@ -422,6 +462,7 @@ export class Game {
       this.player = null;
     }
     audio.stopMusic();
+    this._bossMusicOn = false;
     this.state = 'title';
     this.ui.showHud(false);
     this.touch.setVisible(false);
@@ -523,7 +564,8 @@ export class Game {
     this.bossDefeated = true;
     this.requestSave(true);
     audio.play('boss_death');
-    audio.playMusic('dungeon', 2);
+    this._bossMusicOn = false;
+    audio.playMusic(audio.dungeonTrack(this.currentAct()), 2);
     setTimeout(() => {
       this.state = 'victory';
       this.ui.showVictory({
@@ -996,6 +1038,18 @@ export class Game {
   openShop(vendor) {
     this.activeVendor = vendor;
     this.state = 'shop';
+    // Vendor-facing camera: ease camYaw so the camera sits behind the player
+    // looking toward the vendor (the keeper turns to face the player, so this
+    // frames their face). The turn is clamped so it never swings more than a
+    // limited arc, and the pre-shop yaw is restored on close. The easing is
+    // driven by updateCameraFollow, which keeps running in the shop state.
+    if (this.player && vendor.wx !== undefined) {
+      const desired = Math.atan2(this.player.pos.x - vendor.wx, this.player.pos.z - vendor.wz);
+      const MAX_VENDOR_TURN = 1.1; // radians, roughly 63 degrees
+      const d = Math.max(-MAX_VENDOR_TURN, Math.min(MAX_VENDOR_TURN, this._angDiff(desired, this.camYaw)));
+      this._preShopYaw = this.camYaw;
+      this._yawEase = { target: this.camYaw + d };
+    }
     this.touch.setVisible(false); // touch buttons aren't needed at a counter
     this.ui.openShop(vendor);
     this.greetFromVendor(vendor);
@@ -1045,6 +1099,11 @@ export class Game {
 
   closeShop() {
     this.activeVendor = null;
+    // release the vendor-facing turn: ease back to where the camera was
+    if (this._preShopYaw !== undefined) {
+      this._yawEase = { target: this._preShopYaw };
+      this._preShopYaw = undefined;
+    }
     this.state = 'playing';
     this.ui.hideAll();
     this.touch.setVisible(true);
@@ -1235,7 +1294,11 @@ export class Game {
     this.setupTorchLights(theme);
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner(this.floorBannerTitle(), theme.name, true);
-    audio.playMusic(this.dungeon.boss && this.boss ? 'boss' : 'dungeon');
+    // Every floor opens on its act's themed exploration bed. On a boss floor
+    // the lord's own battle music crossfades in only once it wakes (see
+    // updateBossMusic), so the arena keeps its dread until the fight starts.
+    this._bossMusicOn = false;
+    audio.playMusic(audio.dungeonTrack(actOfFloor(floor)));
     audio.startAmbience(actOfFloor(floor) <= 2 ? 'dungeon-wet' : 'dungeon-dry'); // drips only in the wet acts
     audio.play('stairs', { volume: 0.7 });
     this.stairsCooldown = 1.5;
@@ -1443,13 +1506,15 @@ export class Game {
         this.particles.burst(msg.x, 0.8, msg.z, 22, 0xd8d4c8, { speed: 4, life: 0.7 });
       }
       this.player.gainXp(msg.xp, this);
-      this.rollDeathLoot(msg.x, msg.z, { miniboss: msg.mb, isBoss: msg.boss });
+      this.rollDeathLoot(msg.x, msg.z, { miniboss: msg.mb, isBoss: msg.boss, elite: msg.el });
       if (msg.boss) {
         this.actsCleared = Math.max(this.actsCleared, this.currentAct());
         if (this.currentAct() < 5 && this.floor <= MAX_FLOOR) {
           this.spawnActExit(msg.x, msg.z);
           this.ui.showFloorBanner(`ACT ${ROMAN[this.currentAct()]} CLEARED`, 'The way deeper opens…', true);
           this.showQuestCompleteToast(this.currentAct());
+          this._bossMusicOn = false;
+          audio.playMusic(audio.dungeonTrack(this.currentAct()), 2);
         } else {
           this.bossDefeated = true;
           this.onVictory();
@@ -1619,7 +1684,10 @@ export class Game {
       this.inTown ? 'Embervale — rest, trade, prepare' : theme.name,
       !this.inTown
     );
-    audio.playMusic(this.inTown ? 'tavern' : (this.dungeon.boss ? 'boss' : 'dungeon'));
+    // Same music rules as the host's loadFloor: the act's exploration bed
+    // now, the lord's own battle loop later when updateBossMusic sees aggro.
+    this._bossMusicOn = false;
+    audio.playMusic(this.inTown ? 'tavern' : audio.dungeonTrack(actOfFloor(this.floor)));
     audio.startAmbience(this.inTown ? 'town' : (actOfFloor(this.floor) <= 2 ? 'dungeon-wet' : 'dungeon-dry'));
     this.stairsCooldown = 1.5;
   }
@@ -2601,11 +2669,11 @@ export class Game {
     this.scene.remove(e.mesh);
 
     this.player.gainXp(e.xp, this);
-    this.rollDeathLoot(e.pos.x, e.pos.z, { miniboss: e.miniboss, isBoss: e.isBoss, goldRange: e.goldRange });
+    this.rollDeathLoot(e.pos.x, e.pos.z, { miniboss: e.miniboss, isBoss: e.isBoss, elite: e.elite, goldRange: e.goldRange });
 
     // In co-op every hero gets full XP and rolls their own personal loot.
     if (net.isHost) {
-      net.send({ t: 'edead', id: e.netId, x: e.pos.x, z: e.pos.z, xp: e.xp, mb: e.miniboss, boss: !!e.isBoss });
+      net.send({ t: 'edead', id: e.netId, x: e.pos.x, z: e.pos.z, xp: e.xp, mb: e.miniboss, el: !!e.elite, boss: !!e.isBoss });
     }
 
     if (e.isBoss) {
@@ -2616,12 +2684,31 @@ export class Game {
         this.ui.showFloorBanner(`ACT ${ROMAN[this.currentAct()]} CLEARED`, 'The way deeper opens…', true);
         this.showQuestCompleteToast(this.currentAct());
         audio.play('level_up');
-        audio.playMusic('dungeon', 2);
+        this._bossMusicOn = false;
+        audio.playMusic(audio.dungeonTrack(this.currentAct()), 2);
       } else {
         this.onVictory();
       }
     }
     this.requestSave();
+  }
+
+  // Crossfade to the act lord's own battle music the moment it wakes. Hosts
+  // and solo players read the boss AI state directly; guests run mirror
+  // stand-ins whose state field is meaningless, so they infer the wake-up
+  // from first blood or proximity (the lords' aggro range is 9 to 12).
+  // The fade back down happens where the boss actually dies (killEnemy,
+  // the guest 'edead' handler, and onVictory), never here.
+  updateBossMusic() {
+    if (this._bossMusicOn || this.inTown) return;
+    const b = this.boss;
+    if (!b || b.dead) return;
+    const aggro = b.mirror
+      ? (b.hp < b.maxHp || Math.hypot(this.player.pos.x - b.pos.x, this.player.pos.z - b.pos.z) < 13)
+      : b.state !== 'idle';
+    if (!aggro) return;
+    this._bossMusicOn = true;
+    audio.playMusic(audio.bossTrack(this.currentAct()), 1.2);
   }
 
   // Quest-complete toast for a slain act boss, delayed until the big
@@ -2675,12 +2762,14 @@ export class Game {
     const gearChance = opts.isBoss || opts.miniboss ? 1 : 0.09;
     if (Math.random() < gearChance) {
       const rarity = opts.isBoss || opts.miniboss ? 'epic' : null;
-      this.loot.dropGear(x, z + 0.5, generateGear(this.floor, rarity, this.player.classId));
+      // smart loot: bias the roll by MY equipped slots (personal per player)
+      this.loot.dropGear(x, z + 0.5, generateGear(this.floor, rarity, this.player.classId, { equipped: this.player.equipped, elite: opts.elite }));
     }
     // The pinnacle EPIC is earned in a fight: the Dungeon Lord and minibosses
-    // drop it meaningfully, and ANY kill has a ~0.001% shot at one.
+    // drop it meaningfully, and ANY kill has a ~0.001% shot at one. Act boss
+    // legendaries carry a 12% perfect-roll shot (~4.2% of boss kills).
     if ((opts.isBoss && Math.random() < 0.35) || (opts.miniboss && Math.random() < 0.05)) {
-      this.loot.dropGear(x + 0.8, z - 0.5, dropLegendary(this.floor));
+      this.loot.dropGear(x + 0.8, z - 0.5, dropLegendary(this.floor, opts.isBoss ? { perfectChance: 0.12 } : {}));
     } else if (!opts.isBoss && !opts.miniboss && Math.random() < 0.00001) {
       this.loot.dropGear(x + 0.8, z - 0.5, dropLegendary(this.floor));
     }
@@ -3038,6 +3127,8 @@ export class Game {
     } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story', 'notices', 'chatlog'].includes(this.state)) {
       // world is frozen; still render + light flicker for life
       this.updateTorches(dt, true);
+      // the vendor-facing camera ease keeps moving while the shop is open
+      if (this.state === 'shop' && this.player) this.updateCameraFollow(dt);
       if (net.active) this.netFrozenTick(dt);
       if (this.state === 'chatlog' && this.input.wasPressed('Escape')) { this.state = 'playing'; this.ui.hideAll(); }
       if (this.state === 'inventory' && (this.input.wasPressed('Tab') || this.input.wasPressed('Escape') || this.input.wasPressed('KeyI'))) {
@@ -3118,6 +3209,22 @@ export class Game {
     if (input.isDown('KeyQ')) this.camYaw += 2.2 * dt;
     if (input.isDown('KeyE')) this.camYaw -= 2.2 * dt;
     if (this.touch.rotDir) this.camYaw += this.touch.rotDir * 2.0 * dt;
+    // two-thumb twist gesture: drain the accumulated rotation smoothly, with
+    // the per-frame step clamped so the camera never whips around
+    const twisting = this._twistPending !== 0;
+    if (twisting) {
+      const maxStep = 2.4 * dt;
+      let step = this._twistPending * Math.min(1, 10 * dt);
+      step = Math.max(-maxStep, Math.min(maxStep, step));
+      this.camYaw += step;
+      this._twistPending -= step;
+      if (Math.abs(this._twistPending) < 0.002) this._twistPending = 0;
+    }
+    // any manual rotation suspends the hallway auto-rotate for a few seconds
+    // (and cancels a pending vendor/restore ease) so the camera never fights
+    const manualRot = input.isDown('KeyQ') || input.isDown('KeyE') || this.touch.rotDir !== 0 || twisting;
+    if (manualRot) { this._yawManualT = 3; this._yawEase = null; }
+    else if (this._yawManualT > 0) this._yawManualT -= dt;
 
     // ---- input: movement (screen-space, rotated into the world by camYaw) ----
     let mx = 0, mz = 0;
@@ -3213,6 +3320,7 @@ export class Game {
       for (const e of this.enemies) e.update(dt, this);
     }
     this.enemies = this.enemies.filter((e) => !e.dead || e.isBoss);
+    this.updateBossMusic();
     this.animateAuras(dt);
     this.projectiles.update(dt, this);
     this.loot.update(dt, this);
@@ -3235,6 +3343,89 @@ export class Game {
     }
 
     // ---- camera follow + orbit + zoom + shake ----
+    // hallway auto-rotate: while walking a 1-wide corridor, drift camYaw to the
+    // nearest quarter-turn that runs the corridor vertically on screen
+    this.updateCorridorYaw(dt, p);
+    this.updateCameraFollow(dt);
+
+    // player light follows
+    this.playerLight.position.set(p.pos.x, 3.2, p.pos.z);
+
+    // audio listener
+    audio.setListener(p.pos.x, p.pos.z);
+
+    // enemy ML observes player movement for online training, but only while
+    // living enemies exist to use it AND the player is actually fighting.
+    // Standing idle in a dungeon used to keep the worker training every 6s
+    // forever - a constant CPU burn (laptop fans) for zero learning value,
+    // since an idle player generates no movement worth predicting. Gate on
+    // recent combat: any damage dealt or taken in the last 20s.
+    const fighting = this._lastCombatT !== undefined && performance.now() - this._lastCombatT < 20000;
+    if (!this.inTown && fighting && this._anyLivingEnemy()) learner.observe(dt, p);
+
+    // playstyle profile: how much of a runner is this hero? Elites use it to
+    // lean harder into interception; Fenwick uses it to mock you.
+    this._fleeSampleT = (this._fleeSampleT || 0) - dt;
+    if (this._fleeSampleT <= 0) {
+      this._fleeSampleT = 1;
+      const pred = learner.predict(p);
+      const mag = pred ? Math.min(1, Math.hypot(pred.dx, pred.dz) / 3) : 0;
+      this.fleeTendency = (this.fleeTendency || 0) * 0.9 + mag * 0.1;
+    }
+
+    // ---- UI ----
+    this.ui.minimap.revealAround(p.pos.x, p.pos.z);
+    this.ui.minimap.draw(p, this.camYaw || 0);
+    const bossOnFloor = this.boss && !this.boss.dead && this.boss.state !== 'idle' ? this.boss : null;
+    this.ui.updateHud(p, this.floor, bossOnFloor);
+  }
+
+  // shortest signed difference a-b wrapped to (-PI, PI]
+  _angDiff(a, b) {
+    let d = (a - b) % (Math.PI * 2);
+    if (d > Math.PI) d -= Math.PI * 2;
+    if (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  }
+
+  // Hallway camera auto-rotate. Reuses the minimap's corridor detection
+  // (walkable-grid sampling: walls both sides of one axis, open along the
+  // perpendicular) via corridorAlign, which already picks the nearest
+  // quarter-turn target so the rotation is minimal. Only engages while the
+  // player is actually MOVING along the corridor axis; in rooms/junctions it
+  // simply returns and the current yaw is kept, so it never fights the player.
+  // Manual rotation (Q/E, rotate buttons, twist) suspends it via _yawManualT.
+  updateCorridorYaw(dt, p) {
+    if (this.inTown || this.inTavern) return;
+    if ((this._yawManualT || 0) > 0 || this._yawEase) return;
+    const mm = this.ui.minimap;
+    if (!mm?.dungeon || mm.dungeon !== this.dungeon) return;
+    const target = mm.corridorAlign(p, this.camYaw);
+    if (target === null) return;
+    // corridor axis from the chosen target: PI/2-family means an x-axis
+    // (grid-horizontal) corridor, 0-family means a z-axis one
+    const horiz = Math.abs(Math.sin(target)) > 0.5;
+    const speed = Math.hypot(p.moveDir.x, p.moveDir.z);
+    if (speed < 0.25) return; // standing still: leave the camera alone
+    const along = horiz ? Math.abs(p.moveDir.x) : Math.abs(p.moveDir.z);
+    if (along < speed * 0.7) return; // sidling into a wall, not walking the hall
+    // slow, frame-rate independent lerp along the shortest arc - never snaps
+    this.camYaw += this._angDiff(target, this.camYaw) * Math.min(1, 1.6 * dt);
+  }
+
+  // Camera follow + orbit + zoom + shake. Extracted from updatePlaying so the
+  // shop state can keep easing the camera (vendor-facing turn) while the rest
+  // of the world is frozen.
+  updateCameraFollow(dt) {
+    const p = this.player;
+    if (!p) return;
+    // pending yaw ease (vendor-facing turn on shop open, restore on close);
+    // eases along the shortest arc and retires itself on arrival
+    if (this._yawEase) {
+      const d = this._angDiff(this._yawEase.target, this.camYaw);
+      this.camYaw += d * Math.min(1, 3.5 * dt);
+      if (Math.abs(d) < 0.01) { this.camYaw = this._yawEase.target; this._yawEase = null; }
+    }
     const target = p.pos;
     const zoom = this.camZoom || 1; // wheel / pinch scales the whole offset
     // Zoomed in close: bring the camera DOWN to eye level and aim straight at
@@ -3269,37 +3460,6 @@ export class Game {
       this.shakeAmount *= 1 - 7 * dt;
     }
     this.camera.lookAt(target.x, lookY, target.z);
-
-    // player light follows
-    this.playerLight.position.set(p.pos.x, 3.2, p.pos.z);
-
-    // audio listener
-    audio.setListener(p.pos.x, p.pos.z);
-
-    // enemy ML observes player movement for online training, but only while
-    // living enemies exist to use it AND the player is actually fighting.
-    // Standing idle in a dungeon used to keep the worker training every 6s
-    // forever - a constant CPU burn (laptop fans) for zero learning value,
-    // since an idle player generates no movement worth predicting. Gate on
-    // recent combat: any damage dealt or taken in the last 20s.
-    const fighting = this._lastCombatT !== undefined && performance.now() - this._lastCombatT < 20000;
-    if (!this.inTown && fighting && this._anyLivingEnemy()) learner.observe(dt, p);
-
-    // playstyle profile: how much of a runner is this hero? Elites use it to
-    // lean harder into interception; Fenwick uses it to mock you.
-    this._fleeSampleT = (this._fleeSampleT || 0) - dt;
-    if (this._fleeSampleT <= 0) {
-      this._fleeSampleT = 1;
-      const pred = learner.predict(p);
-      const mag = pred ? Math.min(1, Math.hypot(pred.dx, pred.dz) / 3) : 0;
-      this.fleeTendency = (this.fleeTendency || 0) * 0.9 + mag * 0.1;
-    }
-
-    // ---- UI ----
-    this.ui.minimap.revealAround(p.pos.x, p.pos.z);
-    this.ui.minimap.draw(p, this.camYaw || 0);
-    const bossOnFloor = this.boss && !this.boss.dead && this.boss.state !== 'idle' ? this.boss : null;
-    this.ui.updateHud(p, this.floor, bossOnFloor);
   }
 
   updateZones(dt) {
@@ -3428,7 +3588,7 @@ export class Game {
         // chest loot: gold + high gear chance + potion chance
         const gold = 8 + Math.round(Math.random() * 10 * this.floor);
         for (let i = 0; i < 3; i++) this.loot.dropGold(c.x, c.z, Math.round(gold / 3));
-        if (Math.random() < 0.65) this.loot.dropGear(c.x + 0.6, c.z, generateGear(this.floor, null, this.player.classId));
+        if (Math.random() < 0.65) this.loot.dropGear(c.x + 0.6, c.z, generateGear(this.floor, null, this.player.classId, { equipped: this.player.equipped }));
         if (Math.random() < 0.4) this.loot.dropPotion(c.x - 0.6, c.z);
         if (Math.random() < 0.03) this.loot.dropBag(c.x, c.z + 0.7);
       }
