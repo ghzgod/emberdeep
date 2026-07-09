@@ -299,10 +299,12 @@ const CLIP_PATTERNS = {
 };
 
 // Knight-only basic-attack combo: the KayKit rig ships several distinct 1H
-// melee clips, so instead of always playing the same slice we cycle through
-// these on consecutive swings (see Player.tryBasicAttack). Falls back to
-// whatever attackKnight resolves to if a specific clip isn't present in the
-// GLB. Keys match classes.js's knight.basic.variations[].clip.
+// melee clips. player.js still cycles classes.js's variations[] deterministically
+// for damage/reach, but the VISUAL swing is picked at random from these clips in
+// playAttack (so consecutive swings vary between left-right, right-left and
+// up-down arcs instead of a rigid 4-cycle). Falls back to whatever attackKnight
+// resolves to if a specific clip isn't present in the GLB. Keys match classes.js's
+// knight.basic.variations[].clip.
 const KNIGHT_COMBO_PATTERNS = {
   slice_horizontal: [/1h_melee_attack_slice_horizontal/i],
   slice_diagonal: [/1h_melee_attack_slice_diagonal/i],
@@ -375,9 +377,57 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
   };
   const keepHeld = new Set(HELD_LOADOUT[classId] || []);
   const HELD_PATTERN = /Sword|Shield|Wand|Staff|Crossbow|Bow|Knife|Axe|Hammer|Mace|Dagger|Spear|Throwable/i;
+  const heldMeshes = [];
   mesh.traverse((o) => {
-    if (o.isMesh && HELD_PATTERN.test(o.name) && !keepHeld.has(o.name)) o.visible = false;
+    if (o.isMesh && HELD_PATTERN.test(o.name)) {
+      if (keepHeld.has(o.name)) heldMeshes.push(o);
+      else o.visible = false;
+    }
   });
+  // Ground-clearance for the kept held weapons. KayKit bakes each weapon at a
+  // fixed hand-bone transform authored for a T-pose, so a long piece (the
+  // ranger's 2H_Crossbow especially, plus a staff butt or sword tip) can dip
+  // below the floor plane (world y=0) at the game's standing/idle pose. We
+  // measure each kept weapon's lowest point in the hero root's local space
+  // (world matrices updated once for the freshly-cloned rig, still at the
+  // origin so root-local == world here) and, if it sits below a small clearance
+  // margin, lift the weapon along the hero's up axis by exactly that shortfall.
+  // Lifting the mesh's own local position offsets it within its hand bone, so
+  // it still tracks the hand through every animation, just seated a touch
+  // higher so no end scrapes the ground during idle/movement.
+  if (heldMeshes.length) {
+    mesh.updateWorldMatrix(true, true);
+    const rootInv = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
+    const CLEARANCE = 0.02 / data.scale; // small gap above the floor, in local units
+    const box = new THREE.Box3();
+    const v = new THREE.Vector3();
+    for (const w of heldMeshes) {
+      w.updateWorldMatrix(true, false);
+      box.setFromObject(w);
+      if (box.isEmpty()) continue;
+      // Lowest corner of the world AABB, expressed in hero-root-local space.
+      let minLocalY = Infinity;
+      for (const cx of [box.min.x, box.max.x]) {
+        for (const cy of [box.min.y, box.max.y]) {
+          for (const cz of [box.min.z, box.max.z]) {
+            v.set(cx, cy, cz).applyMatrix4(rootInv);
+            if (v.y < minLocalY) minLocalY = v.y;
+          }
+        }
+      }
+      const shortfall = CLEARANCE - minLocalY;
+      if (shortfall > 0) {
+        // Convert the root-local lift into the weapon's own parent space so the
+        // offset moves it straight up in the world regardless of how the hand
+        // bone is rotated.
+        const up = new THREE.Vector3(0, shortfall, 0);
+        const parentInv = new THREE.Matrix4().copy(w.parent.matrixWorld).invert();
+        const origin = new THREE.Vector3().applyMatrix4(parentInv);
+        const lifted = up.applyMatrix4(mesh.matrixWorld).applyMatrix4(parentInv);
+        w.position.add(lifted.sub(origin));
+      }
+    }
+  }
   // Separate the rogue hood so a helmet can replace it (see splitRogueHood).
   // Stored on userData so updateHeroGear can toggle it with the head slot.
   // Its show/hide semantics are its own (default ON, hidden when a helmet
@@ -498,22 +548,50 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
         this.mesh.position.y += (0 - this.mesh.position.y) * Math.min(1, 10 * dt);
         this.mesh.rotation.z += (0 - this.mesh.rotation.z) * Math.min(1, 10 * dt);
       }
+      // Per-swing random root lean (set in playAttack): hold it while attacking,
+      // ease it back to neutral once the swing ends so it never fights the walk.
+      const targetTilt = attacking ? (this._swingTilt || 0) : 0;
+      this.mesh.rotation.x += (targetTilt - this.mesh.rotation.x) * Math.min(1, 12 * dt);
     },
     // `variant` picks one of the knight's combo clips (see KNIGHT_COMBO_PATTERNS)
     // for a varied swing; omit it (abilities, other classes) to play the
     // class's single default attack clip as before. Stops whichever combo
     // clip played last so two swing poses never blend together.
+    //
+    // Swing variety: player.js advances comboIndex deterministically (a rigid
+    // 4-cycle), but the caller only passes us the chosen clip NAME - the visual
+    // swing is entirely ours to decide. So when a variant is requested we IGNORE
+    // the fixed pick and instead roll a random combo clip from whatever this GLB
+    // ships, so consecutive swings vary between left-right, right-left and up-down
+    // arcs instead of marching through the same order. This is purely cosmetic:
+    // damage/timing/reach stay driven by player.js's variation, unchanged. On top
+    // of that we jitter the clip's playback speed and add a small random root
+    // rotation offset for the duration of the swing, so even repeats of the same
+    // clip read as a slightly different range of motion.
     playAttack(variant) {
-      const combo = variant && this.attackCombo[variant];
-      const a = combo || this.actions.attack;
+      let a = this.actions.attack;
+      if (variant) {
+        const pool = Object.values(this.attackCombo);
+        if (pool.length) a = pool[Math.floor(Math.random() * pool.length)];
+      }
       if (!a) return;
       for (const other of Object.values(this.attackCombo)) {
         if (other !== a) other.stop();
       }
       a.reset();
-      a.setEffectiveTimeScale(1.8);
+      // Small per-swing timescale jitter so the arc's speed/range of motion is
+      // never identical twice; centered on the previous fixed 1.8 so DPS pacing
+      // (driven by player.js cooldowns, not clip length) is unaffected.
+      a.setEffectiveTimeScale(variant ? 1.6 + Math.random() * 0.5 : 1.8);
       a.setEffectiveWeight(1);
       a.play();
+      // Tiny random root lean for the swing: a left/right/forward tilt that reads
+      // as the hero committing to that particular cut. Cleared as soon as the
+      // hero moves or idles (setLocomotion resets rotation.z; _swingTilt below
+      // eases rotation.x back). Only for the randomized (knight) swings.
+      if (variant) {
+        this._swingTilt = (Math.random() - 0.5) * 0.14;
+      }
     },
     // Whirlwind pose: freeze the attack clip near mid-swing, where the sword
     // arm is extended out to the side, and hold it there (paused, no time

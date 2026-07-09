@@ -1571,7 +1571,9 @@ export class Game {
     return tier;
   }
 
-  // Attach/refresh a glowing ground ring + orbiting sparkles on a hero mesh.
+  // Attach/refresh an on-body aura of drifting motes on a hero mesh. (The old
+  // ground ring-glow was removed - it read as a "weird ring on the floor"; the
+  // aura now lives entirely on the body as a swarm of sparkles + a companion.)
   setHeroAura(mesh, tier) {
     if (!mesh || mesh.userData.auraTier === tier) return;
     mesh.userData.auraTier = tier;
@@ -1579,23 +1581,39 @@ export class Game {
     if (!tier) return;
     const color = tier >= 2 ? 0xffd24a : 0xb060ff;
     const grp = new THREE.Group();
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.42, 0.62, 20),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })
-    );
-    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03;
-    grp.add(ring);
+    // Sparkle swarm: a small pool of motes, each with its own random size, orbit
+    // radius/height/tilt and speed (some fast, some slow), continuously fading in
+    // and out on independent life cycles so the aura shimmers and churns rather
+    // than spinning as one rigid ring. One shared geometry + additive material
+    // keeps it cheap; per-mote scale/opacity is driven in animateAuras from the
+    // seed values stashed here (see spawnMote / animateAuras). Modeled on the
+    // portal swarm's per-particle random orbits (src/world/portal.js).
     const sparkles = new THREE.Group();
-    const n = tier >= 2 ? 6 : 4;
-    const sMat = new THREE.MeshBasicMaterial({ color });
+    const n = tier >= 2 ? 10 : 7;
+    const sGeo = new THREE.SphereGeometry(1, 6, 6); // unit sphere, scaled per-mote
+    const spawnMote = (m, phaseOffset = 0) => {
+      m.userData.orbit = {
+        radius: 0.34 + Math.random() * 0.34,
+        baseY: 0.35 + Math.random() * 1.0,
+        bob: 0.05 + Math.random() * 0.18,
+        angle: Math.random() * Math.PI * 2,
+        speed: (0.5 + Math.random() * 1.7) * (Math.random() < 0.5 ? -1 : 1), // varied, both directions
+        tilt: (Math.random() - 0.5) * 0.5,
+        size: 0.022 + Math.random() * 0.05, // different-sized balls
+        life: 1.4 + Math.random() * 1.8,
+        // Start the life clock spread out so they don't all pop in together on
+        // the first frame; phaseOffset seeds the initial staggering.
+        age: phaseOffset,
+      };
+    };
     for (let i = 0; i < n; i++) {
-      const s = new THREE.Mesh(new THREE.SphereGeometry(0.04, 5, 5), sMat);
-      const a = (i / n) * Math.PI * 2;
-      s.position.set(Math.cos(a) * 0.55, 0.6 + Math.sin(a * 2) * 0.3, Math.sin(a) * 0.55);
+      const s = new THREE.Mesh(sGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+      spawnMote(s, Math.random() * 2.4);
       sparkles.add(s);
     }
     grp.add(sparkles);
     grp.userData.sparkles = sparkles;
+    grp.userData.spawnMote = spawnMote;
     // Epic tier also gets a little glowing winged companion flitting around.
     if (tier >= 2) {
       const comp = new THREE.Group();
@@ -1673,6 +1691,14 @@ export class Game {
       hat.scale.set(s, s, s);
       hat.rotation.z = (r - 0.5) * 0.1; // tiny per-item tilt variance
       if (classId === 'mage') {
+        // The authored Mage_Hat brim is wide enough to curtain the whole face at
+        // the game's slightly-zoomed camera. Squash ONLY the brim radius (local
+        // X/Z) so at least the lower half of the face clears it, while keeping
+        // the crown's height (Y) so the hat still reads as a tall wizard hat and
+        // not a flat cap. Knight helmets never enter this branch, so this cannot
+        // touch them.
+        hat.scale.x = s * 0.68;
+        hat.scale.z = s * 0.68;
         // Cloth hat: pick from a real colour palette (seeded per item, not
         // always the rarity colour) so hats vary hue instead of every
         // legendary being flat orange. Rarity nudges richness/saturation.
@@ -1865,7 +1891,29 @@ export class Game {
     const anim = (mesh) => {
       const g = mesh?.userData?.auraGroup;
       if (!g) return;
-      g.userData.sparkles.rotation.y += dt * 1.6;
+      // Per-mote drift + continuous fade in/out. Each mote advances its own
+      // angle at its own (signed) speed, bobs on its own sine, and runs an
+      // independent life clock: opacity ramps up over the first fifth of its
+      // life and back down over the last fifth, and when a life ends the mote
+      // respawns with fresh random orbit/size (via the stashed spawnMote), so
+      // the swarm keeps churning instead of spinning as one rigid group.
+      const spawnMote = g.userData.spawnMote;
+      for (const m of g.userData.sparkles.children) {
+        const o = m.userData.orbit;
+        if (!o) continue;
+        o.age += dt;
+        if (o.age >= o.life && spawnMote) { spawnMote(m); continue; }
+        o.angle += dt * o.speed;
+        const x = Math.cos(o.angle) * o.radius;
+        const z = Math.sin(o.angle) * o.radius;
+        const y = o.baseY + Math.sin(o.age * 2.2 + o.angle) * o.bob + z * o.tilt;
+        m.position.set(x, y, z);
+        m.scale.setScalar(o.size);
+        // Trapezoidal fade: in over first 20%, hold, out over last 20%.
+        const f = o.age / o.life;
+        const fade = f < 0.2 ? f / 0.2 : f > 0.8 ? (1 - f) / 0.2 : 1;
+        m.material.opacity = Math.max(0, Math.min(1, fade)) * 0.9;
+      }
       const c = g.userData.companion;
       if (c) {
         c.position.set(Math.cos(t * 1.6) * 0.85, 1.55 + Math.sin(t * 3) * 0.18, Math.sin(t * 1.6) * 0.85);
