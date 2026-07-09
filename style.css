@@ -275,22 +275,56 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
    in town, in every mode -- desktop row and touch wheel alike. The touch-mode
    rule below layers on top of this for its own pointer-events default. */
 .in-town #hotbar { opacity: 0; pointer-events: none; }
-/* Touch ability wheel: a quarter-pie of four wedges in the bottom-right corner.
-   The <svg> box is click-through; only the wedge paths capture taps, so attack
-   taps landing in the empty part of the box still reach the game. */
-.ability-wheel .wheel-slot { pointer-events: none; }
-.ability-wheel .wheel-wedge {
-  fill: rgba(22,17,32,0.72); stroke: rgba(150,120,205,0.5); stroke-width: 1.1;
-  pointer-events: auto; cursor: pointer; transition: fill 0.12s ease;
+/* Touch action cluster (Wild Rift style): circular buttons in the bottom-right
+   corner - one big BASIC-ATTACK at the thumb pivot, four ability buttons fanned
+   in an arc up-and-left of it. Each button carries a bright teal cooldown ring
+   drawn by an SVG stroke (the signature accent), the ability icon, and a
+   cooldown-seconds number. The #hotbar box is click-through; only the buttons
+   capture touches, so attack taps between them still reach the game. */
+.act-btn {
+  position: absolute; pointer-events: auto; cursor: pointer;
+  border-radius: 50%; box-sizing: border-box;
+  background: radial-gradient(circle at 50% 38%, rgba(38,30,54,0.94), rgba(14,10,20,0.96));
+  border: 1px solid rgba(120,150,150,0.28);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.08s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.55);
+  touch-action: none; user-select: none; -webkit-user-select: none;
 }
-.ability-wheel .wheel-slot.ready .wheel-wedge { stroke: rgba(184,150,236,0.95); }
-.ability-wheel .wheel-slot.ready .wheel-wedge:active { fill: rgba(120,90,180,0.9); }
-.ability-wheel .wheel-slot.no-resource .wheel-wedge { fill: rgba(58,22,22,0.74); stroke: rgba(200,90,90,0.85); }
-.ability-wheel .wheel-slot.cooling .wheel-wedge { fill: rgba(14,11,20,0.78); stroke: rgba(110,90,140,0.5); }
-.ability-wheel .wheel-cd { fill: rgba(0,0,0,0.5); pointer-events: none; }
-.ability-wheel .wheel-icon { font-size: 15px; pointer-events: none; }
-.ability-wheel .wheel-slot.cooling .wheel-icon { opacity: 0.42; }
-.ability-wheel .wheel-num { font-size: 6.5px; fill: rgba(232,222,248,0.72); pointer-events: none; font-family: inherit; }
+.act-btn:active { transform: scale(0.94); }
+.act-btn.aiming { box-shadow: 0 0 16px rgba(63,224,208,0.7); }
+.act-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); pointer-events: none; }
+.act-ring-bg { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 6; }
+/* teal cooldown ring: full circle when ready (offset 0), depletes as the
+   remaining-cooldown fraction grows the dash offset. */
+.act-ring-fg {
+  fill: none; stroke: #3fe0d0; stroke-width: 6; stroke-linecap: round;
+  transition: stroke-dashoffset 0.1s linear;
+}
+.act-btn.ready { border-color: rgba(63,224,208,0.75); }
+.act-btn.ready .act-ring-fg { stroke: #4fe8d6; filter: drop-shadow(0 0 3px rgba(63,224,208,0.85)); }
+.act-btn.cooling .act-icon { filter: grayscale(0.5) brightness(0.65); opacity: 0.5; }
+.act-btn.cooling .act-ring-fg { stroke: rgba(63,224,208,0.55); }
+/* not enough resource: dim/desaturate like the disabled potion */
+.act-btn.no-resource { border-color: #7a3030; filter: grayscale(0.85) brightness(0.7); }
+.act-btn.no-resource .act-ring-fg { stroke: rgba(200,90,90,0.7); }
+.act-icon {
+  font-size: 24px; line-height: 1; pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
+}
+.act-cd {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 20px; font-weight: 700; color: var(--parchment);
+  text-shadow: 0 1px 3px #000; pointer-events: none; letter-spacing: 0.5px;
+}
+.act-cd:empty { display: none; }
+.act-key {
+  position: absolute; top: 4px; right: 8px; font-size: 10px;
+  color: rgba(232,222,248,0.6); pointer-events: none;
+}
+/* the big basic-attack button reads larger and a touch warmer (gold rim hint) */
+.act-basic { border-color: rgba(232,192,90,0.5); }
+.act-basic .act-icon { font-size: 30px; }
 .hotbar-slot {
   position: relative; width: 66px; height: 66px; border: 2px solid var(--panel-border);
   border-radius: 8px; background: var(--panel); display: flex; align-items: center; justify-content: flex-start;
@@ -1062,27 +1096,29 @@ body.touch-mode {
      rule). No rotation of the icon. */
   #touch-ui.menu-open #touch-menu-toggle::before { content: '\2715'; }
 
-  /* Abilities as a QUARTER-ARC WHEEL fanned around the right thumb's natural
-     pivot: the four buttons sweep from the bottom edge (slot 1) up to the
-     right edge (slot 4), instead of a flat 2x2 pad. The pivot is INSET from
-     the literal screen corner (not flush at 0,0) so it sits where a thumb
-     actually rests when gripping the lower-right of the device, not out at
-     the dead corner past its comfortable reach. The container is a zero-size
-     anchor and is click-through, so taps that land in the gaps between
-     buttons still reach the tap-to-attack handler; only the buttons
-     themselves capture touches. */
+  /* Action cluster: the BIG basic-attack button sits at the right thumb's
+     natural pivot (inset from the literal corner so it lands where a thumb
+     rests when gripping the lower-right, not out in the dead corner), and the
+     four ability buttons fan in an arc up-and-to-the-left of it (positions
+     below). #hotbar is a fixed-size click-through anchor box pinned to the
+     bottom-right; only the buttons themselves capture touches, so taps landing
+     in the gaps still reach the tap-to-attack handler. */
   #hotbar {
     left: auto; top: auto; right: 14px; bottom: 14px; transform: none;
-    display: block; width: auto; height: auto; gap: 0; pointer-events: none;
+    display: block; width: 210px; height: 210px; gap: 0; pointer-events: none;
   }
-  .ability-wheel { width: 160px; height: 160px; display: block; pointer-events: none; }
+  .act-basic { width: 76px; height: 76px; right: 16px; bottom: 16px; z-index: 2; }
+  .act-ability { width: 58px; height: 58px; }
+  /* arc: slot 0 just above the basic, sweeping up-and-left to slot 3 */
+  .act-slot-0 { right: 49px;  bottom: 138px; }
+  .act-slot-1 { right: 100px; bottom: 114px; }
+  .act-slot-2 { right: 133px; bottom: 68px; }
+  .act-slot-3 { right: 140px; bottom: 13px; }
 
-  /* Potion lives permanently in the wheel's own hub gap (the big empty
-     quarter-disc at the pivot, radius R0 in buildRadialHotbar) instead of the
-     utility drawer, so healing is always one tap away without opening the
-     menu. It tracks the wheel's inset pivot, not the screen corner. */
+  /* Potion keeps its dedicated corner hub, tucked below-left of the basic
+     button so healing is always one tap away without opening the drawer. */
   #touch-potion {
-    right: 22px; bottom: 22px; width: 52px; height: 52px; z-index: 3;
+    right: 100px; bottom: 16px; width: 50px; height: 50px; z-index: 3;
   }
 
   /* --- Utility menu: the buttons are ALWAYS rendered so opening/closing can
@@ -1255,15 +1291,21 @@ body.touch-mode {
      every short-height landscape phone here, and its value already clears
      this layout's shallower ~104px-tall compact top HUD, so it is not
      repeated in this block. */
-  /* Landscape thumb ergonomics: gripping a phone/tablet in landscape, the
-     right thumb pivots from the lower-right EDGE, not the dead corner - its
-     comfortable arc sits inset from the corner. Push the wheel's pivot inward
-     and up into that arc instead of jamming it flush into the corner, so all
-     four wedges stay reachable without shifting the grip. Also keeps it clear
-     of the minimap up top. */
-  #hotbar { right: 34px; bottom: 34px; }
-  .ability-wheel { width: 124px; height: 124px; }
-  #touch-potion { right: 46px; bottom: 46px; }
+  /* Landscape thumb ergonomics: gripping a phone/tablet in landscape, the right
+     thumb pivots from the lower-right EDGE, not the dead corner - its comfortable
+     arc sits inset from the corner. Push the whole cluster inward and up into
+     that arc (via a smaller anchor box) and shrink the buttons + tighten the arc
+     so all five stay reachable without shifting the grip, and clear of the
+     minimap up top. */
+  #hotbar { right: 26px; bottom: 22px; width: 172px; height: 172px; }
+  body.touch-mode .act-basic { width: 64px; height: 64px; right: 12px; bottom: 12px; }
+  body.touch-mode .act-ability { width: 48px; height: 48px; }
+  body.touch-mode .act-slot-0 { right: 42px;  bottom: 112px; }
+  body.touch-mode .act-slot-1 { right: 84px;  bottom: 92px; }
+  body.touch-mode .act-slot-2 { right: 110px; bottom: 54px; }
+  body.touch-mode .act-slot-3 { right: 116px; bottom: 10px; }
+  body.touch-mode .act-basic .act-icon { font-size: 26px; }
+  body.touch-mode .act-icon { font-size: 20px; }
 }
 /* LANDSCAPE touch (short screen + touch-mode only): the ability wheel owns the
    bottom-right, so the toggle goes to the bottom-LEFT corner and the utilities
@@ -1276,9 +1318,10 @@ body.touch-mode {
 @media (max-height: 540px) {
   body.touch-mode {
     #touch-menu-toggle { left: 12px; right: auto; bottom: 12px; }
-    /* potion keeps its fixed spot in the wheel's hub gap, bottom-right, in
-       every orientation - it is not part of the drawer fan/stack any more. */
-    #touch-potion { left: auto; right: 8px; bottom: 8px; }
+    /* potion keeps its dedicated corner hub, tucked left of the basic-attack
+       button (clear of the shrunken landscape cluster), in every orientation -
+       it is not part of the drawer fan/stack. */
+    #touch-potion { left: auto; right: 82px; bottom: 14px; }
     #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { left: 12px; right: auto; bottom: 12px; }
     #touch-ui.menu-open.menu-side #touch-inv    { left: 66px;  right: auto; bottom: 12px; transition-delay: 0s; }
     #touch-ui.menu-open.menu-side #touch-pause  { left: 120px; right: auto; bottom: 12px; transition-delay: 0.03s; }
@@ -1301,16 +1344,16 @@ body.touch-mode {
    and slide it back to its dungeon spot the moment play resumes. The drawer
    itself still opens relative to wherever the toggle currently sits. */
 body.touch-mode.in-town #touch-menu-toggle { left: auto; right: 14px; bottom: 14px; }
-/* the wheel container is click-through; only its buttons capture touches, so
+/* the cluster container is click-through; only its buttons capture touches, so
    attack taps that fall between the arc buttons still reach the game. */
 .touch-mode #hotbar { pointer-events: none; transition: opacity 0.3s ease; }
-.touch-mode #hotbar .hotbar-slot { pointer-events: auto; }
-/* The ability wheel is a dungeon combat tool: fade it right out in town, and
+.touch-mode #hotbar .act-btn { pointer-events: auto; }
+/* The action cluster is a dungeon combat tool: fade it right out in town, and
    while an interact/descend prompt is up so it never sits under that button. */
 .touch-mode.in-town #hotbar,
 .touch-mode.show-interact #hotbar { opacity: 0; pointer-events: none; }
-.touch-mode.in-town .ability-wheel .wheel-wedge,
-.touch-mode.show-interact .ability-wheel .wheel-wedge { pointer-events: none; }
+.touch-mode.in-town #hotbar .act-btn,
+.touch-mode.show-interact #hotbar .act-btn { pointer-events: none; }
 /* When any full-screen menu/overlay is open, hide the touch controls so the
    joystick and menu launcher never float on top of the inventory or settings. */
 body:has(.overlay.visible) #touch-ui { display: none !important; }

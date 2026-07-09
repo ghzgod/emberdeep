@@ -1337,16 +1337,18 @@ export class UI {
     const bar = $('hotbar');
     bar.innerHTML = '';
     this.hotbarSlots = [];
-    this.radial = null;
+    this.cluster = null;
     const order = player.abilityOrder || [0, 1, 2, 3];
-    // On touch devices the abilities render as a quarter-pie radial wheel in the
-    // bottom-right corner (built + updated separately); desktop keeps the row.
+    // On touch devices (and any coarse-pointer session) the abilities render as
+    // a Wild Rift-style cluster of circular buttons in the bottom-right corner:
+    // one big BASIC-ATTACK button at the thumb pivot and the four abilities
+    // fanned in an arc up-and-to-the-left. Desktop keeps the flat row.
     // Uses the same isTouchDevice() check that drives body.touch-mode (see
     // core/touch.js) so the JS layout choice and the CSS never disagree.
     const touch = isTouchDevice();
     document.body.classList.toggle('touch-mode', touch);
     if (touch) {
-      this.buildRadialHotbar(player, order);
+      this.buildActionCluster(player, order);
       return;
     }
     order.forEach((abIndex, i) => {
@@ -1366,89 +1368,143 @@ export class UI {
     this.wireHotbarInput(player);
   }
 
-  // SVG annular-sector path (a pie slice with a hole at the pivot), pivot fixed
-  // at the bottom-right corner (100,100) of a 0..100 viewBox.
-  _wedgePath(a1, a2, r0, r1) {
-    const pt = (a, r) => [
-      (100 + r * Math.cos((a * Math.PI) / 180)).toFixed(2),
-      (100 + r * Math.sin((a * Math.PI) / 180)).toFixed(2),
-    ];
-    const [x1, y1] = pt(a1, r1), [x2, y2] = pt(a2, r1), [x3, y3] = pt(a2, r0), [x4, y4] = pt(a1, r0);
-    return `M${x1} ${y1} A${r1} ${r1} 0 0 1 ${x2} ${y2} L${x3} ${y3} A${r0} ${r0} 0 0 0 ${x4} ${y4} Z`;
+  // Build one circular action button (a div with a teal cooldown ring drawn by
+  // an SVG stroke, an icon, and a hidden cooldown-seconds number). Shared by the
+  // basic-attack button (slot -1) and the four ability buttons (slot 0-3).
+  _makeActionButton(slot, label, icon, cls) {
+    // ring circumference for r=45 in the 100x100 viewBox (2*PI*45 ≈ 282.74)
+    const C = 282.74;
+    const btn = document.createElement('div');
+    btn.className = `act-btn ${cls} ready`;
+    btn.innerHTML = `
+      <svg class="act-ring" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="act-ring-bg" cx="50" cy="50" r="45"></circle>
+        <circle class="act-ring-fg" cx="50" cy="50" r="45"
+          stroke-dasharray="${C}" stroke-dashoffset="0"></circle>
+      </svg>
+      <span class="act-icon">${icon}</span>
+      <span class="act-cd"></span>
+      ${label ? `<span class="act-key">${label}</span>` : ''}
+    `;
+    return {
+      slot, el: btn,
+      ring: btn.querySelector('.act-ring-fg'),
+      iconEl: btn.querySelector('.act-icon'),
+      cdEl: btn.querySelector('.act-cd'),
+      C,
+    };
   }
 
-  // Touch abilities: a quarter-pie wheel of four wedges (pineapple slices) in
-  // the bottom-right corner, sweeping from the bottom edge (slot 1) up to the
-  // right edge (slot 4) around the thumb pivot. Each wedge is a tap target that
-  // casts its ability; cooldown drains a dark overlay across the slice.
-  buildRadialHotbar(player, order) {
+  // Touch/coarse-pointer abilities as a Wild Rift-style cluster of CIRCULAR
+  // buttons in the bottom-right corner: one large BASIC-ATTACK button at the
+  // thumb pivot, and the four ability buttons fanned in an arc up-and-left of
+  // it (their screen positions come from CSS). Each button supports TAP
+  // (auto-aim nearest) and HOLD+SWIPE (directional cast); see wireActionButton.
+  buildActionCluster(player, order) {
     const bar = $('hotbar');
-    const NS = 'http://www.w3.org/2000/svg';
-    const R0 = 46, R = 98, GAP = 3;
-    const pt = (a, r) => [
-      (100 + r * Math.cos((a * Math.PI) / 180)).toFixed(2),
-      (100 + r * Math.sin((a * Math.PI) / 180)).toFixed(2),
-    ];
-    const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 100 100');
-    svg.setAttribute('class', 'ability-wheel');
-    this.radial = [];
+    this.cluster = [];
+    // big basic-attack at the corner pivot (slot -1); sword glyph
+    const basic = this._makeActionButton(-1, '', '⚔️', 'act-basic');
+    bar.appendChild(basic.el);
+    this.wireActionButton(basic, player);
+    this.cluster.push(basic);
+    // four abilities fanned in the arc, slot 0..3
     order.forEach((abIndex, i) => {
       const ab = player.classDef.abilities[abIndex];
-      const base = 180 + i * 22.5;
-      const a1 = base + GAP / 2, a2 = base + 22.5 - GAP / 2, mid = (a1 + a2) / 2;
-      const g = document.createElementNS(NS, 'g');
-      g.setAttribute('class', 'wheel-slot ready');
-      const wedge = document.createElementNS(NS, 'path');
-      wedge.setAttribute('d', this._wedgePath(a1, a2, R0, R));
-      wedge.setAttribute('class', 'wheel-wedge');
-      const cd = document.createElementNS(NS, 'path');
-      cd.setAttribute('class', 'wheel-cd');
-      cd.setAttribute('d', '');
-      const [ix, iy] = pt(mid, (R0 + R) / 2 + 3);
-      const icon = document.createElementNS(NS, 'text');
-      icon.setAttribute('x', ix); icon.setAttribute('y', iy);
-      icon.setAttribute('class', 'wheel-icon');
-      icon.setAttribute('text-anchor', 'middle');
-      icon.setAttribute('dominant-baseline', 'central');
-      icon.textContent = ab.icon;
-      const [nx, ny] = pt(mid, R0 + 8);
-      const num = document.createElementNS(NS, 'text');
-      num.setAttribute('x', nx); num.setAttribute('y', ny);
-      num.setAttribute('class', 'wheel-num');
-      num.setAttribute('text-anchor', 'middle');
-      num.setAttribute('dominant-baseline', 'central');
-      num.textContent = i + 1;
-      g.append(wedge, cd, icon, num);
-      svg.appendChild(g);
-      const fire = (e) => {
-        e.preventDefault(); e.stopPropagation();
-        if (this.game.state === 'playing') this.game.player?.tryAbility(i, this.game);
-      };
-      g.addEventListener('pointerup', fire);
-      this.radial.push({ i, g, wedge, cd, icon, a1, a2 });
+      const b = this._makeActionButton(i, i + 1, ab.icon, `act-ability act-slot-${i}`);
+      bar.appendChild(b.el);
+      this.wireActionButton(b, player);
+      this.cluster.push(b);
     });
-    bar.appendChild(svg);
   }
 
-  updateRadialHotbar(player) {
+  // Per-button gesture handling shared by every cluster button (and it works
+  // for mouse too, so desktop gets the same tap/click + drag-to-aim). A quick
+  // press-release with little movement is a TAP (auto-aim nearest enemy); a
+  // press then drag past SWIPE_PX is a SWIPE (cast in the drag direction, with
+  // a live ground aim arrow). Both route through game.clusterTap / clusterSwipe,
+  // which feed the existing tryAbility / tryBasicAttack path.
+  wireActionButton(b, player) {
+    const SWIPE_PX = 18; // > this = aim/swipe mode; <= this = tap
+    b.el.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (this.game.state !== 'playing') return;
+      b.drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, swiping: false };
+      b.el.setPointerCapture?.(e.pointerId);
+      this.game.touch?.wake?.();
+    });
+    b.el.addEventListener('pointermove', (e) => {
+      const d = b.drag;
+      if (!d || d.id !== e.pointerId) return;
+      const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+      if (!d.swiping && Math.hypot(dx, dy) > SWIPE_PX) d.swiping = true;
+      if (d.swiping) {
+        const dir = this.game.dragToWorldDir(dx, dy);
+        this.game.setAimIndicator(dir);
+        b.el.classList.add('aiming');
+      }
+    });
+    const finish = (e) => {
+      const d = b.drag;
+      if (!d || d.id !== e.pointerId) return;
+      b.drag = null;
+      b.el.classList.remove('aiming');
+      this.game.setAimIndicator(null);
+      this.game.touch?._closeDrawer?.();
+      this.game.touch?._advanceTut?.('ability');
+      if (this.game.state !== 'playing') return;
+      const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+      if (d.swiping) {
+        const dir = this.game.dragToWorldDir(dx, dy);
+        if (dir) this.game.clusterSwipe(b.slot, dir.x, dir.z);
+        else this.game.clusterTap(b.slot); // drag collapsed back onto the button
+      } else {
+        this.game.clusterTap(b.slot);
+      }
+    };
+    b.el.addEventListener('pointerup', finish);
+    b.el.addEventListener('pointercancel', (e) => {
+      if (b.drag?.id === e.pointerId) { b.drag = null; b.el.classList.remove('aiming'); this.game.setAimIndicator(null); }
+    });
+  }
+
+  updateActionCluster(player) {
     const order = player.abilityOrder || [0, 1, 2, 3];
-    this.radial.forEach((s, i) => {
-      const abIndex = order[i];
+    for (const b of this.cluster) {
+      if (b.slot < 0) {
+        // basic attack: cooldown is player.attackCd (max = basic.cooldown),
+        // and it can be starved of resource just like abilities.
+        const basic = player.classDef.basic;
+        const cd = player.attackCd;
+        const max = basic.cooldown || 0.45;
+        const onCd = cd > 0.02;
+        const frac = onCd ? Math.max(0, Math.min(1, cd / max)) : 0;
+        b.ring.style.strokeDashoffset = (b.C * frac).toFixed(1);
+        const canAfford = player.resource >= (basic.basicCost || 0);
+        b.el.classList.toggle('cooling', onCd);
+        b.el.classList.toggle('ready', !onCd && canAfford);
+        b.el.classList.toggle('no-resource', !onCd && !canAfford);
+        b.cdEl.textContent = onCd && cd >= 0.1 ? Math.ceil(cd).toString() : '';
+        continue;
+      }
+      const abIndex = order[b.slot];
       const ab = player.classDef.abilities[abIndex];
-      if (!ab) return;
+      if (!ab) continue;
       const cd = player.abilityCds[abIndex];
       const max = player.abilityCdMax?.[abIndex] || ab.cd;
       const onCd = cd > 0;
+      // teal ring depletes as the cooldown recovers: full ring = ready,
+      // stroke-dashoffset grows with the remaining fraction.
       const frac = onCd ? Math.max(0, Math.min(1, cd / max)) : 0;
-      // dark overlay drains from the leading edge as the cooldown recovers
-      s.cd.setAttribute('d', frac > 0 ? this._wedgePath(s.a1, s.a1 + (s.a2 - s.a1) * frac, 46, 98) : '');
-      const canAfford = player.resource >= ab.cost;
-      s.g.classList.toggle('cooling', onCd);
-      s.g.classList.toggle('ready', !onCd && canAfford);
-      s.g.classList.toggle('no-resource', !onCd && !canAfford);
-      if (s.icon.textContent !== ab.icon) s.icon.textContent = ab.icon;
-    });
+      b.ring.style.strokeDashoffset = (b.C * frac).toFixed(1);
+      const cost = Math.round(ab.cost * (player.maxResource / player.classDef.resource.max));
+      const canAfford = player.resource >= cost;
+      b.el.classList.toggle('cooling', onCd);
+      b.el.classList.toggle('ready', !onCd && canAfford);
+      b.el.classList.toggle('no-resource', !onCd && !canAfford);
+      b.cdEl.textContent = onCd ? Math.ceil(cd).toString() : '';
+      if (b.iconEl.textContent !== ab.icon) b.iconEl.textContent = ab.icon;
+    }
   }
 
   // One pointer-based interaction path covers both mouse and touch: a quick
@@ -1517,7 +1573,9 @@ export class UI {
   }
 
   flashNoResource(slot) {
-    const el = this.radial ? this.radial[slot]?.g : this.hotbarSlots[slot];
+    // cluster stores the basic-attack at index 0 (slot -1), so ability slot i
+    // sits at cluster[i + 1].
+    const el = this.cluster ? this.cluster[slot + 1]?.el : this.hotbarSlots[slot];
     if (!el) return;
     el.classList.add('no-resource');
     setTimeout(() => el.classList.remove('no-resource'), 300);
@@ -1591,7 +1649,7 @@ export class UI {
       cl.classList.add('hidden');
     }
 
-    if (this.radial) { this.updateRadialHotbar(player); }
+    if (this.cluster) { this.updateActionCluster(player); }
     else {
     const abilityOrder = player.abilityOrder || [0, 1, 2, 3];
     abilityOrder.forEach((abIndex, i) => {
