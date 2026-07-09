@@ -52,6 +52,60 @@ function bossModelKeyForAct(act) {
   return MODEL_FILES[key] ? key : 'boss';
 }
 
+// ---- White bone for the skeleton family ----
+// Every skeleton-family rig (KayKit: skeleton/ghoul/witch/warlock plus the
+// skeleton boss rigs) shares one atlas material literally named "skeleton"
+// whose bone regions are painted a warm cream; under the dungeon's warm
+// torch lighting that cream reads parchment-YELLOW on screen. Fix it at the
+// source: run the atlas through a one-time-per-file canvas pass that
+// desaturates and slightly brightens only bone-toned pixels (bright, warm,
+// mildly saturated), so bone reads clean white under torchlight while cloth,
+// leather, gold trim (all darker or far more saturated) and the separate
+// "Glow" eye material are untouched. Elite gilding (enemies.js) tints the
+// material COLOR toward gold after this, so gilded elites still read gold.
+const SKELETON_BONE_KEYS = new Set(['skeleton', 'ghoul', 'witch', 'warlock', 'boss', 'bossAct1', 'bossAct4']);
+const whitenedAtlasTextures = new Map(); // model file -> THREE.CanvasTexture (one shared atlas per file)
+
+function whitenedBoneTexture(file, srcTexture) {
+  let tex = whitenedAtlasTextures.get(file);
+  if (tex) return tex;
+  const image = srcTexture.image;
+  if (!image || !image.width) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(image, 0, 0);
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const px = data.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const r = px[i], g = px[i + 1], b = px[i + 2];
+    const max = Math.max(r, g, b);
+    const sat = max === 0 ? 0 : (max - Math.min(r, g, b)) / max;
+    // bone tones only: bright-ish, warm-ordered (r >= g >= b), mildly
+    // saturated. Gold trim is far more saturated, cloth/leather far darker,
+    // so neither ever matches.
+    if (max > 96 && sat < 0.42 && r >= g && g >= b) {
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      // pull 80% of the way to neutral grey, then lift brightness a touch so
+      // the bone stays white even in dim warm torchlight
+      px[i] = Math.min(255, (r + (lum - r) * 0.8) * 1.12);
+      px[i + 1] = Math.min(255, (g + (lum - g) * 0.8) * 1.12);
+      px[i + 2] = Math.min(255, (b + (lum - b) * 0.8) * 1.12);
+    }
+  }
+  ctx.putImageData(data, 0, 0);
+  tex = new THREE.CanvasTexture(canvas);
+  tex.flipY = srcTexture.flipY;
+  tex.colorSpace = srcTexture.colorSpace;
+  tex.wrapS = srcTexture.wrapS;
+  tex.wrapT = srcTexture.wrapT;
+  tex.minFilter = srcTexture.minFilter;
+  tex.magFilter = srcTexture.magFilter;
+  whitenedAtlasTextures.set(file, tex);
+  return tex;
+}
+
 // Clip-name families across the source rigs (see CREDITS.md): KayKit skeleton
 // rigs share one 40+ clip library; the Quaternius creature rigs each ship a
 // small bespoke set keyed by exact clip name (verified against the GLBs).
@@ -132,6 +186,33 @@ function parseGltfInstance(url) {
   return loadGlbBuffer(url).then(
     (buf) => new Promise((resolve, reject) => loader.parse(buf, '', resolve, reject))
   );
+}
+
+// Texture dedupe across per-instance parses. Each parse (the invisibility
+// fix above; geometry/skeletons MUST stay per-instance) also decodes its own
+// copy of the same atlas texture, so 45 live mobs meant 45 identical GPU
+// uploads of one image. The first parse of a file donates its textures to
+// this module-level cache; every later parse swaps its freshly decoded
+// duplicates for the shared instances (keyed by file + material + slot,
+// since per-parse image objects are distinct and can't key anything) and
+// disposes the duplicates before they ever upload.
+const sharedTextureCache = new Map(); // `${file}#${materialName}#${slot}` -> THREE.Texture
+const TEXTURE_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'];
+
+function dedupeMaterialTextures(file, material) {
+  for (const slot of TEXTURE_SLOTS) {
+    const tex = material[slot];
+    if (!tex) continue;
+    const key = `${file}#${material.name || ''}#${slot}`;
+    const cached = sharedTextureCache.get(key);
+    if (!cached) {
+      sharedTextureCache.set(key, tex);
+    } else if (cached !== tex) {
+      material[slot] = cached;
+      tex.dispose();
+      material.needsUpdate = true;
+    }
+  }
 }
 
 export function bossModelKey(act) {
@@ -222,6 +303,20 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
       o.frustumCulled = false;
       if (o.material) {
         o.material = o.material.clone();
+        // share texture instances across parses of the same file (see
+        // dedupeMaterialTextures above) BEFORE any per-family map swap
+        dedupeMaterialTextures(file, o.material);
+        // skeleton-family rigs: swap the shared bone atlas for the whitened
+        // one (see whitenedBoneTexture above) so bone reads white, not the
+        // warm cream that torchlight pushes to yellow. Keyed to the material
+        // actually named "skeleton" so the "Glow" eye material is untouched.
+        if (SKELETON_BONE_KEYS.has(modelKey) && o.material.map && /skeleton/i.test(o.material.name || '')) {
+          const white = whitenedBoneTexture(file, o.material.map);
+          if (white) {
+            o.material.map = white;
+            o.material.needsUpdate = true;
+          }
+        }
         if (opts.tint != null && o.material.color) {
           o.material.color.lerp(new THREE.Color(opts.tint), opts.tintStrength ?? 0.35);
         }
