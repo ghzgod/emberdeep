@@ -205,16 +205,18 @@
       </div>
       <div id="hotbar"></div>
       <button id="interact-prompt" class="hidden"></button>
-      <!-- Tray glyphs are flat-stroke SVGs injected from src/ui/icons.js in
-           ui.js wireActionBar (single source of truth). The potion now lives
-           as a circular bubble on the ability row itself, in both layouts. -->
+      <!-- Desktop utility row: the same circular gold-ring bubbles as the touch
+           cluster (buildActionCluster's act-btn language), clustered right next
+           to the ability row instead of a floating box of squares. Glyphs are
+           flat-stroke SVGs injected from src/ui/icons.js in ui.js wireActionBar
+           (single source of truth). No collapse toggle - always visible, same
+           as the mobile utility row. -->
       <div id="action-bar">
-        <button id="ab-inv" title="Inventory (Tab)"></button>
-        <button id="ab-quests" title="Quest Log (J)"></button>
-        <button id="ab-skills" title="Mastery (K)"></button>
-        <button id="ab-mic" class="hidden" title="Push-to-talk: hold V"></button>
-        <button id="ab-pause" title="Menu (Esc)"></button>
-        <button id="ab-toggle" title="Toggle menu"></button>
+        <button id="ab-inv" class="act-btn ab-bubble" title="Inventory (Tab)"></button>
+        <button id="ab-quests" class="act-btn ab-bubble" title="Quest Log (J)"></button>
+        <button id="ab-skills" class="act-btn ab-bubble" title="Mastery (K)"></button>
+        <button id="ab-mic" class="act-btn ab-bubble hidden" title="Push-to-talk: hold V"></button>
+        <button id="ab-pause" class="act-btn ab-bubble" title="Menu (Esc)"></button>
       </div>
       <div id="voice-indicator" class="hidden"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="10" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg> LIVE</div>
     </div>
@@ -246,9 +248,13 @@
     <!-- Touch controls (coarse-pointer devices) -->
     <div id="touch-ui" class="hidden">
       <div id="joystick-base"><div id="joystick-knob"></div></div>
-      <!-- The potion is a bubble inside the action cluster now (built in
-           ui.js buildActionCluster, living in #hotbar), so it fades with the
-           cluster; there is no separate corner potion hub any more. -->
+      <!-- Utility row: four circular bubbles nestled tight against the
+           ability arc (inventory, settings, rotate-left, rotate-right),
+           always rendered - no drawer/toggle to open first. Rotate bubbles
+           require a held press (~1s, see touch.js bindRotate) before they
+           start rotating; a hold-progress ring (SVG stroke, same technique as
+           the ability cooldown rings) fills while held. The potion bubble
+           lives in the ability arc itself (ui.js _buildPotionBubble). -->
       <button id="touch-inv" aria-label="Inventory">
         <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>
@@ -263,25 +269,30 @@
           <path d="M12 17v3"/>
         </svg>
       </button>
-      <button id="touch-pause" aria-label="Menu">
+      <button id="touch-pause" aria-label="Settings">
         <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3.2"/>
           <path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4 5.3 5.3"/>
         </svg>
       </button>
-      <button id="touch-rotl" aria-label="Rotate camera left">
+      <button id="touch-rotl" aria-label="Hold to rotate camera left">
+        <svg class="hold-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="hold-ring-fg" cx="50" cy="50" r="45" stroke-dasharray="282.74" stroke-dashoffset="282.74"></circle>
+        </svg>
         <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M4 5v5h5"/>
           <path d="M4 10a8 8 0 1 1-1.5 4.7"/>
         </svg>
       </button>
-      <button id="touch-rotr" aria-label="Rotate camera right">
+      <button id="touch-rotr" aria-label="Hold to rotate camera right">
+        <svg class="hold-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="hold-ring-fg" cx="50" cy="50" r="45" stroke-dasharray="282.74" stroke-dashoffset="282.74"></circle>
+        </svg>
         <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M20 5v5h-5"/>
           <path d="M20 10a8 8 0 1 0 1.5 4.7"/>
         </svg>
       </button>
-      <button id="touch-menu-toggle" title="Menu" aria-label="Menu"></button>
       <!-- First-time joystick ghost: fades in if the player has not moved
            within a few seconds of entering the world (first three entries at
            most - see touch.js scheduleJoyGhost). A soft ghost thumb slides up
@@ -329,10 +340,10 @@
       <div id="item-actions-card">
         <div id="item-actions-info"></div>
         <div class="item-actions-btns">
-          <button id="btn-item-equip" class="menu-btn small">Equip</button>
-          <button id="btn-item-sell" class="menu-btn small">Sell</button>
-          <button id="btn-item-drop" class="menu-btn small">Drop</button>
-          <button id="btn-item-destroy" class="menu-btn small danger"><svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 6.5h15"/><path d="M8.5 6.5V5a1.5 1.5 0 0 1 1.5-1.5h4A1.5 1.5 0 0 1 15.5 5v1.5"/><path d="M6.5 6.5 7.3 19a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12.5"/><path d="M10 10.5v6M14 10.5v6"/></svg> Destroy</button>
+          <button id="btn-item-equip" class="menu-btn small action-equip">Equip</button>
+          <button id="btn-item-sell" class="menu-btn small action-neutral">Sell</button>
+          <button id="btn-item-drop" class="menu-btn small action-neutral">Drop</button>
+          <button id="btn-item-destroy" class="menu-btn small action-destroy">Destroy</button>
         </div>
       </div>
     </div>
