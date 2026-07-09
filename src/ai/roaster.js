@@ -108,7 +108,7 @@ const BOSS_CAST = {
   2: { female: true,  vi: 2, pitch: 1.25, rate: 1.0,  kokoro: 'af_bella',   kSpeed: 1.0 },  // Broodqueen Sszarra — hissing, regal
   3: { female: false, vi: 3, pitch: 0.7,  rate: 1.05, kokoro: 'am_adam',    kSpeed: 1.05 }, // Pyrarch Vexmal — fiery, manic
   4: { female: false, vi: 1, pitch: 0.2,  rate: 0.7,  kokoro: 'am_onyx',    kSpeed: 0.72 }, // Obsidian Colossus — vast, slow
-  5: { female: false, vi: 4, pitch: 0.32, rate: 0.88, kokoro: 'bm_george',  kSpeed: 0.9 },  // The Dungeon Lord — cold, sovereign
+  5: { female: false, vi: 4, pitch: 0.32, rate: 0.8,  kokoro: 'bm_george',  kSpeed: 0.9 },  // The Dungeon Lord (final-act dragon) — cold, sovereign, demonic
 };
 
 const BOSS_LINES = {
@@ -182,6 +182,12 @@ export class Roaster {
     this.timer = 5;
     this.voices = [];
     this.lastCategory = null;
+    // Approach-preload bookkeeping: enemy -> { text, voice, speed } for the
+    // opening line we've asked neuralVoice to pre-synthesize while un-aggroed.
+    // One entry per boss/elite; wiped on floor change or death (see
+    // _cancelActivePreloads) so it never grows unbounded.
+    this._activePreloads = new Map();
+    this._preloadFloor = null;
     if ('speechSynthesis' in window) {
       const load = () => { this.voices = speechSynthesis.getVoices(); };
       load();
@@ -235,7 +241,7 @@ export class Roaster {
     if (this.batterySaver) { this._speakWebSpeech(text, cast); return; }
     import('./neuralVoice.js').then(async ({ neuralVoice }) => {
       if (neuralVoice.ready) {
-        const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1, anchor });
+        const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1, anchor, rate: cast.rate || 1 });
         if (ok) return;
       }
       // Kokoro is the only voice. While it's still downloading we stay SILENT
@@ -305,7 +311,10 @@ export class Roaster {
     if (game.player) {
       const pp = game.player.pos;
       const near = game.enemies.reduce((n, e) => (!e.dead && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) <= 12 ? n + 1 : n), 0);
-      import('./neuralVoice.js').then(({ neuralVoice }) => neuralVoice.reportCombatLoad?.(near)).catch(() => {});
+      import('./neuralVoice.js').then(({ neuralVoice }) => {
+        neuralVoice.reportCombatLoad?.(near);
+        this._preloadApproach(game, neuralVoice);
+      }).catch(() => {});
     }
     // One-time foul greeting the moment you get near a mob leader (host talks).
     if (!net.active || net.isHost) {
@@ -314,7 +323,11 @@ export class Roaster {
         if (e.dead || e._greeted || !(e.elite || e.miniboss || e.isBoss)) continue;
         if (Math.hypot(p.pos.x - e.pos.x, p.pos.z - e.pos.z) > 11) continue;
         e._greeted = true;
-        const line = GREETINGS[Math.floor(Math.random() * GREETINGS.length)].replaceAll('{name}', game.playerName());
+        // Use the line we already pre-synthesized on approach, if any, so
+        // speakAs() below hits the neural cache and plays back instantly
+        // instead of hitching on a fresh generate() mid-aggro.
+        const line = e._pendingLine || GREETINGS[Math.floor(Math.random() * GREETINGS.length)].replaceAll('{name}', game.playerName());
+        this._activePreloads.delete(e);
         this.deliver(game, e, line);
         if (net.isHost) net.send({ t: 'roast', txt: line, ty: e.typeId, ei: e.netId });
         this.timer = Math.max(this.timer, 6); // don't immediately double up with periodic chatter
@@ -394,19 +407,71 @@ export class Roaster {
   }
 
   deliver(game, elite, line) {
-    game.ui.showSubtitle(elite.name || 'Elite', line, 3600);
     // Act bosses + the Dungeon Lord get their OWN voice (they all share the
     // golem typeId otherwise). Everyone else speaks in their type cast.
-    if (elite.isBoss && BOSS_CAST[elite.act]) this.speakAs(line, BOSS_CAST[elite.act], elite.pos);
-    else this.speak(line, elite.typeId, elite.pos);
+    const cast = (elite.isBoss && BOSS_CAST[elite.act]) ? BOSS_CAST[elite.act] : this.pickVoice(elite.typeId);
+    // Slower/deeper casts (dragons, golems) get a longer caption window so the
+    // subtitle stays up for the full pitched-down, slowed-down line.
+    const dur = Math.round(Math.min(7000, Math.max(2200, 3600 / (cast.rate || 1))));
+    game.ui.showSubtitle(elite.name || 'Elite', line, dur);
+    this.speakAs(line, cast, elite.pos);
+  }
+
+  // While the player is on a boss floor but a boss/elite/miniboss hasn't been
+  // aggroed yet (_greeted still false), pre-synthesize its opening line once
+  // it's within a generous radius, so aggro plays it back instantly instead of
+  // hitching on a mid-fight generate(). Battery-saver skips this entirely: its
+  // Web Speech fallback is already instant, no synth to hide. Guests never
+  // preload (they don't drive combat/greeting logic; only the host talks).
+  _preloadApproach(game, neuralVoice) {
+    if (this.batterySaver || !neuralVoice.ready) return;
+    if (net.active && !net.isHost) return;
+    // Floor change (or leaving/re-entering a boss floor): the old preload no
+    // longer applies to anything on screen, so drop it rather than let it
+    // accumulate across floors.
+    if (this._preloadFloor !== game.floor) {
+      this._preloadFloor = game.floor;
+      this._cancelActivePreloads(neuralVoice);
+    }
+    const p = game.player;
+    for (const e of game.enemies) {
+      if (e.dead || e._greeted || !(e.elite || e.miniboss || e.isBoss)) continue;
+      if (Math.hypot(p.pos.x - e.pos.x, p.pos.z - e.pos.z) > 18) continue;
+      // Pick (and pin) the line once so every subsequent preload tick and the
+      // eventual aggro delivery all refer to the exact same synthesized audio.
+      if (!e._pendingLine) {
+        e._pendingLine = GREETINGS[Math.floor(Math.random() * GREETINGS.length)].replaceAll('{name}', game.playerName());
+      }
+      const cast = (e.isBoss && BOSS_CAST[e.act]) ? BOSS_CAST[e.act] : this.pickVoice(e.typeId);
+      const voice = cast.kokoro || 'af_heart';
+      const speed = cast.kSpeed || cast.rate || 1;
+      this._activePreloads.set(e, { text: e._pendingLine, voice, speed });
+      neuralVoice.preload(e._pendingLine, { voice, speed });
+    }
+  }
+
+  // Discard every in-flight/finished-but-unplayed preload (cancels generation
+  // still running and evicts any cached-but-unspoken buffer). Used on floor
+  // change and on death, so a killed boss can never speak posthumously and the
+  // preload cache never grows unbounded (one line per boss, then gone).
+  _cancelActivePreloads(neuralVoice) {
+    for (const info of this._activePreloads.values()) {
+      neuralVoice.cancelPreload?.(info.text, { voice: info.voice, speed: info.speed });
+    }
+    this._activePreloads.clear();
   }
 
   // Immediately silence a speaker (used when a talking elite/boss is killed so a
-  // dying voice cuts off at once). Cancels Web Speech and asks the neural voice
-  // to stop. Safe to call even if nothing is speaking.
+  // dying voice cuts off at once). Cancels Web Speech, asks the neural voice to
+  // stop any playback, AND cancels/discards any in-flight or preloaded-but-
+  // unplayed opening line so a boss that dies mid-synthesis never speaks after
+  // death. Safe to call even if nothing is speaking or preloading.
   stopSpeaking() {
     try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch { /* */ }
-    import('./neuralVoice.js').then(({ neuralVoice }) => neuralVoice.stop?.()).catch(() => {});
+    import('./neuralVoice.js').then(({ neuralVoice }) => {
+      neuralVoice.stop?.();
+      this._cancelActivePreloads(neuralVoice);
+    }).catch(() => {});
   }
 
   // Damage-event taunt: fires when the player lands a MAJOR blow on an elite/boss
