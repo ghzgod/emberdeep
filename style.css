@@ -1185,6 +1185,7 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
    shadows (drop + inset glow + inset top highlight). max-width per the
    tooltip spec's card width, generous enough for the stat grid + compare. */
 #item-actions-card {
+  position: relative;
   min-width: 280px; max-width: min(92vw, 340px); max-height: 86vh; overflow: auto;
   padding: 14px; text-align: center;
   background: var(--panel-grad);
@@ -1194,9 +1195,26 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
      of inheriting the browser default black */
   color: var(--parchment);
 }
+/* the card is a small centered modal, not a full-viewport overlay, so its
+   corner close ✕ is sized down and anchored to the card itself rather than
+   the screen corner .overlay-close normally sits in. Deliberately its own
+   class (not .overlay-close): that class is claimed by the generic
+   wireActionBar() loop that closes the whole screen + resets game.state,
+   which would blow past this card and only ever close its parent inventory
+   without hiding the card itself - so its look is copied here standalone
+   and it's wired directly to closeItemActions() instead. */
+#item-actions-card .item-close {
+  position: absolute; top: 6px; right: 6px; z-index: 5;
+  width: 28px; height: 28px; border-radius: 50%; padding: 0;
+  border: 1px solid var(--panel-border); background: var(--panel);
+  color: var(--parchment); font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+  font-family: inherit; pointer-events: auto;
+}
+#item-actions-card .item-close:hover { border-color: var(--gold); color: var(--gold); }
 /* Default every bit of modal text to parchment so nothing falls back to the
    browser's black (which was invisible on the dark card). */
-#item-actions-info { font-size: 12px; margin-bottom: 12px; text-align: left; color: var(--parchment); }
+#item-actions-info { font-size: 12px; margin-bottom: 12px; text-align: left; color: var(--parchment); padding-right: 26px; }
 .item-actions-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 /* the name is a div, not an h4, so the h4.tt-* rules did not reach it - same
    rarity palette (border+glow philosophy applies to art frames; titles are
