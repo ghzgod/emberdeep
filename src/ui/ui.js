@@ -89,6 +89,18 @@ export class UI {
     // (or none) takes over, so no hidden WebGL context keeps burning frames.
     if (name === 'charselect') this.startCharPreview();
     else if (this._csPrev) this.stopCharPreview();
+    // Ember particles only run behind the title screen itself -- never while
+    // the game plays or any other menu is up, so they can't burn frames once
+    // gameplay starts.
+    if (name === 'title') this.startTitleEmbers();
+    else this.stopTitleEmbers();
+    // Any real overlay (pause/inventory/gameover/etc) immediately cuts the
+    // low-health warning (glow + heartbeat) -- updateHud only runs during
+    // 'playing' so it can't retire this on its own once the frame stops
+    // ticking. Returning to gameplay (show('__none__')) needs no action here:
+    // updateHud re-evaluates and reinstates it the very next frame if HP is
+    // still low.
+    if (name !== '__none__') this.setLowHealthFx(false);
   }
   hideAll() { this.show('__none__'); }
   showHud(visible) { this.hud.classList.toggle('hidden', !visible); }
@@ -111,6 +123,79 @@ export class UI {
   showTitle() {
     this.show('title');
     this.showHud(false);
+  }
+
+  // ---------- Title-screen embers ----------
+  // Drifting ember particles rising behind EMBERDEEP: plain canvas 2D, a
+  // capped particle count, and it skips starting entirely under
+  // prefers-reduced-motion rather than offer a half-motion fallback nobody
+  // asked for. show() starts/stops this so it only ever runs while the title
+  // screen itself is on top -- it's torn down before gameplay or any other
+  // menu can render a frame under it.
+  startTitleEmbers() {
+    if (this._emberRaf) return;
+    const canvas = $('title-embers');
+    if (!canvas) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const ctx = canvas.getContext('2d');
+    const resize = () => {
+      canvas.width = Math.max(1, canvas.clientWidth) * (window.devicePixelRatio || 1);
+      canvas.height = Math.max(1, canvas.clientHeight) * (window.devicePixelRatio || 1);
+    };
+    resize();
+    this._emberResize = resize;
+    window.addEventListener('resize', resize);
+    const COUNT = 30;
+    const parts = Array.from({ length: COUNT }, () => this._spawnEmber(canvas, true));
+    let last = performance.now();
+    const tick = (now) => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (const p of parts) {
+        p.y -= p.speed * dt * canvas.height;
+        p.t += dt * p.wobbleSpeed;
+        p.x += Math.sin(p.t) * p.wobble * dt * canvas.width;
+        p.life -= dt;
+        if (p.life <= 0 || p.y < -p.size * 2) Object.assign(p, this._spawnEmber(canvas, false));
+        const fade = Math.max(0, Math.min(1, p.life / p.maxLife));
+        ctx.globalAlpha = fade * p.opacity;
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+        g.addColorStop(0, 'rgba(255, 205, 120, 1)');
+        g.addColorStop(0.5, 'rgba(232, 140, 60, 0.7)');
+        g.addColorStop(1, 'rgba(180, 60, 20, 0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      this._emberRaf = requestAnimationFrame(tick);
+    };
+    this._emberRaf = requestAnimationFrame(tick);
+  }
+
+  // A single ember: rises from near the bottom, drifting sideways with a
+  // gentle sine wobble, fading in/out over its lifetime. randomY seeds the
+  // initial batch at random heights so the screen isn't empty on launch;
+  // respawns always start low so they read as continuously rising.
+  _spawnEmber(canvas, randomY) {
+    const w = canvas.width, h = canvas.height;
+    const maxLife = 3.5 + Math.random() * 3.5;
+    return {
+      x: Math.random() * w,
+      y: randomY ? Math.random() * h : h + Math.random() * 30,
+      size: (1.1 + Math.random() * 2.1) * (window.devicePixelRatio || 1),
+      speed: 0.045 + Math.random() * 0.06,
+      wobble: 0.25 + Math.random() * 0.35,
+      wobbleSpeed: 0.4 + Math.random() * 1.0,
+      t: Math.random() * 10,
+      opacity: 0.35 + Math.random() * 0.45,
+      life: maxLife, maxLife,
+    };
+  }
+
+  stopTitleEmbers() {
+    if (this._emberRaf) { cancelAnimationFrame(this._emberRaf); this._emberRaf = null; }
+    if (this._emberResize) { window.removeEventListener('resize', this._emberResize); this._emberResize = null; }
   }
 
   // Themed replacement for native alert()/confirm(): resolves true on
@@ -1894,8 +1979,28 @@ export class UI {
     setTimeout(() => el.classList.remove('no-resource'), 300);
   }
 
+  // Low-health warning: pulsing red-gold glow on the potion bubble + health
+  // bar/arc, plus a soft looping heartbeat, while HP stays under ~30%. A
+  // small hysteresis gap (enter under 30%, only clear above 35%) keeps it
+  // from flickering when HP hovers right at the line. Idempotent -- only
+  // touches the DOM/audio when the on/off state actually changes.
+  setLowHealthFx(active) {
+    if (this._lowHealthOn === active) return;
+    this._lowHealthOn = active;
+    document.body.classList.toggle('low-hp', active);
+    if (active) audio.startHeartbeat();
+    else audio.stopHeartbeat();
+  }
+
   // ---------- HUD update ----------
   updateHud(player, floor, boss) {
+    // Low-health warning threshold check (see setLowHealthFx above). Dead
+    // players never get the warning, whatever the last HP reading was.
+    const hpFrac = player.maxHp > 0 ? player.hp / player.maxHp : 0;
+    const wasLow = !!this._lowHealthOn;
+    const lowHp = !player.dead && (wasLow ? hpFrac < 0.35 : hpFrac < 0.3);
+    this.setLowHealthFx(lowHp);
+
     // Bars carry their NAME, not numbers - the fill level tells the story.
     $('hp-bar').style.width = `${(player.hp / player.maxHp) * 100}%`;
     $('hp-text').textContent = 'Health';

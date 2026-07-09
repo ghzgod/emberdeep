@@ -20,6 +20,10 @@
 
     <!-- Title -->
     <div id="title-screen" class="overlay">
+      <!-- drifting ember particles + slow vignette/smoke treatment behind the
+           title, started/stopped by UI.show() (src/ui/ui.js); never runs
+           while the game itself plays. -->
+      <canvas id="title-embers" aria-hidden="true"></canvas>
       <h1 class="game-title">EMBERDEEP</h1>
       <p class="subtitle">Descend. Fight. Survive.</p>
       <div class="menu-buttons">
@@ -48,7 +52,7 @@
       <label class="mp-room-label">Room name <input id="mp-room" type="text" maxlength="16" value="EMBER"></label>
       <p id="mp-status" class="hint"></p>
       <div class="menu-buttons">
-        <button id="btn-mp-enter" class="menu-btn">Enter Together</button>
+        <button id="btn-mp-enter" class="menu-btn">Enter World</button>
         <button id="btn-mp-back" class="menu-btn small">Back</button>
       </div>
     </div>
@@ -188,7 +192,7 @@
     <!-- HUD -->
     <div id="hud" class="hidden">
       <div id="hud-topleft">
-        <div class="bar-wrap"><div id="hp-bar" class="bar hp"></div><span id="hp-text" class="bar-text"></span></div>
+        <div id="hp-bar-wrap" class="bar-wrap"><div id="hp-bar" class="bar hp"></div><span id="hp-text" class="bar-text"></span></div>
         <div class="bar-wrap small"><div id="resource-bar" class="bar resource"></div><span id="resource-text" class="bar-text"></span></div>
         <div class="bar-wrap tiny"><div id="xp-bar" class="bar xp"></div><span id="xp-text" class="bar-text"></span></div>
         <div id="hud-stats"><span id="hud-level"></span><span id="hud-gold"></span><span id="hud-potions"></span><span id="hud-players" class="hidden"></span></div>
