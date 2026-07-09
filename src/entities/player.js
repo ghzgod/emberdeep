@@ -476,6 +476,10 @@ export class Player {
     let targetRot = this.visualAngle;
     if (movingNow) targetRot = Math.atan2(this.moveDir.z, this.moveDir.x);
     else if (this.aiming || this.faceAimTimer > 0) targetRot = this.aimAngle;
+    // Drag-to-aim override (touch cluster): while the ground aim arrow is out,
+    // the hero turns to face the drag direction live, even mid-walk. Set and
+    // cleared by game.setAimIndicator; normal rules resume on release.
+    if (this.aimOverride != null) targetRot = this.aimOverride;
     // shortest-path smooth turn
     let diff = targetRot - this.visualAngle;
     while (diff > Math.PI) diff -= Math.PI * 2;

@@ -245,14 +245,9 @@
     <!-- Touch controls (coarse-pointer devices) -->
     <div id="touch-ui" class="hidden">
       <div id="joystick-base"><div id="joystick-knob"></div></div>
-      <button id="touch-potion" aria-label="Drink potion">
-        <svg class="potion-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <rect x="10" y="2" width="4" height="4" rx="1" fill="#8a6a3a"/>
-          <path d="M9 6h6v3.2l3.6 7.4c1.1 2.3-.5 5-3 5H8.4c-2.5 0-4.1-2.7-3-5L9 9.2V6z" fill="#c8342f" stroke="#7a1f1c" stroke-width="1"/>
-          <path d="M8.6 13.5c1 .6 2.2.9 3.4.9s2.4-.3 3.4-.9" stroke="#7a1f1c" stroke-width="1" fill="none" stroke-linecap="round"/>
-          <ellipse cx="10.3" cy="14.3" rx="1.1" ry="1.7" fill="#ff8f7a" opacity="0.75"/>
-        </svg>
-      </button>
+      <!-- The potion is a bubble inside the action cluster now (built in
+           ui.js buildActionCluster, living in #hotbar), so it fades with the
+           cluster; there is no separate corner potion hub any more. -->
       <button id="touch-inv" aria-label="Inventory">
         <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>
@@ -286,6 +281,16 @@
         </svg>
       </button>
       <button id="touch-menu-toggle" title="Menu" aria-label="Menu"></button>
+      <!-- First-time joystick ghost: fades in if the player has not moved
+           within a few seconds of entering the world (first three entries at
+           most - see touch.js scheduleJoyGhost). A soft ghost thumb slides up
+           from the joystick center on repeat; any movement dismisses it for
+           good. pointer-events: none - the real joystick spawns wherever the
+           thumb actually lands. -->
+      <div id="joy-ghost" class="hidden">
+        <div class="joy-ghost-base"><div class="joy-ghost-thumb"></div></div>
+        <div class="joy-ghost-label">Hold and swipe to walk</div>
+      </div>
       <!-- First-time 3-step contextual tutorial, first Embervale visit only.
            Each step is a small pulsing ring + short label right over the zone
            it's teaching; non-blocking (pointer-events: none) so none of them
@@ -434,6 +439,9 @@
 
     <!-- Level up toast -->
     <div id="levelup-toast" class="hidden"></div>
+
+    <!-- Quest complete toast (act boss slain: title + the reward it paid) -->
+    <div id="quest-toast" class="hidden"></div>
 
     <!-- Floor transition -->
     <div id="floor-banner" class="hidden"></div>

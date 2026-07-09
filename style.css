@@ -241,13 +241,32 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
   display: flex; gap: 12px; align-items: center; text-align: left;
   padding: 10px 14px; border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel);
 }
-.quest-row .quest-mark { font-size: 20px; }
+.quest-row .quest-mark { width: 22px; flex: none; color: var(--parchment); }
+.quest-row .quest-mark svg { width: 22px; height: 22px; display: block; }
+.quest-row .quest-main { flex: 1; min-width: 0; }
 .quest-row .quest-title { font-size: 15px; color: var(--parchment); }
 .quest-row .quest-obj { font-size: 12px; opacity: 0.7; }
 .quest-row.active { border-color: var(--gold); box-shadow: 0 0 10px rgba(232,192,90,0.25); }
 .quest-row.active .quest-title { color: var(--gold); }
-.quest-row.done { opacity: 0.65; }
-.quest-row.locked { opacity: 0.4; }
+.quest-row.active .quest-mark { color: var(--gold); }
+/* Completed: a satisfying checked state - gold check + warm rim, still fully
+   readable (never faded into a ghost row like the old 0.65 opacity did). */
+.quest-row.done { border-color: rgba(232, 192, 90, 0.45); background: linear-gradient(180deg, rgba(58, 44, 26, 0.35), var(--panel)); }
+.quest-row.done .quest-mark { color: var(--gold); filter: drop-shadow(0 0 4px rgba(232,192,90,0.5)); }
+.quest-row.done .quest-title { color: var(--gold); }
+.quest-row.done .quest-obj { color: var(--gold); opacity: 0.75; }
+.quest-row.locked { opacity: 0.45; }
+/* per-quest floor progress: thin gold-filling track + an n/m readout */
+.quest-progress { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.qp-track {
+  display: block; flex: 1; height: 6px; border-radius: 3px; overflow: hidden;
+  background: #120d18; border: 1px solid var(--panel-border);
+}
+.qp-fill { display: block; height: 100%; background: linear-gradient(90deg, #7c5cbf, var(--gold)); }
+.qp-num { font-size: 11px; color: var(--gold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* what the boss actually pays (or paid) for this quest */
+.quest-reward { font-size: 11px; margin-top: 4px; color: var(--gold); opacity: 0.85; }
+.quest-row.locked .quest-reward { color: var(--parchment); opacity: 0.6; }
 #quest-stats {
   display: grid; grid-template-columns: 1fr 1fr; gap: 6px 26px;
   width: min(88vw, 460px); font-size: 13px; padding: 12px 14px;
@@ -257,7 +276,12 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 .qs-row span { opacity: 0.6; }
 .qs-row b { color: var(--gold); font-weight: normal; text-align: right; white-space: nowrap; }
 @media (max-width: 520px) { #quest-stats { grid-template-columns: 1fr; } }
-#minimap { border: 1px solid var(--panel-border); border-radius: 6px; background: rgba(0,0,0,0.7); }
+/* Minimap frame in the panel language: purple-dark fill, --panel-border rim
+   with a thin dark bezel, matching the action cluster's discs. */
+#minimap {
+  border: 2px solid var(--panel-border); border-radius: 8px; background: var(--panel);
+  box-shadow: 0 0 0 1px #14101c, 0 2px 8px rgba(0,0,0,0.5);
+}
 
 /* World-anchored above the boss's head: left/top are set every frame from JS
    (see updateHud -> floaters.worldToScreen). The transform pulls the wrap so
@@ -278,39 +302,52 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
    in town, in every mode -- desktop row and touch wheel alike. The touch-mode
    rule below layers on top of this for its own pointer-events default. */
 .in-town #hotbar { opacity: 0; pointer-events: none; }
-/* Touch action cluster (Wild Rift style): circular buttons in the bottom-right
-   corner - one big BASIC-ATTACK at the thumb pivot, four ability buttons fanned
-   in an arc up-and-left of it. Each button carries a bright teal cooldown ring
-   drawn by an SVG stroke (the signature accent), the ability icon, and a
-   cooldown-seconds number. The #hotbar box is click-through; only the buttons
-   capture touches, so attack taps between them still reach the game. */
+/* Touch action cluster (Wild Rift layout, Emberdeep palette): circular buttons
+   in the bottom-right corner - one big BASIC-ATTACK at the thumb pivot, four
+   ability buttons fanned in an arc up-and-left of it. Each button is a deep
+   purple-dark translucent disc with a GOLD cooldown ring drawn by an SVG
+   stroke, the ability icon, and a parchment cooldown-seconds number. The
+   #hotbar box is click-through; only the buttons capture touches, so attack
+   taps between them still reach the game. */
 .act-btn {
   position: absolute; pointer-events: auto; cursor: pointer;
   border-radius: 50%; box-sizing: border-box;
-  background: radial-gradient(circle at 50% 38%, rgba(38,30,54,0.94), rgba(14,10,20,0.96));
-  border: 1px solid rgba(120,150,150,0.28);
+  background: radial-gradient(circle at 50% 38%, rgba(38,30,54,0.94), var(--panel));
+  border: 1px solid rgba(126,102,158,0.5);
   display: flex; align-items: center; justify-content: center;
   transition: transform 0.08s ease, box-shadow 0.15s ease, filter 0.15s ease;
   box-shadow: 0 3px 10px rgba(0,0,0,0.55);
   touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .act-btn:active { transform: scale(0.94); }
-.act-btn.aiming { box-shadow: 0 0 16px rgba(63,224,208,0.7); }
+.act-btn.aiming { box-shadow: 0 0 16px rgba(232,192,90,0.65); }
 .act-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); pointer-events: none; }
 .act-ring-bg { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 6; }
-/* teal cooldown ring: full circle when ready (offset 0), depletes as the
+/* gold cooldown ring: full circle when ready (offset 0), depletes as the
    remaining-cooldown fraction grows the dash offset. */
 .act-ring-fg {
-  fill: none; stroke: #3fe0d0; stroke-width: 6; stroke-linecap: round;
+  fill: none; stroke: var(--gold); stroke-width: 6; stroke-linecap: round;
   transition: stroke-dashoffset 0.1s linear;
 }
-.act-btn.ready { border-color: rgba(63,224,208,0.75); }
-.act-btn.ready .act-ring-fg { stroke: #4fe8d6; filter: drop-shadow(0 0 3px rgba(63,224,208,0.85)); }
+.act-btn.ready { border-color: rgba(232,192,90,0.75); }
+.act-btn.ready .act-ring-fg { stroke: #f2d27a; filter: drop-shadow(0 0 3px rgba(232,192,90,0.8)); }
 .act-btn.cooling .act-icon { filter: grayscale(0.5) brightness(0.65); opacity: 0.5; }
-.act-btn.cooling .act-ring-fg { stroke: rgba(63,224,208,0.55); }
-/* not enough resource: dim/desaturate like the disabled potion */
-.act-btn.no-resource { border-color: #7a3030; filter: grayscale(0.85) brightness(0.7); }
-.act-btn.no-resource .act-ring-fg { stroke: rgba(200,90,90,0.7); }
+.act-btn.cooling .act-ring-fg { stroke: rgba(232,192,90,0.5); }
+/* not enough resource: blood-red rim, dim/desaturate like the disabled potion */
+.act-btn.no-resource { border-color: var(--blood); filter: grayscale(0.85) brightness(0.7); }
+.act-btn.no-resource .act-ring-fg { stroke: rgba(179,57,57,0.8); }
+/* potion bubble in the cluster: inert (never hidden) when it cannot be drunk */
+.act-btn.disabled { opacity: 0.4; filter: grayscale(1); cursor: default; }
+.act-btn.disabled:active { transform: none; }
+.act-potion .potion-icon { width: 22px; height: 22px; }
+/* small parchment potions-remaining badge on the bubble's lower edge */
+.act-count {
+  position: absolute; bottom: -2px; right: -2px; min-width: 16px; height: 16px;
+  border-radius: 8px; padding: 0 4px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  font-size: 10px; line-height: 1; color: var(--parchment); pointer-events: none;
+}
 .act-icon {
   font-size: 24px; line-height: 1; pointer-events: none;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
@@ -325,9 +362,35 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
   position: absolute; top: 4px; right: 8px; font-size: 10px;
   color: rgba(232,222,248,0.6); pointer-events: none;
 }
-/* the big basic-attack button reads larger and a touch warmer (gold rim hint) */
-.act-basic { border-color: rgba(232,192,90,0.5); }
+/* the big basic-attack button carries a solid gold rim (the cluster's anchor) */
+.act-basic { border: 2px solid rgba(232,192,90,0.8); box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 10px rgba(232,192,90,0.18); }
 .act-basic .act-icon { font-size: 30px; }
+
+/* Vitals arcs (touch only): health, resource and XP hug the OUTSIDE of the
+   action cluster as curved bars, Wild Rift style. Drawn by ui.js as an SVG
+   (#touch-vitals) inside #hotbar so it fades/hides with the cluster in town,
+   under interact prompts and behind menus - one rule to rule them all. */
+#touch-vitals {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  overflow: visible; pointer-events: none;
+}
+#touch-vitals .tv-track { fill: none; stroke: rgba(10,7,14,0.6); stroke-linecap: round; }
+#touch-vitals .tv-hp { fill: none; stroke: var(--blood); stroke-linecap: round; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7)); }
+#touch-vitals .tv-res { fill: none; stroke: #5560b8; stroke-linecap: round; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7)); }
+#touch-vitals .tv-xp { fill: none; stroke: var(--gold); stroke-linecap: round; opacity: 0.9; }
+#touch-vitals .tv-hp-text {
+  fill: var(--parchment); font-family: Georgia, 'Times New Roman', serif;
+  font-size: 12px; paint-order: stroke; stroke: rgba(0,0,0,0.85); stroke-width: 2.5px;
+}
+/* resource current/max, one line under the health readout: a lighter tint of
+   the resource arc's blue-violet so the two numbers read at a glance */
+#touch-vitals .tv-res-text {
+  fill: #aab2e6; font-family: Georgia, 'Times New Roman', serif;
+  font-size: 10px; paint-order: stroke; stroke: rgba(0,0,0,0.85); stroke-width: 2px;
+}
+/* Touch mode: vitals live on the cluster arcs, so the top-left bars retire.
+   Desktop (non touch-mode) keeps its bars exactly as they are. */
+body.touch-mode #hud-topleft .bar-wrap { display: none; }
 .hotbar-slot {
   position: relative; width: 66px; height: 66px; border: 2px solid var(--panel-border);
   border-radius: 8px; background: var(--panel); display: flex; align-items: center; justify-content: flex-start;
@@ -459,10 +522,10 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 .coin-stack .c2 { margin-left: -0.45em; }
 
 /* ---------- Key bindings ---------- */
-.keybind-header { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.7; margin-top: 4px; border-top: 1px solid var(--panel-border); padding-top: 12px; }
+.keybind-header { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.7; margin-top: 8px; border-top: 1px solid var(--panel-border); padding-top: 14px; }
 .keybind-header .hint { text-transform: none; letter-spacing: 0; opacity: 0.5; }
-#keybinds { display: flex; flex-direction: column; gap: 8px; }
-.keybind-row { display: flex; align-items: center; justify-content: space-between; font-size: 15px; }
+#keybinds { display: flex; flex-direction: column; gap: 6px; }
+.keybind-row { display: flex; align-items: center; justify-content: space-between; font-size: 15px; min-height: 38px; }
 .keybind-btn {
   font-family: inherit; font-size: 13px; min-width: 90px; padding: 6px 12px;
   background: #241a30; color: var(--gold); border: 1px solid var(--panel-border);
@@ -714,7 +777,7 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 /* ---------- Settings ---------- */
 #settings-screen { background: rgba(6, 4, 10, 0.94); }
 .settings-rows {
-  display: flex; flex-direction: column; gap: 16px;
+  display: flex; flex-direction: column; gap: 12px;
   width: min(92vw, 460px); max-height: 62vh; overflow-y: auto;
   /* desktop gets a roomier panel so long labels/keybinds aren't cramped */
   background: linear-gradient(170deg, #1d1526, #14101c);
@@ -726,13 +789,29 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   .settings-rows { width: min(82vw, 720px); max-height: 74vh; padding: 24px 30px; }
   .settings-rows select { max-width: 320px; }
 }
-.settings-rows label { display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 16px; flex-wrap: wrap; }
+/* Even vertical rhythm: every row is at least one 44px control tall, with the
+   label text vertically centered against its slider/toggle/select, and one
+   uniform 12px gap between rows so nothing reads as randomly spaced. Buttons,
+   hints and meter rows below all snap to the same rhythm. */
+.settings-rows label {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  font-size: 16px; flex-wrap: wrap; min-height: 44px;
+}
+/* standalone action buttons sit centered at a consistent control height,
+   instead of stretching edge-to-edge between label rows */
+.settings-rows > button.menu-btn { align-self: center; min-width: 260px; min-height: 44px; }
+/* hints keep the panel's own 12px rhythm (the global .hint adds margin-top) */
+.settings-rows .hint { margin-top: 0; }
+/* the PTT meter is a div, not a label - give it the same row treatment */
+#ptt-meter-row { display: flex; align-items: center; gap: 14px; min-height: 44px; font-size: 16px; }
+#ptt-meter-row #ptt-meter-track { flex: 1; }
+#mic-test-row { display: flex; justify-content: center; }
 /* Slider rows: fixed label column so every meter is the SAME length + aligned.
    text-align:left beats the inherited centering that floated slider labels
    toward the middle of their 180px column. */
 .settings-rows label:has(input[type=range]) {
   display: grid; grid-template-columns: 180px 1fr 52px; gap: 12px; flex-wrap: nowrap;
-  text-align: left;
+  text-align: left; align-items: center;
 }
 .settings-rows label:has(input[type=range]) > span { text-align: right; }
 .settings-rows input[type=range] { flex: 1; min-width: 120px; width: 100%; accent-color: var(--gold); }
@@ -748,7 +827,7 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 }
 .settings-rows select { font-family: inherit; font-size: 15px; background: #241a30; color: var(--parchment); border: 1px solid var(--panel-border); border-radius: 4px; padding: 4px 8px; max-width: 60%; }
 @media (max-width: 520px) {
-  .settings-rows { padding: 14px; gap: 13px; }
+  .settings-rows { padding: 14px; gap: 10px; }
   .settings-rows label { font-size: 14px; }
   .settings-rows select { max-width: 100%; }
 }
@@ -847,6 +926,24 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   80% { opacity: 1; }
   100% { opacity: 0; }
 }
+/* Quest complete toast: a small panel-language chip (gold check + title +
+   the reward line) reusing the level-up toast's pop animation, timed by
+   game.js to appear after the ACT CLEARED banner fades. */
+#quest-toast {
+  position: absolute; top: 24%; left: 50%; transform: translateX(-50%);
+  z-index: 18; text-align: center; padding: 12px 26px; pointer-events: none;
+  background: var(--panel); border: 1px solid var(--gold); border-radius: 12px;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.6), 0 0 16px rgba(232,192,90,0.25);
+  animation: toast-pop 4.2s ease-out forwards;
+}
+#quest-toast .qt-head {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  font-size: 19px; letter-spacing: 3px; color: var(--gold);
+  text-shadow: 0 0 14px rgba(232,192,90,0.5), 0 2px 2px #000;
+}
+#quest-toast .qt-check svg { width: 20px; height: 20px; display: block; color: var(--gold); }
+#quest-toast .toast-sub { font-size: 14px; color: var(--parchment); margin-top: 3px; letter-spacing: 1px; }
+#quest-toast .qt-reward { font-size: 13px; color: var(--gold); margin-top: 2px; }
 #floor-banner {
   position: absolute; top: 34%; left: 0; right: 0; text-align: center;
   font-size: 44px; color: var(--parchment); letter-spacing: 6px;
@@ -1035,16 +1132,21 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   transform: translate(-50%, -50%); border-radius: 50%;
   background: rgba(216, 203, 176, 0.4); border: 2px solid rgba(216, 203, 176, 0.6);
 }
-#touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr {
+/* Utility drawer buttons share the cluster's circular language: the same deep
+   purple-dark disc, soft purple rim and shadow as .act-btn, so the drawer and
+   the ability cluster read as one family. */
+#touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr {
   position: absolute; pointer-events: auto; width: 56px; height: 56px;
-  border-radius: 50%; border: 2px solid var(--panel-border); background: var(--panel);
+  border-radius: 50%; border: 1px solid rgba(126,102,158,0.5);
+  background: radial-gradient(circle at 50% 38%, rgba(38,30,54,0.94), var(--panel));
+  box-shadow: 0 3px 10px rgba(0,0,0,0.55);
   font-size: 24px; color: var(--parchment); padding: 0;
   display: flex; align-items: center; justify-content: center; line-height: 1;
 }
 #touch-rotl:active, #touch-rotr:active, #touch-menu-toggle:active { border-color: var(--gold); color: var(--gold); }
 #touch-mic:active { border-color: #7ce87c; background: rgba(40, 80, 40, 0.85); transform: scale(1.08); }
-/* red potion flask icon (shared by the touch corner-hub button and the
-   desktop action-bar button): sized to fill most of its round button. */
+/* red potion flask icon (shared by the cluster potion bubble and the desktop
+   action-bar button): sized to fill most of its round button. */
 .potion-icon { width: 26px; height: 26px; }
 #action-bar #ab-potion .potion-icon { width: 22px; height: 22px; }
 /* Flat-stroke drawer glyphs (backpack / mic / gear / rotate) inherit the
@@ -1053,14 +1155,13 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 .drawer-icon { width: 26px; height: 26px; display: block; }
 /* Empty/unusable state: the slot stays put (never disappears) but reads as
    inert - desaturated and dimmed, tap is a no-op (see the JS handlers). */
-#touch-potion.disabled, #ab-potion.disabled {
-  opacity: 0.4; filter: grayscale(1); cursor: default;
-}
-#touch-potion.disabled:active { transform: none; }
+#ab-potion.disabled { opacity: 0.4; filter: grayscale(1); cursor: default; }
 #touch-menu-toggle {
   display: none; position: absolute; pointer-events: auto; right: 14px; bottom: 14px;
-  width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--panel-border);
-  background: var(--panel); font-size: 0; color: var(--parchment); padding: 0;
+  width: 56px; height: 56px; border-radius: 50%; border: 1px solid rgba(126,102,158,0.5);
+  background: radial-gradient(circle at 50% 38%, rgba(38,30,54,0.94), var(--panel));
+  box-shadow: 0 3px 10px rgba(0,0,0,0.55);
+  font-size: 0; color: var(--parchment); padding: 0;
   align-items: center; justify-content: center; line-height: 1; z-index: 2;
 }
 /* the glyph lives in ::before so it can SWAP (hamburger to close) without any
@@ -1072,7 +1173,6 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 
 /* Desktop default positions (declared BEFORE the coarse media query so the
    mobile overrides below win on touch devices). */
-#touch-potion { right: 14px; bottom: 96px; }
 #touch-inv { right: 14px; bottom: 164px; }
 #touch-mic { right: 14px; bottom: 300px; }
 #touch-mic.hidden { display: none !important; }
@@ -1125,11 +1225,10 @@ body.touch-mode {
   .act-slot-2 { right: 133px; bottom: 68px; }
   .act-slot-3 { right: 140px; bottom: 13px; }
 
-  /* Potion keeps its dedicated corner hub, tucked below-left of the basic
-     button so healing is always one tap away without opening the drawer. */
-  #touch-potion {
-    right: 100px; bottom: 16px; width: 50px; height: 50px; z-index: 3;
-  }
+  /* Potion is one more bubble in the cluster: same circular style, sitting
+     right next to the last ability button (slot 3), inside #hotbar so it
+     fades and hides with the rest of the cluster automatically. */
+  .act-potion { width: 44px; height: 44px; right: 96px; bottom: 8px; z-index: 3; }
 
   /* --- Utility menu: the buttons are ALWAYS rendered so opening/closing can
      ANIMATE. Closed, each one is collapsed onto the toggle (scaled down, faded,
@@ -1195,19 +1294,61 @@ body.touch-mode {
   0%, 100% { transform: scale(0.88); opacity: 0.55; }
   50% { transform: scale(1.06); opacity: 1; }
 }
+/* First-time joystick ghost (touch input only, see touch.js scheduleJoyGhost):
+   a faded joystick ring at the left thumb's natural resting spot with a soft
+   ghost thumb that presses in and slides up on repeat, plus a one-line hint.
+   pointer-events: none - purely a suggestion; the real joystick spawns
+   wherever the thumb actually lands. */
+#joy-ghost {
+  position: absolute; left: 20vw; bottom: 22vh; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  opacity: 1; transition: opacity 0.6s ease; animation: ghost-in 0.7s ease;
+}
+#joy-ghost.fading { opacity: 0; }
+/* the 3-step tutorial's own "Drag to move" ring teaches the same thing -
+   never show both at once while the ghost is up */
+#touch-ui.ghost-active #touch-tut-move { display: none; }
+.joy-ghost-base {
+  position: relative; width: 120px; height: 120px; border-radius: 50%;
+  border: 2px solid rgba(216, 203, 176, 0.4);
+  background: rgba(10, 8, 14, 0.3);
+}
+.joy-ghost-thumb {
+  position: absolute; left: 50%; top: 50%; width: 52px; height: 52px;
+  margin: -26px 0 0 -26px; border-radius: 50%;
+  background: radial-gradient(circle at 42% 36%, rgba(232, 222, 200, 0.55), rgba(216, 203, 176, 0.32));
+  border: 2px solid rgba(232, 192, 90, 0.65);
+  box-shadow: 0 0 14px rgba(232, 192, 90, 0.25);
+  animation: ghost-thumb 1.9s ease-in-out infinite;
+}
+.joy-ghost-label {
+  font-size: 13px; letter-spacing: 1px; color: var(--parchment);
+  background: rgba(10, 8, 14, 0.6); padding: 4px 12px; border-radius: 11px;
+  border: 1px solid rgba(232, 192, 90, 0.35);
+  text-shadow: 0 1px 2px #000; white-space: nowrap;
+}
+@keyframes ghost-in { from { opacity: 0; } to { opacity: 1; } }
+/* the thumb appears at the joystick center, presses, slides up, releases */
+@keyframes ghost-thumb {
+  0% { transform: translateY(0) scale(0.85); opacity: 0; }
+  16% { transform: translateY(0) scale(1); opacity: 1; }
+  55% { transform: translateY(-36px) scale(1); opacity: 1; }
+  76% { transform: translateY(-36px) scale(0.95); opacity: 0; }
+  100% { transform: translateY(0) scale(0.85); opacity: 0; }
+}
 /* Step 1: over the left-thumb move zone, clear of the rotate buttons. */
 #touch-tut-move { left: 14vw; bottom: 22vh; }
 /* Step 2: over the right-side aim/attack zone, roughly mirroring step 1. */
 #touch-tut-attack { right: 16vw; bottom: 30vh; }
 /* Step 3: over the ability wheel's arc, above the wheel's inset pivot. */
 #touch-tut-ability { right: 14vw; bottom: 34vh; }
-/* Mobile portrait: lift the MP chat clear of the bottom-left rotate buttons
-   (which sit at bottom:96) and compact it so it stays out of the way. */
-@media (pointer: coarse) {
-  #chat { bottom: 164px; width: min(66vw, 300px); padding: 5px 7px 6px; }
-  #chat-recent { max-height: 20vh; }
-  #chat-title { font-size: 11px; }
-}
+/* Compact layout: lift the MP chat clear of the bottom-left rotate buttons
+   (which sit at bottom:96) and compact it so it stays out of the way. Keyed
+   on body.touch-mode (viewport-driven, see core/touch.js) so a narrow desktop
+   window gets the same collision-free chat as a phone. */
+body.touch-mode #chat { bottom: 164px; width: min(66vw, 300px); padding: 5px 7px 6px; }
+body.touch-mode #chat-recent { max-height: 20vh; }
+body.touch-mode #chat-title { font-size: 11px; }
 
 #voice-indicator {
   position: absolute; bottom: 20px; left: 18px; font-size: 14px; color: #7ce87c;
@@ -1254,7 +1395,6 @@ body.touch-mode {
   position: absolute; left: 0; top: 0; height: 100%; width: 0%;
   background: #7ce87c; transition: width 0.1s;
 }
-#mic-test-row { margin-top: 6px; }
 #btn-mic-test { white-space: nowrap; }
 /* loud callout above the destroy confirmation when valuables are staged */
 #destroy-warning {
@@ -1273,8 +1413,7 @@ body.touch-mode {
 @media (max-height: 540px) and (pointer: coarse), (max-height: 540px) and (max-width: 1000px) {
   /* short screen: smaller controls, and a tighter menu that still tucks to the
      right (all positions stay LEFT of the shrunken minimap). */
-  #touch-potion, #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr, #touch-menu-toggle { width: 46px; height: 46px; font-size: 19px; }
-  #touch-potion .potion-icon { width: 21px; height: 21px; }
+  #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr, #touch-menu-toggle { width: 46px; height: 46px; font-size: 19px; }
   #touch-inv .drawer-icon, #touch-mic .drawer-icon, #touch-pause .drawer-icon, #touch-rotl .drawer-icon, #touch-rotr .drawer-icon { width: 22px; height: 22px; }
   #touch-rotl, #touch-rotr { font-size: 27px; }
   #touch-menu-toggle::before { font-size: 22px; }
@@ -1304,13 +1443,17 @@ body.touch-mode {
      that arc (via a smaller anchor box) and shrink the buttons + tighten the arc
      so all five stay reachable without shifting the grip, and clear of the
      minimap up top. */
-  #hotbar { right: 26px; bottom: 22px; width: 172px; height: 172px; }
+  /* body.touch-mode prefix needed to outrank the nested base rule
+     (body.touch-mode #hotbar) - a bare #hotbar here loses on specificity */
+  body.touch-mode #hotbar { right: 26px; bottom: 22px; width: 172px; height: 172px; }
   body.touch-mode .act-basic { width: 64px; height: 64px; right: 12px; bottom: 12px; }
   body.touch-mode .act-ability { width: 48px; height: 48px; }
   body.touch-mode .act-slot-0 { right: 42px;  bottom: 112px; }
   body.touch-mode .act-slot-1 { right: 84px;  bottom: 92px; }
   body.touch-mode .act-slot-2 { right: 110px; bottom: 54px; }
   body.touch-mode .act-slot-3 { right: 116px; bottom: 10px; }
+  body.touch-mode .act-potion { width: 38px; height: 38px; right: 78px; bottom: 4px; }
+  body.touch-mode .act-potion .potion-icon { width: 19px; height: 19px; }
   body.touch-mode .act-basic .act-icon { font-size: 26px; }
   body.touch-mode .act-icon { font-size: 20px; }
 }
@@ -1325,10 +1468,6 @@ body.touch-mode {
 @media (max-height: 540px) {
   body.touch-mode {
     #touch-menu-toggle { left: 12px; right: auto; bottom: 12px; }
-    /* potion keeps its dedicated corner hub, tucked left of the basic-attack
-       button (clear of the shrunken landscape cluster), in every orientation -
-       it is not part of the drawer fan/stack. */
-    #touch-potion { left: auto; right: 82px; bottom: 14px; }
     #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { left: 12px; right: auto; bottom: 12px; }
     #touch-ui.menu-open.menu-side #touch-inv    { left: 66px;  right: auto; bottom: 12px; transition-delay: 0s; }
     #touch-ui.menu-open.menu-side #touch-pause  { left: 120px; right: auto; bottom: 12px; transition-delay: 0.03s; }
@@ -1365,8 +1504,10 @@ body.touch-mode.in-town #touch-menu-toggle { left: auto; right: 14px; bottom: 14
    joystick and menu launcher never float on top of the inventory or settings. */
 body:has(.overlay.visible) #touch-ui { display: none !important; }
 
-/* ---------- Small screens ---------- */
-@media (max-width: 860px), (pointer: coarse) {
+/* ---------- Small screens ----------
+   940px matches the isCompactLayout() breakpoint in core/touch.js, so the
+   HUD scale-down and the compact cluster layout switch together. */
+@media (max-width: 940px), (pointer: coarse) {
   .game-title { font-size: 40px; }
   .screen-heading { font-size: 28px; }
   /* All three classes visible at once — tap to select, details shown below. */

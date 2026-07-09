@@ -7,7 +7,7 @@ import { SaveManager } from '../core/save.js';
 import { Floaters } from './floaters.js';
 import { Minimap } from './minimap.js';
 import { audio } from '../core/audio.js';
-import { isTouchDevice } from '../core/touch.js';
+import { isTouchDevice, isCompactLayout } from '../core/touch.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -666,26 +666,46 @@ export class UI {
   }
 
   // ---------- quest log ----------
+  // Flat-stroke state marks (currentColor, tinted per row-state in CSS):
+  // check = completed, reticle = the hunt in progress, padlock = not yet open.
+  static QUEST_MARKS = {
+    done: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5L19.5 7"/></svg>',
+    active: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.6"/><path d="M12 1.8v3M12 19.2v3M1.8 12h3M19.2 12h3"/></svg>',
+    locked: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+    abyss: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5.5l6 6 6-6M6 13l6 6 6-6"/></svg>',
+  };
+
   openQuestLog() {
     const qs = this.game.questState();
     const list = $('quest-list');
     list.innerHTML = '';
+    const M = UI.QUEST_MARKS;
     for (const a of qs.acts) {
+      const state = a.cleared ? 'done' : a.current ? 'active' : 'locked';
       const row = document.createElement('div');
-      row.className = `quest-row ${a.cleared ? 'done' : a.current ? 'active' : 'locked'}`;
-      const mark = a.cleared ? '✅' : a.current ? '⚔️' : '🔒';
+      row.className = `quest-row ${state}`;
+      const pct = Math.round((a.progress / a.total) * 100);
+      // Cleared: a satisfying checked state (gold check, "Complete", reward
+      // marked claimed). Active: objective + a floor-progress bar with n/m.
+      // Locked: objective + the reward it will pay, dimmed.
+      const progressRow = a.cleared ? '' : `
+          <div class="quest-progress">
+            <span class="qp-track"><span class="qp-fill" style="width:${pct}%"></span></span>
+            <span class="qp-num">${a.progress}/${a.total}</span>
+          </div>`;
       row.innerHTML = `
-        <span class="quest-mark">${mark}</span>
+        <span class="quest-mark">${M[state]}</span>
         <span class="quest-main">
           <div class="quest-title">${a.title}</div>
-          <div class="quest-obj">${a.objective}${a.cleared ? ' — done' : a.current ? ' — in progress' : ''}</div>
+          <div class="quest-obj">${a.cleared ? 'Complete' : a.objective}</div>${progressRow}
+          <div class="quest-reward">${a.cleared ? 'Claimed' : 'Reward'}: ${a.reward}</div>
         </span>`;
       list.appendChild(row);
     }
     if (qs.done) {
       const row = document.createElement('div');
-      row.className = 'quest-row done';
-      row.innerHTML = '<span class="quest-mark">🌀</span><span class="quest-main"><div class="quest-title">The Endless Abyss</div><div class="quest-obj">Descend as far as you dare.</div></span>';
+      row.className = 'quest-row active';
+      row.innerHTML = `<span class="quest-mark">${M.abyss}</span><span class="quest-main"><div class="quest-title">The Endless Abyss</div><div class="quest-obj">Descend as far as you dare.</div></span>`;
       list.appendChild(row);
     }
     $('quest-stats').innerHTML = Object.entries(qs.stats)
@@ -1348,16 +1368,20 @@ export class UI {
     bar.innerHTML = '';
     this.hotbarSlots = [];
     this.cluster = null;
+    this.vitals = null;
+    this.potionBtn = null;
     const order = player.abilityOrder || [0, 1, 2, 3];
-    // On touch devices (and any coarse-pointer session) the abilities render as
-    // a Wild Rift-style cluster of circular buttons in the bottom-right corner:
-    // one big BASIC-ATTACK button at the thumb pivot and the four abilities
-    // fanned in an arc up-and-to-the-left. Desktop keeps the flat row.
-    // Uses the same isTouchDevice() check that drives body.touch-mode (see
-    // core/touch.js) so the JS layout choice and the CSS never disagree.
-    const touch = isTouchDevice();
-    document.body.classList.toggle('touch-mode', touch);
-    if (touch) {
+    // Compact viewports (narrow window, portrait aspect, or any coarse-pointer
+    // session) render the abilities as a Wild Rift-style cluster of circular
+    // buttons in the bottom-right corner: one big BASIC-ATTACK button at the
+    // thumb pivot and the four abilities fanned in an arc up-and-to-the-left.
+    // Wide desktop keeps the flat row. Uses the same isCompactLayout() check
+    // that drives body.touch-mode (see core/touch.js) so the JS layout choice
+    // and the CSS never disagree; input (tap vs click) works either way since
+    // the cluster buttons are plain pointer handlers.
+    const compact = isCompactLayout();
+    document.body.classList.toggle('touch-mode', compact);
+    if (compact) {
       this.buildActionCluster(player, order);
       return;
     }
@@ -1378,7 +1402,7 @@ export class UI {
     this.wireHotbarInput(player);
   }
 
-  // Build one circular action button (a div with a teal cooldown ring drawn by
+  // Build one circular action button (a div with a gold cooldown ring drawn by
   // an SVG stroke, an icon, and a hidden cooldown-seconds number). Shared by the
   // basic-attack button (slot -1) and the four ability buttons (slot 0-3).
   _makeActionButton(slot, label, icon, cls) {
@@ -1413,6 +1437,8 @@ export class UI {
   buildActionCluster(player, order) {
     const bar = $('hotbar');
     this.cluster = [];
+    // vitals arcs first so the buttons paint above them
+    this._buildTouchVitals(bar);
     // big basic-attack at the corner pivot (slot -1); sword glyph
     const basic = this._makeActionButton(-1, '', '⚔️', 'act-basic');
     bar.appendChild(basic.el);
@@ -1426,6 +1452,107 @@ export class UI {
       this.wireActionButton(b, player);
       this.cluster.push(b);
     });
+    // potion: one more bubble in the arc, right next to the last ability
+    this._buildPotionBubble(bar);
+  }
+
+  // Health / resource / XP as curved arc bars hugging the OUTSIDE of the
+  // action cluster (touch layout only; desktop keeps its top-left bars). One
+  // SVG in a fixed 210x210 viewBox, CSS-scaled to the #hotbar box in both
+  // orientations, centered on the basic-attack pivot. Living inside #hotbar
+  // means every rule that fades or hides the cluster covers the vitals too.
+  // updateActionCluster drives the dash offsets each frame.
+  _buildTouchVitals(bar) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const CX = 156, CY = 156; // the basic-attack button's pivot in the 210 box
+    const pt = (r, deg) => {
+      const a = (deg * Math.PI) / 180;
+      return [CX + r * Math.cos(a), CY + r * Math.sin(a)];
+    };
+    // sweep: from just past straight-up (over slot 0) counterclockwise to just
+    // past left (beyond slot 3), always outside the ability fan (radius 144)
+    const A0 = -100, A1 = -178;
+    const arcPath = (r) => {
+      const [x0, y0] = pt(r, A0), [x1, y1] = pt(r, A1);
+      return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 0 0 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+    };
+    const svg = document.createElementNS(NS, 'svg');
+    svg.id = 'touch-vitals';
+    svg.setAttribute('viewBox', '0 0 210 210');
+    svg.setAttribute('aria-hidden', 'true');
+    const mk = (cls, d, w) => {
+      const p = document.createElementNS(NS, 'path');
+      p.setAttribute('class', cls);
+      p.setAttribute('d', d);
+      p.setAttribute('stroke-width', w);
+      svg.appendChild(p);
+      return p;
+    };
+    const build = (cls, r, w) => {
+      const d = arcPath(r);
+      mk('tv-track', d, w + 2);
+      return mk(cls, d, w);
+    };
+    const xp = build('tv-xp', 147, 2.5);     // thin gold XP arc, innermost
+    const res = build('tv-res', 153.5, 5);   // deep blue-purple resource
+    const hp = build('tv-hp', 161.5, 8);     // blood-red health, outermost
+    // parchment current/max readouts just outside the health arc: health on
+    // top, the resource line tucked right under it (same anchor, one line down)
+    const [tx, ty] = pt(177, -138);
+    const mkText = (cls, dy) => {
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('class', cls);
+      t.setAttribute('x', tx.toFixed(1));
+      t.setAttribute('y', (ty + dy).toFixed(1));
+      t.setAttribute('text-anchor', 'middle');
+      svg.appendChild(t);
+      return t;
+    };
+    const text = mkText('tv-hp-text', 0);
+    const resText = mkText('tv-res-text', 12);
+    bar.appendChild(svg);
+    this.vitals = {
+      hp, res, xp, text, resText,
+      hpLen: hp.getTotalLength(), resLen: res.getTotalLength(), xpLen: xp.getTotalLength(),
+    };
+    for (const [p, l] of [[hp, this.vitals.hpLen], [res, this.vitals.resLen], [xp, this.vitals.xpLen]]) {
+      p.setAttribute('stroke-dasharray', l.toFixed(1));
+      p.setAttribute('stroke-dashoffset', '0');
+    }
+  }
+
+  // The potion bubble: same circular style as the ability buttons (gold ring,
+  // red flask icon, potions-remaining badge). Tap drinks; updateHud grays it
+  // out (.disabled) when the pack is empty or health is already full.
+  _buildPotionBubble(bar) {
+    const C = 282.74;
+    const btn = document.createElement('div');
+    btn.className = 'act-btn act-potion ready';
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-label', 'Drink potion');
+    btn.innerHTML = `
+      <svg class="act-ring" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="act-ring-bg" cx="50" cy="50" r="45"></circle>
+        <circle class="act-ring-fg" cx="50" cy="50" r="45"
+          stroke-dasharray="${C}" stroke-dashoffset="0"></circle>
+      </svg>
+      <svg class="potion-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="10" y="2" width="4" height="4" rx="1" fill="#8a6a3a"/>
+        <path d="M9 6h6v3.2l3.6 7.4c1.1 2.3-.5 5-3 5H8.4c-2.5 0-4.1-2.7-3-5L9 9.2V6z" fill="#c8342f" stroke="#7a1f1c" stroke-width="1"/>
+        <path d="M8.6 13.5c1 .6 2.2.9 3.4.9s2.4-.3 3.4-.9" stroke="#7a1f1c" stroke-width="1" fill="none" stroke-linecap="round"/>
+        <ellipse cx="10.3" cy="14.3" rx="1.1" ry="1.7" fill="#ff8f7a" opacity="0.75"/>
+      </svg>
+      <span class="act-count"></span>
+    `;
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      this.game.touch?.wake?.();
+      if (this.game.state !== 'playing') return;
+      if (btn.classList.contains('disabled')) return;
+      this.game.player?.drinkPotion(this.game);
+    });
+    bar.appendChild(btn);
+    this.potionBtn = { el: btn, countEl: btn.querySelector('.act-count') };
   }
 
   // Per-button gesture handling shared by every cluster button (and it works
@@ -1479,6 +1606,23 @@ export class UI {
   }
 
   updateActionCluster(player) {
+    // vitals arcs hugging the cluster: the visible dash shrinks from the far
+    // end as the value drains (offset = length * missing fraction)
+    if (this.vitals) {
+      const v = this.vitals;
+      const set = (p, len, frac) => {
+        const f = Math.max(0, Math.min(1, frac));
+        p.style.strokeDashoffset = (len * (1 - f)).toFixed(1);
+      };
+      set(v.hp, v.hpLen, player.hp / player.maxHp);
+      set(v.res, v.resLen, player.resource / player.maxResource);
+      const { xpForLevel } = this.game.playerModule;
+      set(v.xp, v.xpLen, player.xp / xpForLevel(player.level));
+      const txt = `${Math.max(0, Math.ceil(player.hp))}/${Math.round(player.maxHp)}`;
+      if (v.text.textContent !== txt) v.text.textContent = txt;
+      const rtxt = `${Math.max(0, Math.floor(player.resource))}/${Math.round(player.maxResource)}`;
+      if (v.resText.textContent !== rtxt) v.resText.textContent = rtxt;
+    }
     const order = player.abilityOrder || [0, 1, 2, 3];
     for (const b of this.cluster) {
       if (b.slot < 0) {
@@ -1503,7 +1647,7 @@ export class UI {
       const cd = player.abilityCds[abIndex];
       const max = player.abilityCdMax?.[abIndex] || ab.cd;
       const onCd = cd > 0;
-      // teal ring depletes as the cooldown recovers: full ring = ready,
+      // gold ring depletes as the cooldown recovers: full ring = ready,
       // stroke-dashoffset grows with the remaining fraction.
       const frac = onCd ? Math.max(0, Math.min(1, cd / max)) : 0;
       b.ring.style.strokeDashoffset = (b.C * frac).toFixed(1);
@@ -1610,7 +1754,11 @@ export class UI {
     // no potion to drink or drinking one would do nothing, so the slot never
     // vanishes -- the player always knows where it is, just not usable yet.
     const canDrink = player.hp < player.maxHp - 1 && player.potions > 0;
-    $('touch-potion')?.classList.toggle('disabled', !canDrink);
+    if (this.potionBtn) {
+      this.potionBtn.el.classList.toggle('disabled', !canDrink);
+      const pc = String(player.potions);
+      if (this.potionBtn.countEl.textContent !== pc) this.potionBtn.countEl.textContent = pc;
+    }
     $('ab-potion')?.classList.toggle('disabled', !canDrink);
     // multiplayer: show how many heroes share the room (works in both orientations)
     const playersEl = $('hud-players');
@@ -1830,6 +1978,24 @@ export class UI {
     toast.style.animation = '';
     clearTimeout(this._toastT);
     this._toastT = setTimeout(() => toast.classList.add('hidden'), 2300);
+  }
+
+  // Small "QUEST COMPLETE" toast with the actual reward line, popped when an
+  // act boss falls (game.js delays it until the ACT CLEARED banner has faded).
+  // Same restart-the-CSS-animation trick as the level-up toast above.
+  showQuestComplete(title, reward) {
+    const toast = $('quest-toast');
+    if (!toast) return;
+    toast.classList.remove('hidden');
+    toast.innerHTML = `<span class="qt-head"><span class="qt-check">${UI.QUEST_MARKS.done}</span>QUEST COMPLETE</span>
+      <div class="toast-sub">${title}</div>
+      <div class="qt-reward">${reward}</div>`;
+    toast.style.animation = 'none';
+    void toast.offsetWidth;
+    toast.style.animation = '';
+    clearTimeout(this._questToastT);
+    this._questToastT = setTimeout(() => toast.classList.add('hidden'), 4200);
+    audio.play('level_up', { volume: 0.5, rate: 1.15 });
   }
 
   showFloorBanner(title, themeName, raw = false) {

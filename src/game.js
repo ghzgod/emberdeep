@@ -823,13 +823,23 @@ export class Game {
     const themeNames = [null, 'The Old Halls', 'The Rotting Depths', 'The Ember Vaults', 'The Sunless Court', 'The Abyssal Throne'];
     const current = Math.min(5, this.actsCleared + 1);
     const acts = [];
+    const capped = Math.min(this.floor, MAX_FLOOR);
     for (let a = 1; a <= 5; a++) {
+      const cleared = this.actsCleared >= a;
+      // Real floor progress within the act: 10 floors each, the boss waits on
+      // the 10th. Uses the hero's current/checkpoint floor while it is inside
+      // this act; cleared acts read full, unvisited ones 0.
+      const progress = cleared ? 10
+        : (actOfFloor(capped) === a ? Math.max(0, Math.min(10, actFloorOf(capped))) : 0);
       acts.push({
         act: a,
         title: `Act ${ROMAN[a]} — ${themeNames[a]}`,
         objective: `Slay ${ACT_BOSSES[a].name}`,
-        cleared: this.actsCleared >= a,
+        cleared,
         current: !this.bossDefeated && a === current,
+        progress,
+        total: 10,
+        reward: this.actBossRewardText(a),
       });
     }
     const p = this.player;
@@ -850,6 +860,13 @@ export class Game {
         'Pack size': `${p?.invSize ?? 12} slots`,
       },
     };
+  }
+
+  // What slaying an act's boss ACTUALLY pays (quest log reward line + the
+  // quest-complete toast). Mirrors Boss's xp/goldRange in enemies.js and the
+  // guaranteed-epic branch of rollDeathLoot, so the promise matches the drop.
+  actBossRewardText(act) {
+    return `${220 + act * 160} XP · ${60 + act * 25}-${120 + act * 40} gold · Epic gear`;
   }
 
   // Short objective line for the HUD.
@@ -1432,6 +1449,7 @@ export class Game {
         if (this.currentAct() < 5 && this.floor <= MAX_FLOOR) {
           this.spawnActExit(msg.x, msg.z);
           this.ui.showFloorBanner(`ACT ${ROMAN[this.currentAct()]} CLEARED`, 'The way deeper opens…', true);
+          this.showQuestCompleteToast(this.currentAct());
         } else {
           this.bossDefeated = true;
           this.onVictory();
@@ -2373,22 +2391,31 @@ export class Game {
   // ---- directional aim indicator (a ground arrow the player drags to aim) ----
   _buildAimIndicator() {
     const g = new THREE.Group();
-    const tealMat = new THREE.MeshBasicMaterial({
-      color: 0x3fe0d0, transparent: true, opacity: 0.72,
+    const goldMat = new THREE.MeshBasicMaterial({
+      color: 0xe8c05a, transparent: true, opacity: 0.72,
       depthWrite: false, side: THREE.DoubleSide,
     });
-    // a long shaft + arrowhead lying flat on the ground, pointing +x (aimAngle 0)
-    const shaft = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.34), tealMat);
-    shaft.rotation.x = -Math.PI / 2;
-    shaft.position.set(1.9, 0.06, 0);
-    const head = new THREE.Mesh(new THREE.CircleGeometry(0.55, 3), tealMat);
-    head.rotation.x = -Math.PI / 2;
-    head.rotation.z = -Math.PI / 2; // point the triangle toward +x
-    head.position.set(3.9, 0.06, 0);
-    g.add(shaft, head);
+    // One flat arrow (shaft + head) as a SINGLE shape authored in the XY plane
+    // pointing +x, laid onto the ground by one -90deg X rotation. The group's
+    // yaw is then the ONLY orientation ever applied, so the arrow stays a
+    // clean straight line on the XZ plane - no skew, no per-part rotations
+    // that can disagree (the old two-mesh build's triangle head did).
+    const s = new THREE.Shape();
+    s.moveTo(0.65, -0.17);
+    s.lineTo(3.25, -0.17);
+    s.lineTo(3.25, -0.55);
+    s.lineTo(4.35, 0);      // tip
+    s.lineTo(3.25, 0.55);
+    s.lineTo(3.25, 0.17);
+    s.lineTo(0.65, 0.17);
+    s.closePath();
+    const arrow = new THREE.Mesh(new THREE.ShapeGeometry(s), goldMat);
+    arrow.rotation.x = -Math.PI / 2; // XY shape -> flat on the XZ ground plane
+    arrow.position.y = 0.06;
+    g.add(arrow);
     g.visible = false;
     this.aimIndicator = g;
-    this.aimIndicatorMat = tealMat;
+    this.aimIndicatorMat = goldMat;
     this._aimIndicatorActive = false;
     this.scene.add(g);
   }
@@ -2399,6 +2426,10 @@ export class Game {
   setAimIndicator(dir) {
     this._aimIndicatorDir = dir;
     this._aimIndicatorActive = !!dir;
+    // Wild Rift feel: the hero turns to face the drag live while aiming.
+    // player.js honors aimOverride in its facing block; release clears it and
+    // normal facing rules resume.
+    if (this.player) this.player.aimOverride = dir ? Math.atan2(dir.z, dir.x) : null;
   }
 
   updateAimIndicator() {
@@ -2488,6 +2519,7 @@ export class Game {
 
   damageEnemy(e, amount, opts = {}) {
     if (e.dead) return;
+    this._lastCombatT = performance.now(); // learner trains only near real combat
     // Multiplayer guest: host is authoritative — send the damage event and
     // show optimistic local feedback.
     if (net.active && !net.isHost) {
@@ -2582,6 +2614,7 @@ export class Game {
         // act cleared: open the way down to the next act
         this.spawnActExit(e.pos.x, e.pos.z);
         this.ui.showFloorBanner(`ACT ${ROMAN[this.currentAct()]} CLEARED`, 'The way deeper opens…', true);
+        this.showQuestCompleteToast(this.currentAct());
         audio.play('level_up');
         audio.playMusic('dungeon', 2);
       } else {
@@ -2589,6 +2622,14 @@ export class Game {
       }
     }
     this.requestSave();
+  }
+
+  // Quest-complete toast for a slain act boss, delayed until the big
+  // "ACT X CLEARED" banner (2.7s) has faded so the two never stack.
+  showQuestCompleteToast(act) {
+    const title = `${ACT_BOSSES[act].name} slain`;
+    const reward = this.actBossRewardText(act);
+    setTimeout(() => this.ui.showQuestComplete(title, reward), 2800);
   }
 
   // Golden exit portal where the act boss fell → next act's first floor.
@@ -2679,6 +2720,7 @@ export class Game {
   hitTarget(target, dmg) {
     if (!target) return;
     if (target.local) {
+      this._lastCombatT = performance.now(); // learner trains only near real combat
       this.player.takeDamage(dmg, this);
       // A big hit on the local hero provokes a taunt from a nearby elite/boss.
       if (!this.player.dead && this.player.maxHp > 0) roaster.onBigHit(this, { taken: dmg / this.player.maxHp });
@@ -3235,10 +3277,13 @@ export class Game {
     audio.setListener(p.pos.x, p.pos.z);
 
     // enemy ML observes player movement for online training, but only while
-    // living enemies exist to use it. In town or on a cleared floor there is
-    // nothing to predict against, so we pause observation (and thus the worker's
-    // training) to save CPU/battery.
-    if (!this.inTown && this._anyLivingEnemy()) learner.observe(dt, p);
+    // living enemies exist to use it AND the player is actually fighting.
+    // Standing idle in a dungeon used to keep the worker training every 6s
+    // forever - a constant CPU burn (laptop fans) for zero learning value,
+    // since an idle player generates no movement worth predicting. Gate on
+    // recent combat: any damage dealt or taken in the last 20s.
+    const fighting = this._lastCombatT !== undefined && performance.now() - this._lastCombatT < 20000;
+    if (!this.inTown && fighting && this._anyLivingEnemy()) learner.observe(dt, p);
 
     // playstyle profile: how much of a runner is this hero? Elites use it to
     // lean harder into interception; Fenwick uses it to mock you.
@@ -3661,6 +3706,27 @@ export class Game {
   }
 
   // Town: vendors open their shop when you walk up; the portal descends.
+  // True while any character line is audibly playing: the Web Speech synth
+  // (battery-saver voices) or the neural Kokoro engine (a live buffer source,
+  // or a generation in flight about to play). Roaster routes every character
+  // line through one of those two engines, so together they are the whole
+  // "someone is speaking" signal - read-only, no roaster changes needed. The
+  // neuralVoice module reference is cached from a one-time dynamic import
+  // (same lazy-load pattern roaster/ui use); until it resolves the neural
+  // half simply reads as silent.
+  npcSpeechActive() {
+    try {
+      if ('speechSynthesis' in window && speechSynthesis.speaking) return true;
+    } catch { /* no synth on this browser */ }
+    if (!this._neuralVoiceRef) {
+      this._neuralVoiceRef = {};
+      import('./ai/neuralVoice.js')
+        .then(({ neuralVoice }) => { this._neuralVoiceRef = neuralVoice; })
+        .catch(() => { /* stays the empty stub: neural half reads silent */ });
+    }
+    return !!(this._neuralVoiceRef._current || this._neuralVoiceRef._busy);
+  }
+
   updateTownInteractions(dt) {
     this.shopCooldown = Math.max(0, this.shopCooldown - dt);
     if (!this.dungeonMeshes) return;
@@ -3701,11 +3767,11 @@ export class Game {
       }
       if (!candidate && this.shopCooldown <= 0) {
         for (const v of this.dungeonMeshes.vendorMeshes) {
-          if (near(v.wx, v.wz, 2.4)) { candidate = { label: `Talk to ${v.name}`, icon: '💬', action: () => this.openShop(v) }; break; }
+          if (near(v.wx, v.wz, 2.4)) { candidate = { label: `Talk to ${v.name}`, icon: '💬', talk: true, action: () => this.openShop(v) }; break; }
         }
       }
       if (!candidate && this.wanderer && near(this.wanderer.pos.x, this.wanderer.pos.z, 2.6)) {
-        candidate = { label: 'Talk to Old Fenwick', icon: '🧙', action: () => this.wanderer.speakTo(this) };
+        candidate = { label: 'Talk to Old Fenwick', icon: '🧙', talk: true, action: () => this.wanderer.speakTo(this) };
       }
       if (!candidate && this.dungeon.tavern && this.stairsCooldown <= 0) {
         const t = this.dungeon.tavern;
@@ -3726,14 +3792,20 @@ export class Game {
         if (near(w.x, w.z + 0.6, 1.6)) candidate = { label: 'Step outside', icon: '🚪', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTown({ fromTavern: true }); } };
       }
       if (!candidate && this.dungeonMeshes.barkeepPos && near(this.dungeonMeshes.barkeepPos.x, this.dungeonMeshes.barkeepPos.z, 2.4)) {
-        candidate = { label: 'Talk to Barlow', icon: '🍺', action: () => this.barkeepChat() };
+        candidate = { label: 'Talk to Barlow', icon: '🍺', talk: true, action: () => this.barkeepChat() };
       }
       if (!candidate) {
         for (const pm of this.dungeonMeshes.patronMeshes || []) {
-          if (near(pm.x, pm.z, 1.8)) { candidate = { label: pm.drunk ? 'Nudge the drunk' : 'Chat with the patron', icon: '💬', action: () => this.patronChat(pm) }; break; }
+          if (near(pm.x, pm.z, 1.8)) { candidate = { label: pm.drunk ? 'Nudge the drunk' : 'Chat with the patron', icon: '💬', talk: true, action: () => this.patronChat(pm) }; break; }
         }
       }
     }
+
+    // While an NPC line is still audibly playing, hold every TALK prompt back
+    // so "Talk to Old Fenwick" never floats over someone mid-sentence; the
+    // next poll after the speech finishes brings it straight back. Portals,
+    // stairs and doors are unaffected.
+    if (candidate?.talk && this.npcSpeechActive()) candidate = null;
 
     this.setInteractable(candidate);
     if (this.wanderer && this.inTown && !this.inTavern) this.wanderer.update(dt, this);
