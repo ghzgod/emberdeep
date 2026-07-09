@@ -164,9 +164,11 @@ export class TouchControls {
       mic.addEventListener('pointerleave', () => { game.touchPtt = false; });
     }
 
-    // hotbar taps (row slots on desktop-style layouts, or wedge taps on the
-    // touch radial wheel) - either one means the player is casting, so close
-    // the drawer immediately, same as moving/attacking.
+    // Desktop-row hotbar taps (the flat .hotbar-slot row on non-touch layouts):
+    // casting closes the drawer immediately, same as moving/attacking. The
+    // touch corner cluster's circular buttons handle their own pointer events
+    // (see ui.js wireActionButton) and stop propagation, so they never reach
+    // this listener - it is the desktop row's tap path only.
     document.getElementById('hotbar').addEventListener('pointerdown', (e) => {
       const slot = e.target.closest('.hotbar-slot');
       if (!slot || !game.player) return;
@@ -174,9 +176,6 @@ export class TouchControls {
       this._advanceTut?.('ability');
       const idx = [...slot.parentNode.children].indexOf(slot);
       game.player.tryAbility(idx, game);
-    });
-    document.getElementById('hotbar').addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.wheel-slot')) { closeMenu(); this._advanceTut?.('ability'); }
     });
   }
 

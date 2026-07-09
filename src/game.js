@@ -216,6 +216,7 @@ export class Game {
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this._mouseNdc = new THREE.Vector2();
     this._aimTarget = new THREE.Vector3();
+    this._buildAimIndicator();
 
     window.addEventListener('resize', () => this.onResize());
     this.applyQuality();
@@ -2294,6 +2295,120 @@ export class Game {
   // Is the local hero mid-swing / holding attack? Enemies use this to juke.
   playerIsAttacking() { return !!(this.player && (this.player.aiming || this.player.attackAnim > 0.05)); }
 
+  // Point the player's aim (aimAngle/aimDir) at the nearest living enemy.
+  // The single source of aim-assist for both the held touch attack and a
+  // TAP on any corner-cluster action button (tap = auto-aim nearest). Returns
+  // the chosen enemy, or null if none is in range.
+  aimAtNearestEnemy(p, maxDist = 9) {
+    let best = null, bestD = maxDist;
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      const d = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    if (best) {
+      const dx = best.pos.x - p.pos.x, dz = best.pos.z - p.pos.z;
+      const alen = Math.hypot(dx, dz) || 1;
+      p.aimAngle = Math.atan2(dz, dx);
+      p.aimDir.x = dx / alen;
+      p.aimDir.z = dz / alen;
+    }
+    return best;
+  }
+
+  // Point the player's aim along an explicit world-space direction. Used when
+  // a cluster button is HELD-and-SWIPED: the ability fires the way the thumb
+  // dragged, not at the nearest enemy. dx/dz need not be normalized.
+  aimInDirection(p, dx, dz) {
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-4) return;
+    p.aimAngle = Math.atan2(dz, dx);
+    p.aimDir.x = dx / len;
+    p.aimDir.z = dz / len;
+  }
+
+  // ---- corner action cluster: cast routing ----
+  // TAP on a cluster button: auto-aim the nearest enemy, then fire through the
+  // SAME code path the keys/hotbar use. slot -1 is the big basic-attack button.
+  clusterTap(slot) {
+    const p = this.player;
+    if (!p || this.inTown || this.state !== 'playing') return;
+    this.aimAtNearestEnemy(p);
+    p.faceAimTimer = Math.max(p.faceAimTimer, 0.25);
+    if (slot < 0) p.tryBasicAttack(this);
+    else p.tryAbility(slot, this);
+  }
+
+  // HELD-SWIPE release on a cluster button: aim along the drag direction (world
+  // space), then fire through the same code path. dirX/dirZ come from the drag
+  // vector already rotated into world axes by the UI.
+  clusterSwipe(slot, dirX, dirZ) {
+    const p = this.player;
+    if (!p || this.inTown || this.state !== 'playing') return;
+    this.aimInDirection(p, dirX, dirZ);
+    p.faceAimTimer = Math.max(p.faceAimTimer, 0.25);
+    if (slot < 0) p.tryBasicAttack(this);
+    else p.tryAbility(slot, this);
+  }
+
+  // A screen-space drag vector (px) rotated into the world ground plane, so a
+  // swipe "up the screen" always casts away from the camera regardless of the
+  // current orbit yaw - matching how movement input is rotated. Screen up =
+  // world -z. Returns a normalized {x, z} (or null for a tiny drag).
+  dragToWorldDir(dxPx, dyPx) {
+    const len = Math.hypot(dxPx, dyPx);
+    if (len < 1e-3) return null;
+    const sx = dxPx / len, sy = dyPx / len; // screen right / down
+    const cy = Math.cos(this.camYaw || 0), sYaw = Math.sin(this.camYaw || 0);
+    // mirror the movement mapping: screen (right, up) -> world axes
+    return { x: sx * cy + sy * sYaw, z: -sx * sYaw + sy * cy };
+  }
+
+  // ---- directional aim indicator (a ground arrow the player drags to aim) ----
+  _buildAimIndicator() {
+    const g = new THREE.Group();
+    const tealMat = new THREE.MeshBasicMaterial({
+      color: 0x3fe0d0, transparent: true, opacity: 0.72,
+      depthWrite: false, side: THREE.DoubleSide,
+    });
+    // a long shaft + arrowhead lying flat on the ground, pointing +x (aimAngle 0)
+    const shaft = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.34), tealMat);
+    shaft.rotation.x = -Math.PI / 2;
+    shaft.position.set(1.9, 0.06, 0);
+    const head = new THREE.Mesh(new THREE.CircleGeometry(0.55, 3), tealMat);
+    head.rotation.x = -Math.PI / 2;
+    head.rotation.z = -Math.PI / 2; // point the triangle toward +x
+    head.position.set(3.9, 0.06, 0);
+    g.add(shaft, head);
+    g.visible = false;
+    this.aimIndicator = g;
+    this.aimIndicatorMat = tealMat;
+    this._aimIndicatorActive = false;
+    this.scene.add(g);
+  }
+
+  // Called by the UI while a cluster button is held-and-swiped. dirX/dirZ is the
+  // live world-space drag direction. Shows and orients the ground arrow at the
+  // player. Passing null hides it.
+  setAimIndicator(dir) {
+    this._aimIndicatorDir = dir;
+    this._aimIndicatorActive = !!dir;
+  }
+
+  updateAimIndicator() {
+    const g = this.aimIndicator;
+    if (!g) return;
+    const active = this._aimIndicatorActive && this.player && !this.inTown;
+    g.visible = active;
+    if (!active) return;
+    const p = this.player;
+    g.position.set(p.pos.x, 0, p.pos.z);
+    const d = this._aimIndicatorDir;
+    g.rotation.y = -Math.atan2(d.z, d.x); // three-space yaw for a +x-facing arrow
+    // gentle pulse so it reads as "aiming, not fired yet"
+    this.aimIndicatorMat.opacity = 0.55 + 0.2 * Math.sin(performance.now() / 120);
+  }
+
   // `variation` (optional) is the current combo-cycle entry from classes.js's
   // basic.variations — carries this swing's range/arc/dmgMult so left/right
   // slices, the overhead chop and the lunging stab each hit a slightly
@@ -3000,20 +3115,13 @@ export class Game {
     // mobile aim assist: while attacking by touch, snap aim to the nearest
     // living enemy in range — thumbs aren't mice
     if (this.touch.enabled && this.touch.attacking && !this.inTown) {
-      let best = null, bestD = 9;
-      for (const e of this.enemies) {
-        if (e.dead) continue;
-        const d = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
-        if (d < bestD) { bestD = d; best = e; }
-      }
-      if (best) {
-        const dx = best.pos.x - p.pos.x, dz = best.pos.z - p.pos.z;
-        const alen = Math.hypot(dx, dz) || 1;
-        p.aimAngle = Math.atan2(dz, dx);
-        p.aimDir.x = dx / alen;
-        p.aimDir.z = dz / alen;
-      }
+      this.aimAtNearestEnemy(p);
     }
+
+    // live directional aim indicator: while a cluster button is held and
+    // dragged (see ui.js), keep the ground arrow/cone pointing where the drag
+    // points so the player can see where the cast will go before releasing.
+    this.updateAimIndicator();
 
     // ---- input: actions (Embervale is a place of peace — no weapons drawn) ----
     // clicking a co-op hero opens their inspect panel and eats the click
