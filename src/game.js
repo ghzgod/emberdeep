@@ -3081,16 +3081,23 @@ export class Game {
     // ---- camera follow + orbit + zoom + shake ----
     const target = p.pos;
     const zoom = this.camZoom || 1; // wheel / pinch scales the whole offset
-    // Zoomed in close: flatten the pitch toward eye level and lift the look
-    // target up to the head, so the camera peeks UNDER a hat brim at the face
-    // instead of staring straight down onto the top of the hat.
+    // Zoomed in close: bring the camera DOWN to eye level and aim straight at
+    // the eyes, so the line of sight is level (parallel) with the eyes rather
+    // than tilting down onto the face. Both the camera height and the look
+    // target converge on EYE_Y as you zoom fully in, giving a horizontal view
+    // that also peeks under a hat brim. EYE_Y is the eye height of the
+    // 1.6-unit hero (eyes sit a little below the head top).
     const closeIn = Math.min(1, Math.max(0, (0.6 - zoom) / 0.48)); // 0 far, 1 fully in
-    const yFlatten = 1 - 0.64 * closeIn;   // drop the camera height when zoomed in
-    const lookY = 0.5 + 1.15 * closeIn;    // raise the look target toward the face
+    const EYE_Y = 1.3;
+    const eyeBlend = closeIn * closeIn * (3 - 2 * closeIn); // smoothstep
+    // reach eye level early in the zoom-in and never frame below it
+    const lookY = 0.5 + (EYE_Y - 0.5) * Math.min(1, closeIn * 1.5);
+    const normalCamY = target.y + this.cameraOffset.y * zoom;
+    const camYTarget = normalCamY + (target.y + EYE_Y - normalCamY) * eyeBlend;
     const camX = target.x + Math.sin(this.camYaw) * this.cameraOffset.z * zoom;
     const camZ = target.z + Math.cos(this.camYaw) * this.cameraOffset.z * zoom;
     this.camera.position.x += (camX - this.camera.position.x) * Math.min(1, 8 * dt);
-    this.camera.position.y += (target.y + this.cameraOffset.y * zoom * yFlatten - this.camera.position.y) * Math.min(1, 8 * dt);
+    this.camera.position.y += (camYTarget - this.camera.position.y) * Math.min(1, 8 * dt);
     this.camera.position.z += (camZ - this.camera.position.z) * Math.min(1, 8 * dt);
     if (this.shakeAmount > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.shakeAmount;

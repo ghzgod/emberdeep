@@ -29,19 +29,22 @@ export const CLASSES = {
     // 2.3; every variation's range sits at 2.8-3.3 (roughly 1.2x-1.4x that) for
     // noticeably better reach on every swing.
     basic: {
-      kind: 'melee', range: 2.3, arc: Math.PI * 0.65, cooldown: 0.45, basicCost: 9,
+      kind: 'melee', range: 2.3, arc: Math.PI * 0.95, cooldown: 0.45, basicCost: 9,
       sound: 'sword_swing', hitSound: 'sword_hit',
-      // Combo cycle: 4 swings, each with a different clip + slightly different
-      // hit shape. dmgMult keeps per-hit damage close to 1x on average (three
-      // quick 0.95x cuts + one heavier 1.15x lunge every 4th swing) so widening
-      // reach/arc doesn't inflate sustained DPS. idleResetMs matches the ~1.2s
-      // read used by tryBasicAttack to drop the combo back to swing 1 after a pause.
+      // Combo cycle: 4 swings, each with a different clip + hit shape. The two
+      // horizontal cuts are WIDE cleaves - a near-half-circle sweep that carves
+      // through a whole cluster in front of the knight - matched by a wide body
+      // sweep in heroModel.playAttack so the blade visibly travels that arc.
+      // dmgMult keeps per-target damage near 1x (a wide cleave already gains
+      // reach by hitting more of the pack, so we do not also pump per-hit).
+      // idleResetMs matches the ~1.2s read used by tryBasicAttack to drop the
+      // combo back to swing 1 after a pause.
       idleResetMs: 1200,
       variations: [
-        { clip: 'slice_horizontal', range: 2.9, arc: Math.PI * 0.7, dmgMult: 0.95 }, // left-to-right
-        { clip: 'slice_diagonal',   range: 2.9, arc: Math.PI * 0.7, dmgMult: 0.95 }, // right-to-left
-        { clip: 'chop',             range: 2.8, arc: Math.PI * 0.55, dmgMult: 1.0 }, // overhead
-        { clip: 'stab',             range: 3.3, arc: Math.PI * 0.35, dmgMult: 1.15 }, // heavier lunge, narrow but long
+        { clip: 'slice_horizontal', range: 3.1, arc: Math.PI * 1.15, dmgMult: 0.9 }, // wide left-to-right cleave
+        { clip: 'slice_diagonal',   range: 3.1, arc: Math.PI * 1.15, dmgMult: 0.9 }, // wide right-to-left cleave
+        { clip: 'chop',             range: 2.9, arc: Math.PI * 0.8,  dmgMult: 1.0 }, // overhead, still broad
+        { clip: 'stab',             range: 3.4, arc: Math.PI * 0.5,  dmgMult: 1.15 }, // heavier lunge, narrower but long
       ],
     },
     // AoE (whirlwind) sits LAST, since slot 4 is the "ultimate" slot every class
