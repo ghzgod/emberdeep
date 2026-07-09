@@ -883,13 +883,14 @@ export class UI {
     this.renderKeybinds();
 
     // Auto-balance: dialogue-first mixing — speech at reference, voice chat
-    // equal (0 dB), SFX −6 dB, music −12 dB, master at 85%.
+    // equal (0 dB), SFX −6 dB, music pulled well down so it never buries
+    // dialogue (~0.15), master at 85%.
     $('btn-auto-level').onclick = () => {
       const db = (d) => Math.pow(10, d / 20);
       s.speechVolume = 1.0;
       s.voiceChatVolume = 1.0;
       s.sfxVolume = +(db(-6)).toFixed(2);    // ≈ 0.50
-      s.musicVolume = +(db(-12)).toFixed(2); // ≈ 0.25
+      s.musicVolume = 0.15;                  // background bed, well under speech/SFX
       s.masterVolume = 0.85;
       this.game.applyAudioSettings();
       this.game.saveSettings();
@@ -967,7 +968,6 @@ export class UI {
       // The trigger slider doubles as the live mic meter (fill inside the
       // slider track, knob = cutoff) - voice-activated only.
       vRow.classList.toggle('hidden', mode !== 'auto');
-      $('voice-meter-hint').classList.toggle('hidden', mode !== 'auto');
       // Push-to-talk has no trigger knob, but still shows a plain live meter so
       // the player can confirm the mic is picking them up.
       $('ptt-meter-row').classList.toggle('hidden', mode !== 'ptt');
@@ -1242,7 +1242,8 @@ export class UI {
         fill.style.width = `${Math.round(prog * 100)}%`;
         retry.classList.add('hidden');
       } else if (st === 'ready') {
-        vStatus.textContent = 'Neural voices ready ✓';
+        // No "ready ✓" box - success needs no footnote; just clear the progress.
+        vStatus.classList.add('hidden');
         fill.style.width = '100%';
         setTimeout(() => bar.classList.add('hidden'), 1200);
         retry.classList.add('hidden');
@@ -1270,8 +1271,8 @@ export class UI {
     }
     import('../ai/neuralVoice.js').then(({ neuralVoice }) => {
       if (neuralVoice.status === 'ready') {
-        $('voice-engine-status').classList.remove('hidden');
-        $('voice-engine-status').textContent = 'Neural voices ready ✓';
+        // Ready needs no status box - keep the settings panel uncluttered.
+        $('voice-engine-status').classList.add('hidden');
       } else if (neuralVoice.status === 'loading') {
         this.startNeuralVoices();
       } else if (neuralVoice.status === 'error') {
@@ -1289,13 +1290,22 @@ export class UI {
     if (!candidate) { el.classList.add('hidden'); return; }
     // while an NPC line (subtitle) is up, don't stack the prompt behind it
     if (!$('subtitle').classList.contains('hidden')) { el.classList.add('hidden'); return; }
-    // key chip is hidden by CSS on coarse-pointer devices — tap the pill there
-    el.innerHTML = `${candidate.icon} ${candidate.label} <span class="key-chip">F</span>`;
+    // Show a device-appropriate action hint: the F key on desktop, "Tap" on
+    // touch devices (the whole pill is tappable there).
+    const hint = isTouchDevice() ? 'Tap' : 'F';
+    el.innerHTML = `${candidate.icon} ${candidate.label} <span class="key-chip">${hint}</span>`;
     el.classList.remove('hidden');
   }
 
   wireActionBar() {
     const g = this.game;
+    // Action-bar button tooltips: drop the keyboard-key footnote on touch
+    // devices (no keyboard there) and keep the plain action label instead.
+    if (isTouchDevice()) {
+      const t = { 'ab-inv': 'Inventory', 'ab-quests': 'Quest Log', 'ab-skills': 'Mastery',
+        'ab-potion': 'Drink Potion', 'ab-mic': 'Push-to-talk', 'ab-pause': 'Menu' };
+      for (const [id, label] of Object.entries(t)) { const b = $(id); if (b) b.title = label; }
+    }
     $('interact-prompt').onclick = () => g.doInteract();
     // universal corner ✕ on every panel overlay (works without a keyboard)
     document.querySelectorAll('.overlay-close').forEach((btn) => {
@@ -1675,9 +1685,31 @@ export class UI {
 
     const bossWrap = $('boss-bar-wrap');
     if (boss && !boss.dead) {
-      bossWrap.classList.remove('hidden');
       $('boss-name').textContent = boss.name;
       $('boss-bar').style.width = `${(boss.hp / boss.maxHp) * 100}%`;
+      // World-anchor the bar just above the boss's head instead of pinning it to
+      // the top of the screen: project the top of the boss (ground pos.y + a
+      // head-height offset scaled by its footprint) to screen every frame and
+      // follow it. Reuses the floaters world->screen projection so it stays in
+      // sync with the combat text. Clamp to the viewport edges and hide it when
+      // the boss goes behind the camera or off-screen.
+      const headY = (boss.pos.y || 0) + 3.6 + (boss.radius || 1) * 1.6;
+      const s = this.floaters.worldToScreen(boss.pos.x, headY, boss.pos.z);
+      if (!s.onScreen) {
+        bossWrap.classList.add('hidden');
+      } else {
+        bossWrap.classList.remove('hidden');
+        const w = bossWrap.offsetWidth || 320;
+        const h = bossWrap.offsetHeight || 40;
+        const half = w / 2;
+        const pad = 8;
+        // clamp horizontal centre so the width-constrained bar never runs off
+        // either edge; clamp vertical so it never rides above the top HUD.
+        const cx = Math.max(half + pad, Math.min(window.innerWidth - half - pad, s.x));
+        const cy = Math.max(pad + h, Math.min(window.innerHeight - pad, s.y));
+        bossWrap.style.left = `${cx}px`;
+        bossWrap.style.top = `${cy}px`;
+      }
     } else {
       bossWrap.classList.add('hidden');
     }
@@ -1789,7 +1821,10 @@ export class UI {
   showLevelUp(level) {
     const toast = $('levelup-toast');
     toast.classList.remove('hidden');
-    toast.innerHTML = `LEVEL ${level}!<div class="toast-sub">+1 mastery point (K) · fully restored</div>`;
+    // Device-appropriate hint for where the mastery point is spent: the K key on
+    // desktop, the Mastery button on touch.
+    const masteryHint = isTouchDevice() ? 'open Mastery' : '(K)';
+    toast.innerHTML = `LEVEL ${level}!<div class="toast-sub">+1 mastery point ${masteryHint} · fully restored</div>`;
     toast.style.animation = 'none';
     void toast.offsetWidth; // restart animation
     toast.style.animation = '';
@@ -1880,22 +1915,31 @@ export class UI {
       if (item && item.slot) el.innerHTML = `<img class="inv-item-icon" src="${makeItemIcon(item)}" alt="">`;
       else el.textContent = item ? item.icon : '';
       if (item) {
-        el.onmouseenter = (e) => this.showTooltip(item, e);
+        // Once multi-select is active (any item marked), the grid is a picker:
+        // no stats card, no hover tooltip - every tap just toggles a mark, so
+        // the stats popup never covers the items being multi-selected.
+        el.onmouseenter = (e) => { if (this.destroySel.size === 0) this.showTooltip(item, e); };
         el.onmouseleave = () => this.hideTooltip();
         const toggleMark = () => {
           this.destroySel.has(item) ? this.destroySel.delete(item) : this.destroySel.add(item);
+          this.hideTooltip();
+          // entering multi-select tears down the stats card so it can't cover
+          // the grid while items are being picked
+          if (this.destroySel.size > 0) this.closeItemActions();
           this.renderInventory();
         };
-        // ctrl/cmd/shift-click marks for bulk destruction; plain click = stats
+        // ctrl/cmd/shift-click marks for bulk destruction; plain click = stats,
+        // unless multi-select is already active, in which case a plain tap marks.
         el.onclick = (e) => {
           if (this._suppressClick) { this._suppressClick = false; return; }
-          if (e.ctrlKey || e.metaKey || e.shiftKey) toggleMark();
+          if (e.ctrlKey || e.metaKey || e.shiftKey || this.destroySel.size > 0) toggleMark();
           else this.selectItem(item);
         };
-        // touch: press-and-hold marks the item instead
+        // touch: press-and-hold enters multi-select. Suppress both the follow-up
+        // click AND the stats card while the hold is being recognised.
         el.onpointerdown = (e) => {
           if (e.pointerType !== 'touch') return;
-          this._holdT = setTimeout(() => { this._suppressClick = true; toggleMark(); }, 450);
+          this._holdT = setTimeout(() => { this._suppressClick = true; this.hideTooltip(); toggleMark(); }, 450);
         };
         el.onpointerup = el.onpointerleave = () => clearTimeout(this._holdT);
         el.oncontextmenu = (e) => { e.preventDefault(); this.game.dropItem(item); this.renderInventory(); this.hideTooltip(); };

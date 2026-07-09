@@ -259,13 +259,16 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 @media (max-width: 520px) { #quest-stats { grid-template-columns: 1fr; } }
 #minimap { border: 1px solid var(--panel-border); border-radius: 6px; background: rgba(0,0,0,0.7); }
 
-/* Centered, but constrained and pushed below the top HUD row so it never
-   overlaps the top-left player bars or the top-right minimap/quest cluster
-   in any layout -- the mobile media queries below only need to tune the
-   offset for their shorter/taller HUD stacks, not the base positioning. */
+/* World-anchored above the boss's head: left/top are set every frame from JS
+   (see updateHud -> floaters.worldToScreen). The transform pulls the wrap so
+   that the given (left, top) anchor point sits just BELOW the bar and the bar
+   is horizontally centred on it, i.e. the whole thing floats above the boss.
+   Name renders above the bar. Width is capped so a long boss name stays
+   readable without stretching across the screen. */
 #boss-bar-wrap {
-  position: absolute; top: 206px; left: 50%; transform: translateX(-50%);
-  width: min(46vw, 520px); text-align: center;
+  position: absolute; left: 50%; top: 206px;
+  transform: translate(-50%, -100%);
+  width: min(46vw, 320px); text-align: center; pointer-events: none;
 }
 #boss-name { font-size: 16px; color: #d9a0ff; text-shadow: 0 1px 2px #000; letter-spacing: 2px; }
 .bar-wrap.boss { height: 16px; margin-top: 4px; }
@@ -392,9 +395,8 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
   border-radius: 5px; padding: 1px 8px; margin-left: 8px; font-size: 12px; color: var(--gold);
 }
 @keyframes prompt-pulse { 0%, 100% { box-shadow: 0 4px 18px rgba(0,0,0,0.6), 0 0 8px rgba(232,192,90,0.15); } 50% { box-shadow: 0 4px 18px rgba(0,0,0,0.6), 0 0 18px rgba(232,192,90,0.4); } }
-/* no keyboards on touch devices — the pill itself is the button */
-.touch-mode #interact-prompt .key-chip { display: none; }
-@media (pointer: coarse) { #interact-prompt .key-chip { display: none; } }
+/* On touch devices the chip reads "Tap" instead of a key (set in showInteract),
+   so it stays visible - the pill itself is the button. */
 
 /* desktop action bar: a horizontal tray anchored bottom-right. The ☰ toggle
    is the rightmost, fixed anchor; the other icons flow to its left, so the
@@ -598,7 +600,10 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 @media (max-height: 520px) { #inventory-screen { padding-top: 3vh; } }
 /* wrap + center so the six equip slots never overflow a phone screen
    (one row on desktop, two rows of three on mobile) */
-.equip-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin-bottom: 10px; }
+/* column-gap keeps the boxes apart horizontally; the larger row-gap gives each
+   slot-label (which hangs below its box) clearance from the boxes on the next
+   wrapped row, so a label like "Helmet"/"Chest" never touches the box above. */
+.equip-row { display: flex; flex-wrap: wrap; justify-content: center; column-gap: 14px; row-gap: 26px; margin-bottom: 14px; }
 .inv-grid { display: grid; grid-template-columns: repeat(6, 64px); gap: 10px; }
 .inv-slot {
   width: 64px; height: 64px; border: 2px solid var(--panel-border); border-radius: 8px;
@@ -630,8 +635,10 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
   min-width: 280px; max-width: 86vw; max-height: 70vh; overflow: auto; padding: 22px 26px; text-align: center;
   background: linear-gradient(180deg, rgba(30,18,18,0.98), rgba(18,12,12,0.98));
   border: 2px solid #7a3030; border-radius: 16px; box-shadow: 0 0 30px rgba(224,68,68,0.35);
+  /* dark red card: force the light parchment text (was inheriting default black) */
+  color: var(--parchment);
 }
-#destroy-card h2 { font-size: 20px; margin: 0 0 8px; }
+#destroy-card h2 { font-size: 20px; margin: 0 0 8px; color: var(--gold); }
 #destroy-card #destroy-count { font-size: 13px; opacity: 0.85; margin-bottom: 10px; }
 #destroy-card #destroy-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 16px; font-size: 13px; }
 
@@ -968,6 +975,9 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   min-width: 300px; max-width: 90vw; max-height: 80vh; overflow: auto; padding: 22px 26px; text-align: center;
   background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98));
   border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35);
+  /* dark card lives outside .overlay, so set the light text explicitly instead
+     of inheriting the browser default black */
+  color: var(--parchment);
 }
 /* Default every bit of modal text to parchment so nothing falls back to the
    browser's black (which was invisible on the dark card). */
@@ -1286,11 +1296,8 @@ body.touch-mode {
   #hud-quest { grid-area: quest; max-width: 42vw; }
   #minimap { grid-area: map; align-self: start; }
   .hotbar-slot { width: 50px; height: 50px; }
-  /* boss-bar-wrap's touch-device clearance is set once, below, by the
-     (max-width: 860px), (pointer: coarse) block - that query also matches
-     every short-height landscape phone here, and its value already clears
-     this layout's shallower ~104px-tall compact top HUD, so it is not
-     repeated in this block. */
+  /* boss-bar-wrap is world-anchored above the boss now (positioned each frame
+     from JS), so it needs no per-layout top offset here. */
   /* Landscape thumb ergonomics: gripping a phone/tablet in landscape, the right
      thumb pivots from the lower-right EDGE, not the dead corner - its comfortable
      arc sits inset from the corner. Push the whole cluster inward and up into
@@ -1384,17 +1391,19 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
   #hud-quest { font-size: 10px; }
   #hud-clear { font-size: 11px; }
   .hotbar-slot { width: 62px; height: 62px; }
-  /* Push the boss bar down clear of BOTH the top-left player bars and the
-     top-right cluster - on narrow/portrait widths that cluster stacks the
-     floor name, clear-status and quest line ABOVE the minimap in a column,
-     so the minimap's actual bottom edge sits well below its own top:16px.
-     190px clears that full stack (floor + clear + a wrapped quest line +
-     110px minimap) with room to spare, and the width is capped so it can't
-     run under the minimap either. */
-  #boss-bar-wrap { top: 190px; width: min(84vw, 380px); }
+  /* boss-bar-wrap is world-anchored (JS-positioned each frame) so no per-layout
+     top offset is needed; just keep the width capped for small screens. */
+  #boss-bar-wrap { width: min(84vw, 300px); }
   .menu-btn { font-size: 17px; padding: 12px 22px; }
   .inv-grid { grid-template-columns: repeat(4, 56px); }
   .inv-slot { width: 56px; height: 56px; }
+  /* Portrait/narrow: shrink the equip boxes and their icons, and give the
+     slot-label a touch MORE size but its own generous vertical lane, so wrapped
+     rows never let a label (Helmet, Chest) touch the box on the row above. */
+  .inv-slot.equip { width: 58px; height: 58px; }
+  .inv-slot.equip .inv-item-icon { width: 74%; height: 74%; }
+  .inv-slot.equip .slot-label { bottom: -17px; font-size: 12px; opacity: 0.72; }
+  .equip-row { column-gap: 12px; row-gap: 28px; margin-bottom: 16px; }
 }
 
 /* Character-select name field (required before starting) */
