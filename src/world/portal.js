@@ -27,6 +27,7 @@ const FRAGMENT_SHADER = `
   uniform float uTime;
   uniform vec3 uColorA;
   uniform vec3 uColorB;
+  uniform float uHover; // 0 = idle, 1 = mouse hovering: brightens the swirl
 
   float hash(vec3 p) {
     return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
@@ -75,7 +76,10 @@ const FRAGMENT_SHADER = `
     col += band * uColorB * 0.4;
 
     float glow = 0.55 + swirl * 0.5;
-    gl_FragColor = vec4(col * glow, 0.85);
+    // Hover lifts overall brightness and opacity so the sphere flares when the
+    // cursor is over it, inviting a click.
+    glow *= 1.0 + uHover * 0.6;
+    gl_FragColor = vec4(col * glow, 0.85 + uHover * 0.15);
   }
 `;
 
@@ -88,7 +92,13 @@ export function buildPortal({ radius = 1.1, colorA = 0x2a0f55, colorB = 0xb35eff
     uTime: { value: Math.random() * 100 },
     uColorA: { value: new THREE.Color(colorA) },
     uColorB: { value: new THREE.Color(colorB) },
+    uHover: { value: 0 },
   };
+
+  // Hover state: `hoverTarget` is set to 1 while the mouse is over the portal
+  // (0 otherwise); the actual uHover uniform lerps toward it each update so the
+  // brighten/spin-up ramps smoothly rather than snapping.
+  let hoverTarget = 0;
 
   const sphereGeo = new THREE.SphereGeometry(radius, 32, 24);
   const sphereMat = new THREE.ShaderMaterial({
@@ -138,12 +148,21 @@ export function buildPortal({ radius = 1.1, colorA = 0x2a0f55, colorB = 0xb35eff
   object.add(points);
 
   function update(dt) {
-    uniforms.uTime.value += dt;
+    // Smoothly ramp the hover intensity toward its target (lerp, not instant).
+    const h = uniforms.uHover.value;
+    uniforms.uHover.value = h + (hoverTarget - h) * Math.min(1, dt * 6);
+    const hov = uniforms.uHover.value;
+
+    // Swirl time (and the whole orbit) run faster while hovered, so the portal
+    // visibly spins up under the cursor.
+    uniforms.uTime.value += dt * (1 + hov * 1.2);
+    // Spin the whole sphere group slightly for an extra sense of acceleration.
+    sphere.rotation.y += dt * hov * 1.5;
 
     const posAttr = particleGeo.attributes.position;
     for (let i = 0; i < particleCount; i++) {
       const o = orbits[i];
-      o.angle += dt * o.speed;
+      o.angle += dt * o.speed * (1 + hov * 1.2);
       const jitter = 1 + Math.sin(o.jitterPhase + uniforms.uTime.value * o.jitterSpeed) * 0.12;
       // Elliptical path around the sphere, offset per-particle so the swarm
       // fills a 3D shell rather than a single flat ring.
@@ -154,5 +173,11 @@ export function buildPortal({ radius = 1.1, colorA = 0x2a0f55, colorB = 0xb35eff
     posAttr.needsUpdate = true;
   }
 
-  return { object, update };
+  // Called by the game each frame with whether the cursor is over this portal.
+  function setHover(on) { hoverTarget = on ? 1 : 0; }
+  // Also hang setHover off the update fn so callers that only kept a reference
+  // to portalUpdate (via mesh.userData) can still drive the hover ramp.
+  update.setHover = setHover;
+
+  return { object, update, setHover };
 }
