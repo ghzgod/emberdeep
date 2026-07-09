@@ -1,20 +1,39 @@
-// Single source of truth for "is this a touch device" so the JS ability-bar
-// choice (buildHotbar) and the CSS layout (body.touch-mode) can never
-// disagree. Anyone needing the touch/non-touch decision should call this
-// instead of re-checking matchMedia/ontouchstart themselves.
+// Single source of truth for INPUT capability: "can this device touch". Gates
+// the virtual joystick, hold-to-aim gestures and tap hints - never the layout.
 export function isTouchDevice() {
   return matchMedia('(pointer: coarse)').matches
     || 'ontouchstart' in window
     || location.search.includes('touch');
 }
 
-// Touch controls: virtual joystick (left half) + hold-to-attack aim (right half),
-// tappable hotbar / potion / pause. Active on coarse-pointer devices, or force
+// Single source of truth for LAYOUT: compact (corner ability cluster, utility
+// drawer, arc vitals) vs desktop (flat hotbar row, top-left bars, action bar).
+// This is a VIEWPORT decision, not a device one - a narrow desktop window gets
+// the compact layout live as it resizes, and a coarse-pointer device gets it
+// at any size. Re-evaluated on resize/orientationchange (see _reevaluate), and
+// it is what drives body.touch-mode and buildHotbar's row-vs-cluster choice,
+// so the JS layout pick and the CSS can never disagree.
+export function isCompactLayout() {
+  return window.innerWidth <= 940
+    || window.innerWidth < window.innerHeight // portrait aspect at any width
+    || matchMedia('(pointer: coarse)').matches
+    || location.search.includes('touch');
+}
+
+// Touch controls: virtual joystick (left half) + hold-to-attack aim (right half)
+// on touch-capable devices, plus the compact layout's utility drawer and
+// tutorial hints on ANY compact viewport (mouse included). Force touch input
 // with ?touch in the URL for testing.
 export class TouchControls {
   constructor(game) {
     this.game = game;
-    this.enabled = isTouchDevice();
+    // INPUT capability (joystick, aim gestures) and LAYOUT (cluster, drawer)
+    // are independent: touchInput follows the device, compact follows the
+    // viewport. this.enabled keeps its historical meaning ("touch input is
+    // live") for the game-loop reads in game.js.
+    this.touchInput = isTouchDevice();
+    this.compact = isCompactLayout();
+    this.enabled = this.touchInput;
     this.move = { x: 0, z: 0 };
     this.joyActive = false;
     this.attacking = false;
@@ -25,30 +44,32 @@ export class TouchControls {
     this._menuAutoCloseTimer = null; // auto-collapses the utility drawer after ~3s idle
 
     // body.touch-mode is the flag both CSS and JS key off; re-evaluated below
-    // on resize/orientationchange so a mid-session pointer/viewport change
-    // (tablet rotation, devtools device toggle) never leaves the wheel and
-    // the row-plus-toggle hybrid both on screen at once.
-    document.body.classList.toggle('touch-mode', this.enabled);
+    // on resize/orientationchange so a mid-session viewport change (tablet
+    // rotation, a desktop window dragged narrow, devtools device toggle)
+    // always lands on the matching layout.
+    document.body.classList.toggle('touch-mode', this.compact);
 
-    // Re-check on resize/orientationchange: if the touch/non-touch verdict
+    // Re-check on resize/orientationchange: if the compact/desktop verdict
     // flips, flip the body class and rebuild the hotbar so the ability
-    // layout (row vs wheel) and the menu toggle's visibility (CSS reads
+    // layout (row vs cluster) and the menu toggle's visibility (CSS reads
     // body.touch-mode) always agree with each other.
     window.addEventListener('resize', () => this._reevaluate());
     window.addEventListener('orientationchange', () => this._reevaluate());
 
-    if (!this.enabled) return;
-
     const canvas = game.canvas;
-    canvas.style.touchAction = 'none';
+    // Canvas gestures (joystick / hold-to-aim) need real touch; everything
+    // below them (drawer, menu toggle, tutorial, hotbar taps) works with a
+    // mouse too and the compact layout needs it on any device.
+    if (this.touchInput) {
+      canvas.style.touchAction = 'none';
+      canvas.addEventListener('pointerdown', (e) => this.onDown(e));
+      canvas.addEventListener('pointermove', (e) => this.onMove(e));
+      canvas.addEventListener('pointerup', (e) => this.onUp(e));
+      canvas.addEventListener('pointercancel', (e) => this.onUp(e));
+    }
 
-    // any touch anywhere wakes the button drawer back to full opacity
+    // any pointer anywhere wakes the button drawer back to full opacity
     window.addEventListener('pointerdown', () => this.wake(), { capture: true });
-
-    canvas.addEventListener('pointerdown', (e) => this.onDown(e));
-    canvas.addEventListener('pointermove', (e) => this.onMove(e));
-    canvas.addEventListener('pointerup', (e) => this.onUp(e));
-    canvas.addEventListener('pointercancel', (e) => this.onUp(e));
 
     this.joyBase = document.getElementById('joystick-base');
     this.joyKnob = document.getElementById('joystick-knob');
@@ -71,10 +92,8 @@ export class TouchControls {
       if (!ui?.classList.contains('menu-open')) return;
       this._menuAutoCloseTimer = setTimeout(closeMenu, 3000);
     };
-    bind('touch-potion', () => {
-      if (document.getElementById('touch-potion')?.classList.contains('disabled')) return;
-      game.player?.drinkPotion(game); closeMenu();
-    });
+    // Potion lives in the action cluster now (ui.js buildActionCluster wires
+    // its bubble), not in this drawer.
     bind('touch-inv', () => { game.toggleInventory(); closeMenu(); });
     bind('touch-pause', () => { game.togglePause(true); closeMenu(); });
 
@@ -137,10 +156,17 @@ export class TouchControls {
       }
     };
     this._advanceTut = advanceTut;
+    this._ghost = document.getElementById('joy-ghost');
+    this._ghostShown = false;
+    this._ghostTimer = null;
+    this._movedEver = false;
     this.maybeShowHint = () => {
-      if (!this.enabled || localStorage.getItem('emberdeep-move-hint')) return;
-      tutRoot?.classList.remove('hidden');
-      showTutStep('move');
+      if (!this.touchInput) return; // teaches touch gestures only
+      if (!localStorage.getItem('emberdeep-move-hint')) {
+        tutRoot?.classList.remove('hidden');
+        showTutStep('move');
+      }
+      this.scheduleJoyGhost();
     };
 
     // hold-to-rotate camera buttons
@@ -193,6 +219,7 @@ export class TouchControls {
       this.joyBase.style.top = `${e.clientY}px`;
       this.joyKnob.style.transform = 'translate(-50%,-50%)';
       this._advanceTut?.('move');
+      this.dismissJoyGhost(true);
     } else if (this._aimId === null) {
       this._aimId = e.pointerId;
       this.attacking = true;
@@ -233,17 +260,56 @@ export class TouchControls {
     }
   }
 
-  // Re-run the touch/non-touch check and, if the verdict changed since
-  // construction (or since the last check), flip body.touch-mode and rebuild
-  // the ability bar so it swaps between the row and the wheel to match. This
-  // is what stops a tablet from getting stuck in the row-plus-kebab hybrid
-  // after an orientation change or viewport resize.
+  // Re-run both checks. Input capability rarely flips, but the LAYOUT verdict
+  // flips whenever the window crosses the compact breakpoint (a desktop
+  // browser dragged narrow, a tablet rotation, devtools device toggle): flip
+  // body.touch-mode and rebuild the ability bar so it swaps between the row
+  // and the cluster live to match the viewport.
   _reevaluate() {
-    const nowEnabled = isTouchDevice();
-    if (nowEnabled === this.enabled) return;
-    this.enabled = nowEnabled;
-    document.body.classList.toggle('touch-mode', this.enabled);
+    this.touchInput = isTouchDevice();
+    this.enabled = this.touchInput;
+    const nowCompact = isCompactLayout();
+    if (nowCompact === this.compact) return;
+    this.compact = nowCompact;
+    document.body.classList.toggle('touch-mode', this.compact);
     if (this.game.player) this.game.ui.buildHotbar(this.game.player);
+  }
+
+  // First-time joystick ghost: a few seconds after entering the world without
+  // moving, fade in a ghost joystick on the left with an animated thumb that
+  // slides up on repeat and a "Hold and swipe to walk" hint. Shows on the
+  // first three world entries at most (localStorage counter); the moment the
+  // player moves it is dismissed for good. Touch input only - it teaches a
+  // touch gesture.
+  scheduleJoyGhost() {
+    if (!this.touchInput || !this._ghost) return;
+    const KEY = 'emberdeep-joy-ghost-v1';
+    const seen = localStorage.getItem(KEY);
+    if (seen === 'done' || (+seen || 0) >= 3) return;
+    clearTimeout(this._ghostTimer);
+    this._ghostTimer = setTimeout(() => {
+      if (this._movedEver || this.joyActive) return;
+      localStorage.setItem(KEY, String((+seen || 0) + 1));
+      this._ghostShown = true;
+      this._ghost.classList.remove('hidden', 'fading');
+      document.getElementById('touch-ui')?.classList.add('ghost-active');
+    }, 2500);
+  }
+
+  // moved: true when the player actually walked - that proves the lesson
+  // landed, so the ghost never comes back.
+  dismissJoyGhost(moved) {
+    clearTimeout(this._ghostTimer);
+    if (moved) {
+      this._movedEver = true;
+      if (this._ghostShown) localStorage.setItem('emberdeep-joy-ghost-v1', 'done');
+    }
+    if (!this._ghostShown) return;
+    this._ghostShown = false;
+    document.getElementById('touch-ui')?.classList.remove('ghost-active');
+    const g = this._ghost;
+    g.classList.add('fading');
+    setTimeout(() => { g.classList.add('hidden'); g.classList.remove('fading'); }, 650);
   }
 
   // Decide whether the utility drawer fans out SIDEWAYS along the bottom
@@ -287,7 +353,7 @@ export class TouchControls {
   }
 
   setVisible(v) {
-    if (!this.enabled) return;
+    if (!this.touchInput && !this.compact) return;
     document.getElementById('touch-ui').classList.toggle('hidden', !v);
     if (v) this.wake();
   }
@@ -299,7 +365,9 @@ export class TouchControls {
 
   // called from the game loop: dim the drawer after idle time
   update(dt) {
-    if (!this.enabled) return;
+    if (!this.touchInput && !this.compact) return;
+    // any real movement proves walking is understood - retire the ghost
+    if (this._ghostShown && (this.move.x || this.move.z)) this.dismissJoyGhost(true);
     if (this.fadeTimer > 0) {
       this.fadeTimer -= dt;
       if (this.fadeTimer <= 0) {

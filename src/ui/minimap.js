@@ -119,7 +119,8 @@ export class Minimap {
     const orient = this._orient;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    // panel-toned backdrop (matches --panel) instead of flat black
+    ctx.fillStyle = 'rgba(18,14,22,0.78)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.save();
@@ -148,13 +149,14 @@ export class Minimap {
     }
 
     if (this.dungeon.town) {
-      const colors = { potions: '#e05a6a', gear: '#5a8ae0', mystery: '#b45aff' };
+      // vendor markers in the game palette: blood, parchment, deep purple
+      const colors = { potions: '#b33939', gear: '#d8cbb0', mystery: '#8a5fc8' };
       for (const v of this.dungeon.vendors || []) {
-        ctx.fillStyle = colors[v.type] || '#fff';
+        ctx.fillStyle = colors[v.type] || '#d8cbb0';
         ctx.fillRect(v.x * s - 2, v.y * s - 2, s + 4, s + 4);
       }
       if (this.dungeon.portal) {
-        ctx.fillStyle = '#c77aff';
+        ctx.fillStyle = '#8a5fc8';
         ctx.beginPath();
         ctx.arc(this.dungeon.portal.x * s + s / 2, this.dungeon.portal.y * s + s / 2, 4, 0, Math.PI * 2);
         ctx.fill();
@@ -171,7 +173,10 @@ export class Minimap {
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(Math.atan2(sy, sx) + Math.PI / 2); // arrow art points up by default
-    ctx.fillStyle = '#7ce87c';
+    // gold player arrow with a dark keyline so it reads over parchment tiles
+    ctx.fillStyle = '#e8c05a';
+    ctx.strokeStyle = '#241505';
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, -6);
     ctx.lineTo(4.5, 5);
@@ -179,6 +184,7 @@ export class Minimap {
     ctx.lineTo(-4.5, 5);
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
     ctx.restore();
 
     // subtle compass "N" so rotation is legible
