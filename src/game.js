@@ -235,6 +235,7 @@ export class Game {
     this.actsCleared = 0;
     this.elitesKilled = 0;
     this.storySeen = [];
+    this.clearedFloors = {}; // { floor: true } once every enemy on that floor is slain
     this.inTown = false;
     this.inTavern = false;
     this.slotId = null;
@@ -377,6 +378,7 @@ export class Game {
     this.elitesKilled = 0;
     this.storySeen = [];
     this.vendorMemory = {}; // per-vendor { met, lastItem } for greeting-first dialogue
+    this.clearedFloors = {}; // fresh character, nothing culled yet
     this.ui.buildHotbar(this.player);
     this.enterWorld();
     this.showStory('prologue');
@@ -398,6 +400,7 @@ export class Game {
     this.actsCleared = data.actsCleared ?? (this.bossDefeated ? 5 : Math.min(4, Math.floor((this.floor - 1) / 10)));
     this.storySeen = data.storySeen || [];
     this.vendorMemory = data.vendorMemory || {};
+    this.clearedFloors = data.clearedFloors || {}; // absent on pre-feature saves
     if (this.floor === MAX_FLOOR && this.bossDefeated) this.floor = MAX_FLOOR + 1;
     this.ui.buildHotbar(this.player);
     // A mid-dungeon refresh drops you back onto the floor you were fighting on,
@@ -1210,6 +1213,30 @@ export class Game {
     return new Promise((res) => requestAnimationFrame(() => res()));
   }
 
+  // A floor's layout must be identical every time this character walks it, so
+  // a cleared floor revisits the exact halls it was cleared in. generateDungeon
+  // rolls its layout with Math.random, so for the duration of the call it is
+  // swapped for a deterministic LCG seeded from (save slot, floor). The
+  // generator is fully synchronous, so nothing else can observe the seeded
+  // Math.random; the native one is restored in finally.
+  generateDungeonSeeded(floor) {
+    const native = Math.random;
+    // FNV-1a over the slot id, then the floor number mixed in
+    let s = 2166136261 >>> 0;
+    const key = String(this.slotId || 'ember');
+    for (let i = 0; i < key.length; i++) s = Math.imul(s ^ key.charCodeAt(i), 16777619) >>> 0;
+    s = Math.imul(s ^ floor, 16777619) >>> 0;
+    Math.random = () => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
+    try {
+      return generateDungeon(floor);
+    } finally {
+      Math.random = native;
+    }
+  }
+
   // Loads a dungeon floor, driving the loading screen from the REAL stages of
   // the work (generation -> mesh build -> entities -> lighting/reflection) so
   // the bar reflects genuine progress rather than a fake timer. Async only so
@@ -1231,7 +1258,7 @@ export class Game {
     // visibility: a caller may run enterPlaying() -> ui.hideAll() synchronously
     // right after invoking this fire-and-forget load, which would otherwise hide
     // the loading screen we opened above.)
-    this.dungeon = generateDungeon(floor);
+    this.dungeon = this.generateDungeonSeeded(floor);
     this.ui.showLoading(0.3, 'Carving halls…');
     await this._yieldFrame();
 
@@ -1253,9 +1280,12 @@ export class Game {
     // (Boss floors have no return portal, so no safe zone — you must fight.)
     this.safeZone = this.dungeonMeshes.returnPortalMesh ? { x: spawn.x, z: spawn.z, r: 3.2 } : null;
 
-    // stage 3: place enemies — stats scale up with connected player count in mp
+    // stage 3: place enemies (stats scale up with connected player count in mp).
+    // A floor this character fully cleared stays cleared: nothing respawns on a
+    // revisit (chests and breakables are part of the layout and DO come back).
+    const cleared = !!this.clearedFloors[floor];
     const mpMult = 1 + 0.5 * (net.playerCount - 1);
-    for (const spec of this.dungeon.enemies) {
+    if (!cleared) for (const spec of this.dungeon.enemies) {
       const e = new Enemy(spec.type, floor > MAX_FLOOR ? floor + 2 : floor, { miniboss: spec.miniboss, elite: spec.elite });
       const w = tileToWorld(spec.x, spec.y);
       e.pos.set(w.x, 0, w.z);
@@ -1267,7 +1297,7 @@ export class Game {
     }
 
     // act boss (the final one stays dead once slain)
-    if (this.dungeon.boss && !(actOfFloor(floor) === 5 && this.bossDefeated)) {
+    if (!cleared && this.dungeon.boss && !(actOfFloor(floor) === 5 && this.bossDefeated)) {
       this.boss = new Boss(floor);
       const w = tileToWorld(this.dungeon.boss.x, this.dungeon.boss.y);
       this.boss.pos.set(w.x, 0, w.z);
@@ -1277,6 +1307,14 @@ export class Game {
       this.scene.add(this.boss.mesh);
       this.enemies.push(this.boss);
       audio.play('boss_roar', { volume: 0.9 });
+    }
+
+    // Revisited cleared arena: the lord is long dead, and boss floors have no
+    // return portal, so restore the golden act exit or the run would soft-lock.
+    // (Act 5's arena never reloads cleared: victory bumps the save past it.)
+    if (cleared && this.dungeon.boss && actOfFloor(floor) < 5) {
+      const bw = tileToWorld(this.dungeon.boss.x, this.dungeon.boss.y);
+      this.spawnActExit(bw.x, bw.z);
     }
 
     // Stairs are sealed until 70% of the floor is culled AND the elite falls.
@@ -2690,6 +2728,14 @@ export class Game {
         this.onVictory();
       }
     }
+    // Full clear: every spawn on this floor is down (boss included), so record
+    // it and never respawn the horde here again, even across exit/resume.
+    // Host authority in mp (guests only mirror); partial clears are NOT
+    // persisted, and endless floors (51+) always respawn for the infinite grind.
+    if ((!net.active || net.isHost) && !this.inTown && this.floor <= MAX_FLOOR
+        && this.enemies.every((en) => en.dead)) {
+      this.clearedFloors[this.floor] = true;
+    }
     this.requestSave();
   }
 
@@ -3002,6 +3048,7 @@ export class Game {
       elitesKilled: this.elitesKilled,
       storySeen: this.storySeen,
       vendorMemory: this.vendorMemory,
+      clearedFloors: this.clearedFloors, // { floor: true } full clears only
     });
   }
 
@@ -3349,15 +3396,22 @@ export class Game {
     }
 
     // ---- camera follow + orbit + zoom + shake ----
-    // hallway auto-rotate: while walking a 1-wide corridor, drift camYaw to the
-    // nearest quarter-turn that runs the corridor vertically on screen
+    // hallway auto-rotate: inside a 1- or 2-wide corridor, latch and complete
+    // the quarter-turn that runs the hallway vertically on screen
     this.updateCorridorYaw(dt, p);
     this.updateCameraFollow(dt);
 
     // player light follows. In town it rides at torso height so walking up to
     // a building never paints a glow blob on its ROOF (at 3.2 the light sat at
     // roof level); underground the higher carry position lights the room.
-    this.playerLight.position.set(p.pos.x, this.inTown && !this.inTavern ? 1.5 : 3.2, p.pos.z);
+    // Outdoor town is lit by the day/night sky + ambient, so the hero needs no
+    // personal point light there. Carrying one caused artifacts: high (3.2) it
+    // painted a glow blob on building ROOFS; low (1.5) it blew out a hotspot on
+    // the character's own HEAD. Disable it outdoors; keep it for the dungeon and
+    // the tavern interior where the hero genuinely carries the light.
+    const outdoorTown = this.inTown && !this.inTavern;
+    this.playerLight.visible = !outdoorTown;
+    this.playerLight.position.set(p.pos.x, 3.2, p.pos.z);
 
     // audio listener
     audio.setListener(p.pos.x, p.pos.z);
@@ -3396,29 +3450,88 @@ export class Game {
     return d;
   }
 
-  // Hallway camera auto-rotate. Reuses the minimap's corridor detection
-  // (walkable-grid sampling: walls both sides of one axis, open along the
-  // perpendicular) via corridorAlign, which already picks the nearest
-  // quarter-turn target so the rotation is minimal. Only engages while the
-  // player is actually MOVING along the corridor axis; in rooms/junctions it
-  // simply returns and the current yaw is kept, so it never fights the player.
-  // Manual rotation (Q/E, rotate buttons, twist) suspends it via _yawManualT.
-  updateCorridorYaw(dt, p) {
-    if (this.inTown || this.inTavern) return;
-    if ((this._yawManualT || 0) > 0 || this._yawEase) return;
+  // Is the tile at (tx,ty) inside a straight 1- or 2-wide passage, and along
+  // which world axis does it run? Same walkable-grid sampling idea as the
+  // minimap's corridorAlign, widened: the cross-section perpendicular to the
+  // axis must be 1 or 2 walkable tiles bounded by walls on both sides, and the
+  // whole cross-section must stay open one tile ahead AND behind along the
+  // axis. Rooms (3+ wide), junctions and ambiguous crossings return null.
+  _corridorAxisAt(tx, ty) {
     const mm = this.ui.minimap;
-    if (!mm?.dungeon || mm.dungeon !== this.dungeon) return;
-    const target = mm.corridorAlign(p, this.camYaw);
-    if (target === null) return;
-    // corridor axis from the chosen target: PI/2-family means an x-axis
-    // (grid-horizontal) corridor, 0-family means a z-axis one
-    const horiz = Math.abs(Math.sin(target)) > 0.5;
-    const speed = Math.hypot(p.moveDir.x, p.moveDir.z);
-    if (speed < 0.25) return; // standing still: leave the camera alone
-    const along = horiz ? Math.abs(p.moveDir.x) : Math.abs(p.moveDir.z);
-    if (along < speed * 0.7) return; // sidling into a wall, not walking the hall
-    // slow, frame-rate independent lerp along the shortest arc - never snaps
-    this.camYaw += this._angDiff(target, this.camYaw) * Math.min(1, 1.6 * dt);
+    if (!mm?.dungeon || mm.dungeon !== this.dungeon) return null;
+    const w = (x, y) => mm.walkable(x, y);
+    if (!w(tx, ty)) return null;
+    const runs = (horizontal) => {
+      // cross-section: perpendicular to the corridor axis through the player
+      const open = (o) => (horizontal ? w(tx, ty + o) : w(tx + o, ty));
+      let lo = 0, hi = 0;
+      while (hi - lo + 1 < 3 && open(lo - 1)) lo--;
+      while (hi - lo + 1 < 3 && open(hi + 1)) hi++;
+      if (hi - lo + 1 > 2) return false;               // 3+ wide: a room
+      if (open(lo - 1) || open(hi + 1)) return false;  // not wall-bounded
+      // the full cross-section must continue one tile each way along the axis
+      for (const d of [-1, 1]) {
+        for (let r = lo; r <= hi; r++) {
+          if (!(horizontal ? w(tx + d, ty + r) : w(tx + r, ty + d))) return false;
+        }
+      }
+      return true;
+    };
+    const h = runs(true), v = runs(false);
+    if (h && !v) return 'x'; // passage runs along world x
+    if (v && !h) return 'z'; // passage runs along world z
+    return null;
+  }
+
+  // Hallway camera auto-rotate. Entering a 1- or 2-wide straight passage
+  // LATCHES a quarter-turn: the camera commits to easing all the way to the
+  // axis-aligned yaw (hallway vertical on screen) and lands on it EXACTLY -
+  // stopping or wiggling inside the corridor never stalls it half-way. The
+  // pre-corridor yaw is remembered; backing out the same end you entered eases
+  // the camera back to that exact angle. Manual rotation (Q/E, rotate buttons,
+  // twist) kills the latch until the corridor is left. Dungeon floors only.
+  updateCorridorYaw(dt, p) {
+    if (this.inTown || this.inTavern) { this._hallway = null; return; }
+    const tx = Math.floor(p.pos.x / TILE), tz = Math.floor(p.pos.z / TILE);
+    const axis = this._corridorAxisAt(tx, tz);
+    let hw = this._hallway;
+    if (!axis) {
+      if (hw) {
+        // left the corridor. If the player backed out the end they came in
+        // from (and never took manual control inside), restore the yaw they
+        // had in that room; leaving out the far end keeps the corridor yaw.
+        const exitCoord = hw.axis === 'x' ? tx : tz;
+        if (!hw.dead && Math.abs(exitCoord - hw.entryCoord) <= 1) {
+          this._yawEase = { target: hw.entryYaw };
+        }
+        this._hallway = null;
+      }
+      return;
+    }
+    if ((this._yawManualT || 0) > 0) {
+      if (hw) hw.dead = true; // the player rotated: hands off until they leave
+      return;
+    }
+    if (!hw || hw.axis !== axis) {
+      // entering (or turning a corner into a crossing passage): pick the
+      // nearest quarter-turn that runs the hallway vertically on screen and
+      // remember where the camera was so the room can get it back
+      const base = axis === 'x' ? Math.PI / 2 : 0;
+      const target = Math.abs(this._angDiff(base + Math.PI, this.camYaw)) < Math.abs(this._angDiff(base, this.camYaw))
+        ? base + Math.PI : base;
+      hw = this._hallway = {
+        axis, target,
+        entryYaw: this.camYaw,
+        entryCoord: axis === 'x' ? tx : tz,
+      };
+      this._yawEase = null; // the latch supersedes any pending restore ease
+    }
+    if (hw.dead) return;
+    // committed ease along the shortest arc; snap the last hundredth so the
+    // hallway ends up EXACTLY vertical, never approximately
+    const d = this._angDiff(hw.target, this.camYaw);
+    if (Math.abs(d) < 0.01) { this.camYaw += d; return; }
+    this.camYaw += d * Math.min(1, 2.2 * dt);
   }
 
   // Camera follow + orbit + zoom + shake. Extracted from updatePlaying so the
@@ -3431,8 +3544,9 @@ export class Game {
     // eases along the shortest arc and retires itself on arrival
     if (this._yawEase) {
       const d = this._angDiff(this._yawEase.target, this.camYaw);
-      this.camYaw += d * Math.min(1, 3.5 * dt);
-      if (Math.abs(d) < 0.01) { this.camYaw = this._yawEase.target; this._yawEase = null; }
+      // land on the target exactly via the wrapped diff (never a 2*PI jump)
+      if (Math.abs(d) < 0.01) { this.camYaw += d; this._yawEase = null; }
+      else this.camYaw += d * Math.min(1, 3.5 * dt);
     }
     const target = p.pos;
     const zoom = this.camZoom || 1; // wheel / pinch scales the whole offset
