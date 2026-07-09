@@ -193,8 +193,9 @@ export function buildTavernInterior() {
       else { keeper.remove(c); c.geometry?.dispose?.(); }
     }
     keeper.add(barlow.mesh);
-    // Idle mixer ticked via smokePuffs each frame; Barlow faces +z already, so
-    // the head just follows the idle clip (no per-frame look-at target).
+    // Idle mixer ticked via smokePuffs each frame; with no explicit target the
+    // driver defaults to the nearest-hero glance, so Barlow's head follows a
+    // customer who walks up to the bar.
     pushNpcAnimDriver(smokePuffs, barlow, null);
   }
 
