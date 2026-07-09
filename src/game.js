@@ -3483,18 +3483,37 @@ export class Game {
     return null;
   }
 
-  // Hallway camera auto-rotate. Entering a 1- or 2-wide straight passage
-  // LATCHES a quarter-turn: the camera commits to easing all the way to the
-  // axis-aligned yaw (hallway vertical on screen) and lands on it EXACTLY -
-  // stopping or wiggling inside the corridor never stalls it half-way. The
-  // pre-corridor yaw is remembered; backing out the same end you entered eases
-  // the camera back to that exact angle. Manual rotation (Q/E, rotate buttons,
-  // twist) kills the latch until the corridor is left. Dungeon floors only.
+  // Picks which of the two axis-aligned quarter-turns (base or base+PI) puts
+  // the camera BEHIND the given travel direction, i.e. looking the same way
+  // the hero is walking (dot(cameraForward, dir) > 0), so the player sees the
+  // hero's back, never their face. Camera position is target + (sin,cos)*dist
+  // with lookAt(target), so cameraForward (camera->target) is (-sin,-cos).
+  _behindYawFor(base, dirX, dirZ) {
+    const fwdBase = { x: -Math.sin(base), z: -Math.cos(base) };
+    const dot = fwdBase.x * dirX + fwdBase.z * dirZ;
+    return dot >= 0 ? base : base + Math.PI;
+  }
+
+  // Hallway camera auto-rotate. Standing in or entering a 1- or 2-wide
+  // straight passage LATCHES a quarter-turn: the camera commits to easing all
+  // the way to the axis-aligned yaw (hallway vertical on screen) and lands on
+  // it EXACTLY - once latched, only manual rotation or leaving the corridor
+  // cancels the turn (a momentary drop of the corridor gate never half-turns
+  // it back). Of the two 180-degree-apart quarter-turns that both run the
+  // hallway vertically, the latch always picks the one that puts the camera
+  // BEHIND the hero's direction of travel (see _behindYawFor) - standing
+  // still, the direction they entered the corridor is used instead. If the
+  // player reverses and walks the other way for more than a moment, the latch
+  // re-picks the behind-view for the new direction. The pre-corridor yaw is
+  // remembered; backing out the same end you entered eases the camera back to
+  // that exact angle. Manual rotation (Q/E, rotate buttons, twist) kills the
+  // latch until the corridor is left. Dungeon floors only.
   updateCorridorYaw(dt, p) {
     if (this.inTown || this.inTavern) { this._hallway = null; return; }
     const tx = Math.floor(p.pos.x / TILE), tz = Math.floor(p.pos.z / TILE);
     const axis = this._corridorAxisAt(tx, tz);
     let hw = this._hallway;
+    const moving = !!(p.moveDir.x || p.moveDir.z);
     if (!axis) {
       if (hw) {
         // left the corridor. If the player backed out the end they came in
@@ -3512,23 +3531,51 @@ export class Game {
       if (hw) hw.dead = true; // the player rotated: hands off until they leave
       return;
     }
+    const base = axis === 'x' ? Math.PI / 2 : 0;
+    // travel direction used for the behind-view check: current movement while
+    // moving, otherwise the last direction the hero was walking (falls back
+    // to the entry direction so standing still right after entering still
+    // resolves to the correct side)
+    let dirX = p.moveDir.x, dirZ = p.moveDir.z;
+    if (moving) { hw && (hw.lastDirX = dirX, hw.lastDirZ = dirZ); }
+    else if (hw && (hw.lastDirX || hw.lastDirZ)) { dirX = hw.lastDirX; dirZ = hw.lastDirZ; }
     if (!hw || hw.axis !== axis) {
       // entering (or turning a corner into a crossing passage): pick the
-      // nearest quarter-turn that runs the hallway vertically on screen and
-      // remember where the camera was so the room can get it back
-      const base = axis === 'x' ? Math.PI / 2 : 0;
-      const target = Math.abs(this._angDiff(base + Math.PI, this.camYaw)) < Math.abs(this._angDiff(base, this.camYaw))
-        ? base + Math.PI : base;
+      // quarter-turn that puts the camera behind the hero's current heading
+      // (facingDir if standing still) and remember where the camera was so
+      // the room can get it back
+      if (!dirX && !dirZ) { dirX = p.facingDir ? p.facingDir().x : 0; dirZ = p.facingDir ? p.facingDir().z : -1; }
+      const target = this._behindYawFor(base, dirX, dirZ);
       hw = this._hallway = {
         axis, target,
         entryYaw: this.camYaw,
         entryCoord: axis === 'x' ? tx : tz,
+        lastDirX: dirX, lastDirZ: dirZ,
+        reverseT: 0,
       };
       this._yawEase = null; // the latch supersedes any pending restore ease
+    } else if (moving) {
+      // mid-corridor reversal: if the hero has been walking opposite the
+      // latched behind-direction for more than a moment, re-latch to face
+      // the new direction of travel instead of riding along facing them
+      const fwd = { x: -Math.sin(hw.target), z: -Math.cos(hw.target) };
+      const dot = fwd.x * dirX + fwd.z * dirZ;
+      if (dot < -0.3) {
+        hw.reverseT = (hw.reverseT || 0) + dt;
+        if (hw.reverseT > 0.35) {
+          hw.target = this._behindYawFor(base, dirX, dirZ);
+          hw.reverseT = 0;
+        }
+      } else {
+        hw.reverseT = 0;
+      }
     }
     if (hw.dead) return;
     // committed ease along the shortest arc; snap the last hundredth so the
-    // hallway ends up EXACTLY vertical, never approximately
+    // hallway ends up EXACTLY vertical, never approximately. Keeps easing to
+    // the latched target even if the corridor gate above returned early on a
+    // prior frame (hw persists across those drops), so movement never stalls
+    // the turn half-way.
     const d = this._angDiff(hw.target, this.camYaw);
     if (Math.abs(d) < 0.01) { this.camYaw += d; return; }
     this.camYaw += d * Math.min(1, 2.2 * dt);
