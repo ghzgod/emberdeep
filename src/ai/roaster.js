@@ -98,6 +98,47 @@ const VOICE_CAST = {
   spider: { female: true, vi: 1, pitch: 1.35, rate: 1.05, kokoro: 'af_sky', kSpeed: 1.05 },
 };
 
+// Per-boss voices + personalities. Every act lord (and the Dungeon Lord) speaks
+// through the shared golem cast by default because Boss extends Enemy('golem');
+// these give each a DISTINCT voice (pitch/rate/gender + neural id) and a small
+// personality line bank so they feel like different characters. Keyed by the
+// boss's `act` (1..5), matching ACT_BOSSES in enemies.js.
+const BOSS_CAST = {
+  1: { female: false, vi: 2, pitch: 0.4,  rate: 0.82, kokoro: 'am_michael', kSpeed: 0.85 }, // Gravewarden Malruk — grim, grave
+  2: { female: true,  vi: 2, pitch: 1.25, rate: 1.0,  kokoro: 'af_bella',   kSpeed: 1.0 },  // Broodqueen Sszarra — hissing, regal
+  3: { female: false, vi: 3, pitch: 0.7,  rate: 1.05, kokoro: 'am_adam',    kSpeed: 1.05 }, // Pyrarch Vexmal — fiery, manic
+  4: { female: false, vi: 1, pitch: 0.2,  rate: 0.7,  kokoro: 'am_onyx',    kSpeed: 0.72 }, // Obsidian Colossus — vast, slow
+  5: { female: false, vi: 4, pitch: 0.32, rate: 0.88, kokoro: 'bm_george',  kSpeed: 0.9 },  // The Dungeon Lord — cold, sovereign
+};
+
+const BOSS_LINES = {
+  1: [
+    '{name}. The grave I dug was meant for you.',
+    'My skeletons rise faster than you fall, {name}.',
+    'Kneel in the dirt where you belong.',
+  ],
+  2: [
+    'My children are already spinning your shroud, {name}.',
+    'Struggle, little fly. The web only tightens.',
+    'I have laid ten thousand eggs. You will feed but a few.',
+  ],
+  3: [
+    'BURN, {name}! Everything burns in the end!',
+    'You bring steel to my forge? How thoughtful.',
+    'Ash and cinder. That is all you will leave behind.',
+  ],
+  4: [
+    'You. Are. Nothing before the mountain, {name}.',
+    'Stone remembers. Stone does not forgive.',
+    'I have stood since before your kind crawled. I will stand after.',
+  ],
+  5: [
+    'You have come far, {name}. Far enough to die properly.',
+    'This whole dungeon is my body. You are already inside me.',
+    'Every hero before you knelt. You will simply kneel sooner.',
+  ],
+};
+
 // Vendor/NPC greeting openers, in-voice, first-meeting vs "welcome back".
 // The name is NEVER baked into these — composeVendorLine() weaves it in on a
 // random chance so it never lands at the end of the sentence.
@@ -280,7 +321,9 @@ export class Roaster {
         return;
       }
     }
-    const elite = game.enemies.find((e) => !e.dead && e.elite && e.state && e.state !== 'idle');
+    // Bosses also banter periodically (they don't carry the `elite` flag), so
+    // an act lord in a fight speaks in its own voice with its own lines.
+    const elite = game.enemies.find((e) => !e.dead && (e.elite || e.isBoss) && e.state && e.state !== 'idle');
     if (!elite) { this.timer = Math.min(this.timer, 4); return; }
     // guests just listen; the host does the talking
     if (net.active && !net.isHost) return;
@@ -297,6 +340,19 @@ export class Roaster {
       }
     }
     const target = targets[Math.floor(Math.random() * targets.length)];
+
+    // Bosses sometimes drop one of their OWN personality lines instead of the
+    // shared elite banter, so each act lord feels distinct in a fight.
+    if (elite.isBoss && BOSS_LINES[elite.act] && elite._introDone && Math.random() < 0.5) {
+      const bank = BOSS_LINES[elite.act];
+      let bl = bank[Math.floor(Math.random() * bank.length)];
+      const who = target.name || (target.cls ? String(target.cls) : 'hero');
+      bl = bl.replaceAll('{name}', who);
+      this.lastCategory = 'boss';
+      this.deliver(game, elite, bl);
+      if (net.isHost) net.send({ t: 'roast', txt: bl, ty: elite.typeId, ei: elite.netId });
+      return;
+    }
 
     let category;
     if (!elite._introDone) { category = targets.length > 1 ? 'duo' : 'intro'; elite._introDone = true; }
@@ -339,7 +395,58 @@ export class Roaster {
 
   deliver(game, elite, line) {
     game.ui.showSubtitle(elite.name || 'Elite', line, 3600);
-    this.speak(line, elite.typeId, elite.pos);
+    // Act bosses + the Dungeon Lord get their OWN voice (they all share the
+    // golem typeId otherwise). Everyone else speaks in their type cast.
+    if (elite.isBoss && BOSS_CAST[elite.act]) this.speakAs(line, BOSS_CAST[elite.act], elite.pos);
+    else this.speak(line, elite.typeId, elite.pos);
+  }
+
+  // Immediately silence a speaker (used when a talking elite/boss is killed so a
+  // dying voice cuts off at once). Cancels Web Speech and asks the neural voice
+  // to stop. Safe to call even if nothing is speaking.
+  stopSpeaking() {
+    try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch { /* */ }
+    import('./neuralVoice.js').then(({ neuralVoice }) => neuralVoice.stop?.()).catch(() => {});
+  }
+
+  // Damage-event taunt: fires when the player lands a MAJOR blow on an elite/boss
+  // (`dealt` = fraction of that enemy's max HP) or takes a major hit from one
+  // (`taken` = fraction of the player's max HP). Rate-limited so it never machine
+  // guns: at least 6s since the last line, and only some of the time. Gated by
+  // the same enabled setting as periodic chatter; host-authoritative in co-op.
+  onBigHit(game, { dealt = 0, taken = 0, enemy } = {}) {
+    if (!this.enabled || !game.player || game.inTown) return;
+    if (net.active && !net.isHost) return;
+    const now = performance.now();
+    if (now - (this._lastBigHitAt || 0) < 6000) return;
+    // Only react to genuinely big swings, and only sometimes.
+    const big = dealt >= 0.18 || taken >= 0.22;
+    if (!big || Math.random() > 0.5) return;
+    // The speaker is the involved boss/elite if given, else the nearest engaged one.
+    let sp = enemy && !enemy.dead && (enemy.elite || enemy.isBoss) ? enemy : null;
+    if (!sp) {
+      const p = game.player.pos;
+      sp = game.enemies.find((e) => !e.dead && (e.elite || e.isBoss)
+        && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) <= 12);
+    }
+    if (!sp) return;
+    this._lastBigHitAt = now;
+
+    const name = game.playerName();
+    let line;
+    if (taken >= 0.22) {
+      // the boss/elite just crunched the player
+      const bank = ['Feel THAT, {name}?', 'That is what it costs to face me, {name}.', 'Still standing? Not for long.'];
+      line = bank[Math.floor(Math.random() * bank.length)];
+    } else {
+      // the player just chunked the boss/elite: grudging or furious
+      const bank = ['A scratch, {name}. Nothing more.', 'You DARE wound me?!', 'That one stung. You will pay it back in blood.'];
+      line = bank[Math.floor(Math.random() * bank.length)];
+    }
+    line = line.replaceAll('{name}', name);
+    this.deliver(game, sp, line);
+    if (net.isHost) net.send({ t: 'roast', txt: line, ty: sp.typeId, ei: sp.netId });
+    this.timer = Math.max(this.timer, 6); // don't double up with periodic chatter
   }
 }
 

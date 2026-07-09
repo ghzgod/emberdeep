@@ -2297,6 +2297,10 @@ export class Game {
       e.knockback = { x: (dx / len) * opts.knockback, z: (dz / len) * opts.knockback };
     }
     if (e.state === 'idle') e.state = 'chase';
+    // Major-blow taunt: a big chunk out of an elite/boss provokes a reaction.
+    if (e.hp > 0 && (e.elite || e.isBoss) && e.maxHp > 0) {
+      roaster.onBigHit(this, { dealt: dmg / e.maxHp, enemy: e });
+    }
     if (e.hp <= 0) this.killEnemy(e);
   }
 
@@ -2328,7 +2332,10 @@ export class Game {
       this.setStairsRingColor(0x54e87a);
       if (net.isHost) net.send({ t: 'notice', txt: '⛓️ The seal breaks — the stairs open!' });
     }
-    audio.play(e.def.sounds.death, { pos: e.pos, volume: 0.85 });
+    // Pitch/gain-varied death scream so repeated kills of a type sound different.
+    audio.deathScream(e.def.sounds.death, { pos: e.pos, volume: 0.85 });
+    // A speaking elite/boss goes silent AT ONCE when it dies (cut in-flight TTS).
+    if (e.elite || e.miniboss || e.isBoss) roaster.stopSpeaking();
     this.particles.burst(e.pos.x, 0.8, e.pos.z, 22, e.def.color, { speed: 4, life: 0.7 });
     e.mesh.userData.detached = true; // no-ops any still-in-flight GLB swap (enemyModel.js)
     this.scene.remove(e.mesh);
@@ -2443,14 +2450,19 @@ export class Game {
   // Enemy attack landing on whichever hero was targeted (local or remote).
   hitTarget(target, dmg) {
     if (!target) return;
-    if (target.local) this.player.takeDamage(dmg, this);
-    else net.send({ t: 'ehit', dmg: Math.round(dmg) }, target.id);
+    if (target.local) {
+      this.player.takeDamage(dmg, this);
+      // A big hit on the local hero provokes a taunt from a nearby elite/boss.
+      if (!this.player.dead && this.player.maxHp > 0) roaster.onBigHit(this, { taken: dmg / this.player.maxHp });
+    } else net.send({ t: 'ehit', dmg: Math.round(dmg) }, target.id);
   }
 
   // AoE enemy attacks (golem slam) hit every hero in range.
   aoeHitPlayers(x, z, radius, dmg) {
     if (!this.player.dead && Math.hypot(this.player.pos.x - x, this.player.pos.z - z) < radius) {
       this.player.takeDamage(dmg, this);
+      // A big AoE hit on the local hero provokes a taunt from a nearby elite/boss.
+      if (!this.player.dead && this.player.maxHp > 0) roaster.onBigHit(this, { taken: dmg / this.player.maxHp });
     }
     if (net.isHost) {
       for (const [id, rp] of this.remotePlayers) {

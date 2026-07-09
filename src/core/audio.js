@@ -92,6 +92,7 @@ export class AudioEngine {
     this.listener = { x: 0, z: 0 };
     this.volumes = { master: 0.8, music: 0.6, sfx: 0.9 };
     this._lastPlay = new Map(); // throttle spammy sounds
+    this._reverbIR = null;      // lazily-built cavern impulse response (shared)
   }
 
   // Must be called after a user gesture (browser autoplay policy).
@@ -236,6 +237,35 @@ export class AudioEngine {
     sh.stop(ct + cdur + 0.02); vib.stop(ct + cdur + 0.02);
   }
 
+  // Lazily-built cavern reverb: a ConvolverNode fed a procedurally-synthesized
+  // impulse response (exponentially-decaying stereo noise, ~2s) so big moments
+  // ring out down the halls. The IR is generated in code (no asset) and cached,
+  // and the convolver itself is shared so repeated calls reuse one node. Returns
+  // the convolver, or null if the context isn't up. Reusable by any big cue;
+  // only the war cry is wired to it for now.
+  _reverb() {
+    if (!this.ctx) return null;
+    if (this._reverbNode) return this._reverbNode;
+    if (!this._reverbIR) {
+      const dur = 2.0;
+      const len = Math.floor(this.ctx.sampleRate * dur);
+      const ir = this.ctx.createBuffer(2, len, this.ctx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = ir.getChannelData(ch);
+        for (let i = 0; i < len; i++) {
+          // decaying noise: early bloom then a long exponential tail
+          const decay = Math.pow(1 - i / len, 2.4);
+          d[i] = (Math.random() * 2 - 1) * decay;
+        }
+      }
+      this._reverbIR = ir;
+    }
+    const conv = this.ctx.createConvolver();
+    conv.buffer = this._reverbIR;
+    this._reverbNode = conv;
+    return conv;
+  }
+
   // Scary battle yell for War Cry (synthesized, no asset): a shouted, distorted
   // vowel with a hard pitch drop, formant filtering so it reads as a human
   // shout rather than a tone, and layered breath/rasp noise for grit. Gendered:
@@ -261,9 +291,22 @@ export class AudioEngine {
     // Female: fierce shout (~330Hz->220Hz), sawtooth, brighter/sharper formants,
     // lighter but still gritty distortion.
     const cfg = male
-      ? { f0: 145, f1: 72, dur: 0.85, drive: 14, formants: [700, 1150, 2600], peak: 0.55, noiseHz: 1200, noiseAmt: 0.35 }
-      : { f0: 340, f1: 220, dur: 0.72, drive: 9, formants: [1000, 1700, 3200], peak: 0.5, noiseHz: 2200, noiseAmt: 0.3 };
+      ? { f0: 145, f1: 72, dur: 0.85, drive: 14, formants: [700, 1150, 2600], peak: 0.82, noiseHz: 1200, noiseAmt: 0.35 }
+      : { f0: 340, f1: 220, dur: 0.72, drive: 9, formants: [1000, 1700, 3200], peak: 0.78, noiseHz: 2200, noiseAmt: 0.3 };
     const dur = cfg.dur;
+
+    // Cavernous echo: a shared wet bus feeds the reverb convolver so the yell
+    // rings out down the halls. Both the voiced core and the breath noise below
+    // route dry (straight to out) AND wet (through this send). If the convolver
+    // fails to build we simply skip the wet path and stay dry.
+    let wet = null;
+    const conv = this._reverb();
+    if (conv) {
+      wet = this.ctx.createGain();
+      wet.gain.value = 0.85 * vol; // strong tail so it reads as a big battle yell
+      wet.connect(conv);
+      conv.connect(out);
+    }
 
     // (1) voiced shout core: sawtooth with a sharp pitch fall (roar/yell contour)
     const osc = this.ctx.createOscillator();
@@ -305,6 +348,7 @@ export class AudioEngine {
     osc.connect(shaper);
     formantGain.connect(env);
     env.connect(out);
+    if (wet) env.connect(wet);
     osc.start(t);
     osc.stop(t + dur + 0.05);
 
@@ -319,6 +363,7 @@ export class AudioEngine {
     ng.gain.exponentialRampToValueAtTime(peak * cfg.noiseAmt, t + 0.03);
     ng.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.9);
     nsrc.connect(nbp); nbp.connect(ng); ng.connect(out);
+    if (wet) ng.connect(wet);
     nsrc.start(t); nsrc.stop(t + dur + 0.05);
   }
 
@@ -418,6 +463,42 @@ export class AudioEngine {
     gain.gain.value = vol;
     src.connect(gain);
     gain.connect(this.sfxGain);
+    src.start();
+  }
+
+  // Death scream with VARIATION: plays the enemy-type death clip but pitch- and
+  // gain-shifts it per call so repeated deaths of the same type never sound
+  // identical. `type` is a manifest key like 'skeleton_death'. Picks one of a
+  // spread of perceptible pitch steps (roughly a fifth down to a third up) plus
+  // a slight gain wobble. Falls back to the plain clip if it isn't loaded.
+  // opts: { pos, volume }. Same distance attenuation as play().
+  deathScream(type, opts = {}) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const buf = this.buffers.get(`${type}#0`) || this.buffers.get(`${type}#1`);
+    if (!buf) return;
+
+    let vol = opts.volume ?? 0.85;
+    if (opts.pos) {
+      const dx = opts.pos.x - this.listener.x;
+      const dz = opts.pos.z - this.listener.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > AUDIBLE_RANGE) return;
+      vol *= Math.max(0, 1 - dist / AUDIBLE_RANGE) ** 1.5;
+    }
+    if (vol <= 0.01) return;
+
+    // 8 perceptible pitch steps so back-to-back kills read as different deaths.
+    const steps = [0.7, 0.8, 0.88, 0.95, 1.05, 1.15, 1.28, 1.42];
+    const rate = steps[Math.floor(Math.random() * steps.length)];
+    const gain = vol * (0.85 + Math.random() * 0.3);
+
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    const g = this.ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g);
+    g.connect(this.sfxGain);
     src.start();
   }
 
