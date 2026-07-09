@@ -253,9 +253,12 @@ export class Game {
   async boot() {
     SaveManager.migrate();
     // Audio decode requires a user gesture in most browsers: init lazily too.
+    // capture: true so the unlock still fires when the first tap lands on a
+    // UI button that calls stopPropagation() (touch cluster, drawer, potion) -
+    // capture listeners on window run before the target can swallow the event.
     const unlock = () => { audio.init(); audio.resume(); };
-    window.addEventListener('pointerdown', unlock, { once: true });
-    window.addEventListener('keydown', unlock, { once: true });
+    window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+    window.addEventListener('keydown', unlock, { once: true, capture: true });
 
     this.ui.setLoadingProgress(0.05, 'Waking heroes…');
     const { preloadHeroModels } = await import('./entities/heroModel.js');
@@ -1876,9 +1879,11 @@ export class Game {
         const style = r2 < 0.34 ? 'flare' : r2 < 0.67 ? 'straight' : 'slit';
         const hot = fancy;
         const robeMat = new THREE.MeshStandardMaterial({ color: m.color.clone(), metalness: 0.15, roughness: 0.55, emissive: hot ? m.color.clone() : 0x000000, emissiveIntensity: hot ? 0.16 : 0 });
-        const waistY = 0.92, hemY = 0.06 + r * 0.05; // ankle-ish
+        // Hem stops at mid-calf so the boots and feet stay visible - a floor-length
+        // hem read as a solid cylinder swallowing the wizard's legs.
+        const waistY = 0.92, hemY = 0.3 + r * 0.04;
         const topR = 0.26 + r * 0.03;
-        const botR = style === 'flare' ? topR * (1.9 + r * 0.3) : style === 'slit' ? topR * 1.5 : topR * 1.25;
+        const botR = style === 'flare' ? topR * (1.5 + r * 0.2) : style === 'slit' ? topR * 1.35 : topR * 1.15;
         const skirt = new THREE.Mesh(new THREE.CylinderGeometry(topR, botR, waistY - hemY, 12, 1, true), robeMat);
         skirt.position.set(0, (waistY + hemY) / 2, 0);
         grp.add(skirt);
@@ -3202,9 +3207,9 @@ export class Game {
     // and backs off to a standoff so the whole face plus about half the body
     // stays in frame. The look target sits a little BELOW the eyes so the eyes
     // land in the upper third of the screen (and a hat brim never hides them).
-    const EYE_Y = 1.3;         // eye height of the 1.6-unit hero; camera settles here
-    const LOOK_CLOSE_Y = 0.95; // aim between chest and eyes so eyes ride the upper third
-    const MIN_CLOSE_DIST = 2.1; // standoff at full zoom: face + half the body
+    const EYE_Y = 1.18;        // settle just BELOW the hero's eye line (under a hat brim)
+    const LOOK_CLOSE_Y = 0.8;  // aim at the chest so the whole body + feet fit in frame
+    const MIN_CLOSE_DIST = 3.6; // standoff at full zoom: full body, feet on the ground
     const lookY = 0.5 + (LOOK_CLOSE_Y - 0.5) * eyeBlend;
     const normalCamY = target.y + this.cameraOffset.y * zoom;
     const camYTarget = normalCamY + (target.y + EYE_Y - normalCamY) * eyeBlend;
