@@ -13,7 +13,13 @@ export class Input {
       if (e.code === 'Tab') e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => this.keys.clear());
+    // A missed mouseup (window blur, pointer canceled, synthetic event streams)
+    // must never leave mouse.down latched - a stuck true here makes the hero
+    // auto-attack forever with no input.
+    const clearAll = () => { this.keys.clear(); this.mouse.down = false; this.mouse.rightDown = false; };
+    window.addEventListener('blur', clearAll);
+    window.addEventListener('pointercancel', clearAll);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) clearAll(); });
 
     canvas.addEventListener('mousemove', (e) => {
       this.mouse.x = e.clientX;

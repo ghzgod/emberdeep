@@ -348,8 +348,19 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
   background: var(--panel); border: 1px solid var(--panel-border);
   font-size: 10px; line-height: 1; color: var(--parchment); pointer-events: none;
 }
+/* Shared inline SVG icon shell (icons.js). Sizes to the parent's font-size,
+   which is how .act-icon / .skill-icon / drawer buttons scale their glyphs;
+   without an explicit size the svg has no intrinsic box and renders invisible. */
+.ui-ic { width: 1em; height: 1em; display: inline-block; vertical-align: -0.12em; }
+
+/* The virtual joystick and its ghost tutorial teach a TOUCH gesture: never
+   show them on mouse-only machines, even when a narrow window runs the
+   compact layout. body.touch-input marks real touch capability (touch.js). */
+body:not(.touch-input) #joystick-base,
+body:not(.touch-input) #joy-ghost { display: none !important; }
+
 .act-icon {
-  font-size: 24px; line-height: 1; pointer-events: none;
+  font-size: 24px; line-height: 1; pointer-events: none; color: var(--parchment);
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
 }
 .act-cd {
