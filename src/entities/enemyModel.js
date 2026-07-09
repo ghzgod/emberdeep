@@ -144,7 +144,23 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
   if (group.userData.detached) return null;
 
   const scene = SINGLETON_MODEL_KEYS.has(modelKey) ? gltf.scene : skeletonClone(gltf.scene);
+  // Degenerate-scene guard: a GLB can resolve yet yield nothing renderable (no
+  // mesh, empty geometry, or a zero-size bounding box, e.g. a bad export or a
+  // clone that dropped its skinned geometry). If we cleared the box placeholder
+  // for a scene like that, the enemy would be permanently invisible. Detect it
+  // BEFORE touching the box children and bail (return null) so the caller keeps
+  // the visible box fallback + its procedural gait, exactly as for a load error.
+  let hasRenderableMesh = false;
+  scene.traverse((o) => {
+    if (!hasRenderableMesh && o.isMesh && o.geometry?.getAttribute?.('position')?.count > 0) hasRenderableMesh = true;
+  });
   const box = new THREE.Box3().setFromObject(scene);
+  const boxSize = new THREE.Vector3();
+  box.getSize(boxSize);
+  if (!hasRenderableMesh || boxSize.length() < 1e-4 || !Number.isFinite(boxSize.length())) {
+    console.warn(`Enemy model produced no renderable geometry (${file}); box fallback stays.`);
+    return null;
+  }
   const rawHeight = box.max.y - box.min.y || 1;
   const targetHeight = TARGET_HEIGHT[modelKey] || 1.4;
   const scale = targetHeight / rawHeight;

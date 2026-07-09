@@ -3196,14 +3196,21 @@ export class Game {
     // that also peeks under a hat brim. EYE_Y is the eye height of the
     // 1.6-unit hero (eyes sit a little below the head top).
     const closeIn = Math.min(1, Math.max(0, (0.6 - zoom) / 0.48)); // 0 far, 1 fully in
-    const EYE_Y = 1.3;
     const eyeBlend = closeIn * closeIn * (3 - 2 * closeIn); // smoothstep
-    // reach eye level early in the zoom-in and never frame below it
-    const lookY = 0.5 + (EYE_Y - 0.5) * Math.min(1, closeIn * 1.5);
+    // Fully zoomed in: the camera arcs DOWN from overhead to eye level (EYE_Y)
+    // and backs off to a standoff so the whole face plus about half the body
+    // stays in frame. The look target sits a little BELOW the eyes so the eyes
+    // land in the upper third of the screen (and a hat brim never hides them).
+    const EYE_Y = 1.3;         // eye height of the 1.6-unit hero; camera settles here
+    const LOOK_CLOSE_Y = 0.95; // aim between chest and eyes so eyes ride the upper third
+    const MIN_CLOSE_DIST = 2.1; // standoff at full zoom: face + half the body
+    const lookY = 0.5 + (LOOK_CLOSE_Y - 0.5) * eyeBlend;
     const normalCamY = target.y + this.cameraOffset.y * zoom;
     const camYTarget = normalCamY + (target.y + EYE_Y - normalCamY) * eyeBlend;
-    const camX = target.x + Math.sin(this.camYaw) * this.cameraOffset.z * zoom;
-    const camZ = target.z + Math.cos(this.camYaw) * this.cameraOffset.z * zoom;
+    const rawDist = this.cameraOffset.z * zoom;
+    const camDist = rawDist + Math.max(0, MIN_CLOSE_DIST - rawDist) * eyeBlend;
+    const camX = target.x + Math.sin(this.camYaw) * camDist;
+    const camZ = target.z + Math.cos(this.camYaw) * camDist;
     this.camera.position.x += (camX - this.camera.position.x) * Math.min(1, 8 * dt);
     this.camera.position.y += (camYTarget - this.camera.position.y) * Math.min(1, 8 * dt);
     this.camera.position.z += (camZ - this.camera.position.z) * Math.min(1, 8 * dt);
