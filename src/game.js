@@ -2631,7 +2631,11 @@ export class Game {
       this.particles.burst(b.x, 0.45, b.z, 12, col, { speed: 3.5, life: 0.5, size: 0.12, up: 1 });
       this.addWallMark(b.x, b.z, { color: 0x1c150e, size: 0.42, opacity: 0.3 });
       audio.play('chest_open', { pos: { x: b.x, z: b.z }, volume: 0.45, rate: 1.35 });
+      // Modest break-loot: mostly a little gold, sometimes a potion, rarely a
+      // common item — barrels/crates are minor clutter, not chests.
       if (Math.random() < 0.4) this.loot.dropGold(b.x, b.z, 2 + Math.floor(Math.random() * 6));
+      if (Math.random() < 0.10) this.loot.dropPotion(b.x + 0.4, b.z);
+      if (Math.random() < 0.05) this.loot.dropGear(b.x - 0.4, b.z, generateGear(this.floor, 'common', this.player.classId));
       list.splice(i, 1);
     }
   }
