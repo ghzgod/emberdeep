@@ -44,6 +44,10 @@ const ROMAN = [null, 'I', 'II', 'III', 'IV', 'V'];
 const MAGE_ROBE_COLLAR = { r: 0.16, y: 0.92 + 0.42, z: 0.02 };
 
 export class Game {
+  // Town day/night cycle: one full day + one full night takes DAY_NIGHT_PERIOD
+  // seconds, so day is ~1 hour and night is ~1 hour (7200s total). Tunable here.
+  static DAY_NIGHT_PERIOD = 7200;
+
   constructor() {
     this.canvas = document.getElementById('game-canvas');
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
@@ -110,7 +114,16 @@ export class Game {
     this.scene.add(this.ambient);
     this.playerLight = new THREE.PointLight(0xffd8a0, 40, 14, 1.8);
     this.scene.add(this.playerLight);
+    // Town "sun": a directional light only used during the town day/night cycle
+    // (off in the dungeon, which is torch-lit). Driven by updateDayNight().
+    this.sunLight = new THREE.DirectionalLight(0xffe0b0, 0.0);
+    this.sunLight.position.set(20, 40, 12);
+    this.sunLight.visible = false;
+    this.scene.add(this.sunLight);
     this.torchLights = [];
+    // Continuous town clock (seconds). Time-of-day is derived from it so the
+    // cycle is smooth and continuous; it does not need to survive reload.
+    this.townClock = Math.random() * Game.DAY_NIGHT_PERIOD;
 
     this.input = new Input(this.canvas);
     const savedSettings = SaveManager.loadSettings();
@@ -1050,7 +1063,81 @@ export class Game {
     }
   }
 
-  loadFloor(floor) {
+  // Real-time day/night cycle, TOWN ONLY (the dungeon has its own torch
+  // lighting and the tavern its own hearth mood, so both are skipped). Advances
+  // a continuous clock and lerps sun/ambient colour+intensity, sky background +
+  // fog tint, and turns the town lamp/window glows (dungeonMeshes.townGlows) +
+  // the pooled lamp lights on at night, off/dim by day. Smoothly fades between
+  // phases so dusk/dawn read as gradual transitions, not switches.
+  updateDayNight(dt) {
+    if (!this.inTown || this.inTavern || !this.dungeonMeshes) {
+      if (this.sunLight.visible) this.sunLight.visible = false;
+      return;
+    }
+    this.sunLight.visible = true;
+    this.townClock += dt;
+    const period = Game.DAY_NIGHT_PERIOD;
+    // phase 0..1 over one full day+night. day = 0..0.5, night = 0.5..1.
+    const phase = (this.townClock % period) / period;
+    // `dayAmt` 1 at high noon, 0 at deep night, with smooth dusk/dawn ramps.
+    // cosine over the phase gives a natural sunrise/sunset easing.
+    const dayAmt = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2 + Math.PI);
+    const nightAmt = 1 - dayAmt;
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    // --- sky background + fog tint: warm slate-blue day -> deep indigo night ---
+    const dayBg = { r: 0x5a / 255, g: 0x74 / 255, b: 0x9c / 255 };
+    const nightBg = { r: 0x0e / 255, g: 0x12 / 255, b: 0x24 / 255 };
+    const bgR = lerp(nightBg.r, dayBg.r, dayAmt);
+    const bgG = lerp(nightBg.g, dayBg.g, dayAmt);
+    const bgB = lerp(nightBg.b, dayBg.b, dayAmt);
+    this.scene.background.setRGB(bgR, bgG, bgB);
+    if (this.scene.fog) {
+      this.scene.fog.color.setRGB(bgR, bgG, bgB);
+      this.scene.fog.near = lerp(20, 24, dayAmt);
+      this.scene.fog.far = lerp(46, 58, dayAmt);
+    }
+
+    // --- sun (directional): bright warm white by day, near-off cool at night ---
+    this.sunLight.color.setRGB(
+      lerp(0.36, 1.0, dayAmt), lerp(0.42, 0.88, dayAmt), lerp(0.62, 0.70, dayAmt));
+    this.sunLight.intensity = lerp(0.05, 1.35, dayAmt);
+
+    // --- ambient/hemisphere fill: cool moonlight at night, soft daylight by day ---
+    this.ambient.color.setRGB(
+      lerp(0.30, 0.66, dayAmt), lerp(0.34, 0.70, dayAmt), lerp(0.52, 0.82, dayAmt));
+    this.ambient.intensity = lerp(0.42, 0.9, dayAmt);
+
+    // --- lamp/window glows: on at night, dim/off by day ---
+    for (const g of this.dungeonMeshes.townGlows) {
+      if (g.kind === 'basic') {
+        // basic (unlit) material: scale its colour toward black by day
+        g.mesh.material.color.copy(g.base).multiplyScalar(lerp(0.12, 1.0, nightAmt));
+      } else if (g.kind === 'emissive') {
+        g.mesh.material.emissiveIntensity = lerp(0.05, g.nightEmissive, nightAmt);
+      } else if (g.kind === 'light') {
+        g.light.intensity = lerp(0.0, g.nightIntensity, nightAmt);
+      }
+    }
+    // pooled lamp-post lights (from setupTorchLights) fade with night too
+    this._townLampNight = nightAmt;
+  }
+
+  // Yields to the browser so the loading-screen progress bar actually paints
+  // between the heavy synchronous stages of loadFloor below.
+  _yieldFrame() {
+    return new Promise((res) => requestAnimationFrame(() => res()));
+  }
+
+  // Loads a dungeon floor, driving the loading screen from the REAL stages of
+  // the work (generation -> mesh build -> entities -> lighting/reflection) so
+  // the bar reflects genuine progress rather than a fake timer. Async only so
+  // the bar can paint between stages; callers fire-and-forget it.
+  async loadFloor(floor) {
+    this._loading = true;
+    this.ui.showLoading(0.04, 'Shaping the depths…');
+    await this._yieldFrame();
+
     this.teardownFloor();
     this.inTown = false;
     this.inTavern = false;
@@ -1058,9 +1145,20 @@ export class Game {
     this._floorLoadedAt = performance.now(); // for anti-cheat clear-speed checks
     this.floor = floor;
     const theme = themeForFloor(floor);
+
+    // stage 1: dungeon layout generation. (showLoading re-asserts the overlay's
+    // visibility: a caller may run enterPlaying() -> ui.hideAll() synchronously
+    // right after invoking this fire-and-forget load, which would otherwise hide
+    // the loading screen we opened above.)
     this.dungeon = generateDungeon(floor);
+    this.ui.showLoading(0.3, 'Carving halls…');
+    await this._yieldFrame();
+
+    // stage 2: build the floor meshes (walls/props/lighting geometry)
     this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme, floor);
     this.scene.add(this.dungeonMeshes.group);
+    this.ui.showLoading(0.6, 'Raising the stone…');
+    await this._yieldFrame();
 
     // grid copy for door state
     this.openedDoors = new Set();
@@ -1074,7 +1172,7 @@ export class Game {
     // (Boss floors have no return portal, so no safe zone — you must fight.)
     this.safeZone = this.dungeonMeshes.returnPortalMesh ? { x: spawn.x, z: spawn.z, r: 3.2 } : null;
 
-    // enemies — stats scale up with connected player count in multiplayer
+    // stage 3: place enemies — stats scale up with connected player count in mp
     const mpMult = 1 + 0.5 * (net.playerCount - 1);
     for (const spec of this.dungeon.enemies) {
       const e = new Enemy(spec.type, floor > MAX_FLOOR ? floor + 2 : floor, { miniboss: spec.miniboss, elite: spec.elite });
@@ -1105,9 +1203,13 @@ export class Game {
     this.floorKills = 0;
     this._stairsWasLocked = this.stairsLocked();
     this._sealNoticeT = 0;
-    // Sealed hatch reads as a dim, locked square glow; open reads bright green.
-    this.setStairsRingColor(this._stairsWasLocked ? 0x3a3a44 : 0x54e87a);
+    // Sealed hatch pools a dim greyish-gold light on the floor; once the stairs
+    // unlock it glows bright, enticing gold to draw the eye to the exit.
+    this.setStairsGlow(this._stairsWasLocked);
 
+    // stage 4: lighting, minimap, environment reflection
+    this.ui.showLoading(0.85, 'Lighting the torches…');
+    await this._yieldFrame();
     this.setupTorchLights(theme);
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner(this.floorBannerTitle(), theme.name, true);
@@ -1120,6 +1222,11 @@ export class Game {
     this.refreshEnvironmentReflection();
 
     if (net.isHost) this.broadcastWorld();
+
+    // floor ready + player placed: drop the loading screen.
+    this.ui.setLoadingProgress(1, 'Ready');
+    this.ui.hideLoading();
+    this._loading = false;
 
     // act-opening lore card, once per save
     if (floor <= MAX_FLOOR && actFloorOf(floor) === 1) {
@@ -2329,7 +2436,7 @@ export class Game {
       audio.play('level_up', { volume: 0.4, rate: 1.3 });
       this.ui.floaters.spawn(this.player.pos, '⛓️ The seal breaks — the stairs open!', 'crit');
       this.ui.showFloorBanner('The stairs have opened', 'The way below is unsealed', true);
-      this.setStairsRingColor(0x54e87a);
+      this.setStairsGlow(false);
       if (net.isHost) net.send({ t: 'notice', txt: '⛓️ The seal breaks — the stairs open!' });
     }
     // Pitch/gain-varied death scream so repeated kills of a type sound different.
@@ -2810,6 +2917,11 @@ export class Game {
   }
 
   updatePlaying(dt) {
+    // While a floor/act is loading (loadFloor yields across a few frames so its
+    // progress bar can paint), the world is half-built — dungeon/meshes/enemies
+    // are being torn down and replaced. Skip all world simulation for those
+    // frames and just render, so nothing runs against a partial state.
+    if (this._loading) { this.renderer.render(this.scene, this.camera); this.input.endFrame(); return; }
     const p = this.player;
     const input = this.input;
 
@@ -2958,6 +3070,7 @@ export class Game {
     this.updateWallMarks(dt);
     this.updateImpactFlashes(dt);
     this.updateTownInteractions(dt);
+    this.updateDayNight(dt);
     this.updateTorches(dt);
     roaster.update(dt, this);
     if (net.active) {
@@ -3162,6 +3275,9 @@ export class Game {
       const target = (this.inTown || !this.stairsLocked()) ? -Math.PI * 0.66 : 0;
       lid.rotation.x += (target - lid.rotation.x) * Math.min(1, dt * 4);
     }
+    // advance the gold light-puddle shimmer
+    const puddle = sm.children.find((ch) => ch.userData?.hatchPuddle);
+    if (puddle) puddle.userData.hatchPuddleUpdate(dt);
   }
 
   // Portal: dungeon-floor exit back to Embervale (checkpoint kept).
@@ -3238,9 +3354,13 @@ export class Game {
     this.ui.floaters.spawn(this.player.pos, `⛔ Cheating detected — ${reason}`, 'player-dmg');
   }
 
-  setStairsRingColor(hex) {
-    const ring = this.dungeonMeshes?.stairsMesh?.children.find((ch) => ch.userData?.stairsRing);
-    if (ring) ring.children.forEach((bar) => bar.material.color.setHex(hex));
+  // Gold light-puddle on the floor around the descend hatch: greyish and dim
+  // while the floor is sealed, bright enticing gold once the stairs unlock.
+  setStairsGlow(sealed) {
+    const puddle = this.dungeonMeshes?.stairsMesh?.children.find((ch) => ch.userData?.hatchPuddle);
+    if (!puddle) return;
+    puddle.userData.setHatchColor(sealed ? 0x6a6250 : 0xf0b83a);
+    puddle.userData.setHatchBright(sealed ? 0.22 : 1);
   }
 
   // Pit holes: fall through to the next floor (solo) — it hurts.
@@ -3662,8 +3782,11 @@ export class Game {
     }
     // flicker — layered sines (not a random strobe) for a believable flame
     const now = performance.now() / 1000;
+    // In town the lamp-post lights follow the day/night cycle: full at night,
+    // near-off by day. In the dungeon they always burn (nightScale stays 1).
+    const nightScale = this.inTown && !this.inTavern ? (this._townLampNight ?? 1) : 1;
     this.torchLights.forEach((l, i) => {
-      l.intensity = 14 + Math.sin(now * 9 + i * 1.7) * 2.4 + Math.sin(now * 23 + i * 3.1) * 1.4;
+      l.intensity = (14 + Math.sin(now * 9 + i * 1.7) * 2.4 + Math.sin(now * 23 + i * 3.1) * 1.4) * nightScale;
       // tiny positional jitter (around the assigned torch base) so shadows shiver
       if (l.visible && l._bx !== undefined) {
         l.position.x = l._bx + Math.sin(now * 17 + i) * 0.04;

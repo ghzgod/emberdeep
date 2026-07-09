@@ -91,6 +91,16 @@ export class UI {
     if (text) $('loading-text').textContent = text;
   }
 
+  // Show the loading screen over the game (act travel / floor load). Reuses the
+  // boot loading-screen element + bar, so progress here shares the same styling.
+  showLoading(frac = 0, text = 'Loading…') {
+    this.setLoadingProgress(frac, text);
+    this.screens.loading.classList.add('visible');
+  }
+  hideLoading() {
+    this.screens.loading.classList.remove('visible');
+  }
+
   showTitle() {
     this.show('title');
     this.showHud(false);

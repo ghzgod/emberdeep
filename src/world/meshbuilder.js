@@ -26,6 +26,77 @@ const cobwebTexture = () => (_cobwebTex ||= makeCobwebTexture());
 let _glowTex = null;
 const glowTexture = () => (_glowTex ||= makeGlowTexture());
 
+// Builds the gold light-puddle decal that pools on the floor around a descend
+// hatch. It is a flat additive disc whose fragment shader carves an irregular,
+// soft-edged blob out of a radial glow, with a slow shimmer. The blob shape,
+// size and rotation are all derived from `seed` so each hatch's pool is unique.
+// game.js drives uColor + uBright each frame (dim greyish-gold while sealed,
+// bright gold once the stairs unlock); userData.hatchPuddleUpdate advances the
+// shimmer. Returns a Mesh laid flat on the floor plane.
+const HATCH_PUDDLE_VERT = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const HATCH_PUDDLE_FRAG = `
+  varying vec2 vUv;
+  uniform float uTime;
+  uniform float uBright;   // 0 sealed-dim .. 1 unlocked-bright
+  uniform vec3 uColor;
+  uniform float uSeed;
+  void main() {
+    // radial coords from the disc centre
+    vec2 p = vUv * 2.0 - 1.0;
+    float r = length(p);
+    float ang = atan(p.y, p.x);
+    // irregular blob edge: a few sine lobes (seeded phases/freqs) wobble the
+    // radius so the pool is a soft splatter, not a clean circle.
+    float wob =
+      sin(ang * 3.0 + uSeed * 6.28) * 0.14 +
+      sin(ang * 5.0 - uSeed * 3.14 + 1.7) * 0.09 +
+      sin(ang * 2.0 + uSeed * 12.9 + 0.5) * 0.11;
+    float edge = 0.62 + wob;
+    // slow shimmer breathing the whole pool
+    float shimmer = 0.86 + 0.14 * sin(uTime * 1.3 + uSeed * 20.0);
+    // soft radial falloff, feathered right at the wobbly edge
+    float glow = smoothstep(edge, edge - 0.55, r);
+    glow *= glow;                       // tighten the core, feather the rim
+    float a = glow * shimmer * (0.28 + uBright * 0.72);
+    gl_FragColor = vec4(uColor * (0.6 + uBright * 0.9), a);
+  }
+`;
+function buildHatchPuddle(seed) {
+  const uniforms = {
+    uTime: { value: (seed % 100) * 0.1 },
+    uBright: { value: 0.25 },
+    uColor: { value: new THREE.Color(0xd8a83a) },
+    uSeed: { value: (seed % 1000) / 1000 },
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: HATCH_PUDDLE_VERT,
+    fragmentShader: HATCH_PUDDLE_FRAG,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  // seeded footprint: a slightly non-square, rotated plane so the blob's own
+  // asymmetry reads differently per hatch. Sized to spill a bit past the tile.
+  const rr = (n) => ((Math.sin(seed * 12.9898 + n * 78.233) * 43758.5453) % 1 + 1) % 1;
+  const size = 3.2 + rr(1) * 1.4;
+  const geo = new THREE.PlaneGeometry(size * (0.9 + rr(2) * 0.25), size * (0.9 + rr(3) * 0.25));
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI / 2;      // lay flat on the floor
+  mesh.rotation.z = rr(4) * Math.PI * 2; // seeded rotation
+  mesh.userData.hatchPuddle = true;
+  mesh.userData.hatchPuddleUpdate = (dt) => { uniforms.uTime.value += dt; };
+  mesh.userData.setHatchBright = (b) => { uniforms.uBright.value = b; };
+  mesh.userData.setHatchColor = (hex) => { uniforms.uColor.value.setHex(hex); };
+  return mesh;
+}
+
 export const TILE = 2;          // world units per grid tile
 export const WALL_HEIGHT = 3;
 
@@ -281,7 +352,11 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
 
   // --- Town: trees, plants, well, tavern ---
   const smokePuffs = [];
-  if (town) buildTownDecor(group, dungeon, smokePuffs);
+  // Emissive/glow meshes that the town day/night cycle drives (lamp glass,
+  // tavern windows, vendor lanterns): each entry records its base colour +
+  // night emissive strength so game.js can fade it on at night, off by day.
+  const townGlows = [];
+  if (town) buildTownDecor(group, dungeon, smokePuffs, townGlows);
 
   // --- Doors ---
   const doorMeshes = new Map();
@@ -314,6 +389,8 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       glass.position.set(w.x, 2.16, w.z);
       group.add(post, cap, glass);
       torchPositions.push({ x: w.x, y: 2.2, z: w.z, flame: glass });
+      // lamp glass glows at night, near-dark by day (basic material, so tint it)
+      townGlows.push({ mesh: glass, base: new THREE.Color(0xffc978), kind: 'basic' });
     }
   } else {
     const sconceGeo = new THREE.CylinderGeometry(0.05, 0.08, 0.5, 6);
@@ -530,6 +607,9 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       lantern.add(lanternBody, lanternLight);
       lantern.position.set(0.72, 1.85, 0.4);
       stall.add(lantern);
+      // vendor lantern glows at night: fade its emissive + its little light
+      townGlows.push({ mesh: lanternBody, kind: 'emissive', nightEmissive: 0.9 });
+      townGlows.push({ light: lanternLight, kind: 'light', nightIntensity: 11 });
 
       // wares on the counter
       let ware;
@@ -722,19 +802,16 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
     lidPivot.add(lid);
     stairsMesh.add(lidPivot);
 
-    // Square glowing ring outlining the hatch: four thin bars, dim when sealed.
-    const ringMat = new THREE.MeshBasicMaterial({ color: theme.accent });
-    const barLong = new THREE.BoxGeometry(HATCH + 0.16, 0.06, 0.08);
-    const barSide = new THREE.BoxGeometry(0.08, 0.06, HATCH + 0.16);
-    const ring = new THREE.Group();
-    ring.userData.stairsRing = true;
-    const north = new THREE.Mesh(barLong, ringMat); north.position.set(0, 0, -half - 0.04);
-    const south = new THREE.Mesh(barLong, ringMat); south.position.set(0, 0, half + 0.04);
-    const west = new THREE.Mesh(barSide, ringMat); west.position.set(-half - 0.04, 0, 0);
-    const east = new THREE.Mesh(barSide, ringMat); east.position.set(half + 0.04, 0, 0);
-    ring.add(north, south, west, east);
-    ring.position.y = 0.14;
-    stairsMesh.add(ring);
+    // Glowing GOLD light puddle pooled on the floor around the hatch: an
+    // irregular, soft-edged radial glow (additive) that reads as enticing gold
+    // light spilling from the exit, drawing the eye there. Randomised per hatch
+    // via a seed derived from the stairs tile so every floor's pool has its own
+    // blob shape / size / rotation. game.js drives its colour + brightness
+    // (dim greyish-gold while sealed, bright gold once the stairs unlock).
+    const puddleSeed = (dungeon.stairs.x * 73856093) ^ (dungeon.stairs.y * 19349663) ^ (floor * 83492791);
+    const puddle = buildHatchPuddle(puddleSeed);
+    puddle.position.y = 0.03; // just above the floor plane, flat
+    stairsMesh.add(puddle);
 
     stairsMesh.position.set(w.x, 0, w.z);
     group.add(stairsMesh);
@@ -801,11 +878,11 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   // --- World beyond the town walls: forest ring, horizon, a wandering critter ---
   if (town) buildTownSurroundings(group, dungeon, smokePuffs);
 
-  return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh, smokePuffs, breakables };
+  return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh, smokePuffs, breakables, townGlows };
 }
 
 // ---------------- Embervale decor ----------------
-function buildTownDecor(group, dungeon, smokePuffs) {
+function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 1 });
   const greens = [0x3f6b34, 0x4a7a3c, 0x57883f, 0x35592c];
 
@@ -1093,6 +1170,9 @@ function buildTownDecor(group, dungeon, smokePuffs) {
     sideWin.position.set(-sideFace - 0.01, 1.32, 0);
     sideWin.rotation.y = -Math.PI / 2;
     tavern.add(sideWin);
+    // both tavern windows share one basic material: warm glow at night, dim by
+    // day. Register the shared material once (via the front window mesh).
+    townGlows.push({ mesh: win, base: new THREE.Color(0xffb45e), kind: 'basic' });
     // door frame + door + step
     const frameMat = timber;
     const frameTop = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.14), frameMat);
