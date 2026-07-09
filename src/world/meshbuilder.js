@@ -2,6 +2,104 @@ import * as THREE from 'three';
 import { FLOOR, WALL, DOOR, PIT, BRIDGE, RUBBLE, CHASM } from './dungeon.js';
 import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture, makeBannerTexture, makeGlowTexture, makeRuneTexture, floorRng, jitterAccentHue } from './textures.js';
 import { buildPortal } from './portal.js';
+import { buildAnimatedHero } from '../entities/heroModel.js';
+
+// ---------------- Modeled human NPCs ----------------
+// Town/tavern NPCs (vendors, barkeep, patrons, Fenwick) are drawn with the
+// same KayKit adventurer GLBs the heroes use, via heroModel.buildAnimatedHero:
+// the models are loaded-once + SkeletonUtils.clone-per-instance and each gets
+// its own idle-playing AnimationMixer (heroModel plays the idle clip on
+// build). We pick a class body per NPC so each reads as a distinct person and
+// pass the hero gender/skinTone cosmetic hooks to match the NPC's voice.
+//
+// buildAnimatedHero returns null when the GLB isn't loaded (or the class has
+// no model), so every caller keeps its original primitive box-build as a
+// fallback and no NPC is ever left invisible.
+
+// The KayKit rigs stand ~1.6 world units tall (heroModel's TARGET_HEIGHT). The
+// old box NPCs were a touch shorter/stockier; a small down-scale seats the
+// modeled townsfolk at a friendly, non-heroic height beside the player.
+const NPC_SCALE = 0.92;
+
+// Wrap buildAnimatedHero for a stationary, idling townsperson that can glance
+// at the player. Returns { mesh, mixer, headBone, restQuat, tick(dt),
+// lookAt(x,z) } or null so the caller can fall back to its box build. `opts`
+// forwards { gender, skinTone } to the hero cosmetic system so the body's
+// apparent gender matches the NPC's voice.
+export function buildNpcModel(classId, name, opts = {}) {
+  const hero = buildAnimatedHero(classId, name || 'Townsfolk', opts);
+  if (!hero) return null;
+  const mesh = hero.mesh;
+  mesh.scale.multiplyScalar(NPC_SCALE);
+  // Find the rig's head bone once so we can nudge it toward the player. Every
+  // KayKit adventurer rig names it "head" (verified against the GLBs), same as
+  // the enemy rigs, so one case-insensitive lookup covers all three classes.
+  let headBone = null;
+  mesh.traverse((o) => { if (!headBone && /^head$/i.test(o.name)) headBone = o; });
+  const restQuat = headBone ? headBone.quaternion.clone() : null;
+
+  return {
+    mesh,
+    mixer: hero.mixer,
+    headBone,
+    restQuat,
+    _t: Math.random() * 10,
+    // Advance the idle animation. Call every frame the NPC is on screen.
+    tick(dt) { this.mixer.update(dt); },
+    // Cheap eyes-on-you: slerp the head bone a little toward a world point,
+    // composed on top of the idle clip (same approach as enemyModel's
+    // lookAtTarget - a subtle tracking nudge, never a hard snap). Restores
+    // toward the rest pose when no target is given so the head doesn't stick.
+    lookAt(worldX, worldZ, maxAngle = 0.55) {
+      const bone = this.headBone;
+      if (!bone || !this.restQuat) return;
+      if (worldX == null) { bone.quaternion.slerp(this.restQuat, 0.2); return; }
+      bone.updateWorldMatrix(true, false);
+      const hp = new THREE.Vector3().setFromMatrixPosition(bone.matrixWorld);
+      const to = new THREE.Vector3(worldX - hp.x, 0, worldZ - hp.z);
+      if (to.lengthSq() < 1e-4) return;
+      to.normalize();
+      const parent = bone.parent;
+      parent.updateWorldMatrix(true, false);
+      const parentInv = new THREE.Quaternion().setFromRotationMatrix(parent.matrixWorld).invert();
+      const worldLook = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), to);
+      const localLook = parentInv.multiply(worldLook);
+      const angle = bone.quaternion.angleTo(localLook);
+      if (angle > maxAngle * 2.2) { bone.quaternion.slerp(this.restQuat, 0.2); return; }
+      bone.quaternion.slerp(localLook, Math.min(1, (maxAngle / Math.max(angle, 0.001)) * 0.3));
+    },
+  };
+}
+
+// Register an NPC anim controller so its mixer advances every frame WITHOUT
+// touching game.js: game.js iterates dungeonMeshes.smokePuffs each frame and,
+// for every entry, evaluates `puff.phase = (puff.phase||0) + dt*(puff.speed)`
+// before dispatching on `puff.kind`. We expose `phase` as an accessor: the
+// assignment hands us the new phase, from which (knowing speed) we recover dt
+// and drive mixer.update + the look-at. `kind:'firefly'` then makes game.js's
+// loop hit an early `continue` after only writing position.y on our throwaway
+// dummy Object3D (never added to any scene), so nothing else is disturbed.
+// `getTarget()` returns [x,z] to glance at (the player) or null to relax.
+export function pushNpcAnimDriver(smokePuffs, npc, getTarget) {
+  if (!smokePuffs) return;
+  const SPEED = 1;
+  const driver = {
+    kind: 'firefly',
+    mesh: new THREE.Object3D(), // dummy: firefly branch only sets its position.y
+    baseY: 0,
+    speed: SPEED,
+    _phase: 0,
+    get phase() { return this._phase; },
+    set phase(v) {
+      const dt = Math.min(0.1, Math.max(0, (v - this._phase) / SPEED));
+      this._phase = v;
+      npc.tick(dt);
+      const t = getTarget ? getTarget() : null;
+      if (t) npc.lookAt(t[0], t[1]); else npc.lookAt(null);
+    },
+  };
+  smokePuffs.push(driver);
+}
 
 // Built once per theme (cheap; avoids regenerating the canvas per banner prop).
 const _bannerTexCache = new Map();
@@ -596,6 +694,40 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
         const orbLight = new THREE.PointLight(0xb884ff, 6, 3, 2); orbLight.position.copy(orb.position); keeper.add(orbLight);
         smokePuffs.push({ mesh: orb, baseY: orb.position.y, phase: Math.random() * Math.PI * 2, speed: 0.8 + Math.random() * 0.3, kind: 'firefly' });
       }
+      // --- Modeled human shopkeeper (preferred) ---
+      // Swap the procedural box keeper's VISUALS for a KayKit adventurer model
+      // matched to the vendor's voice/character: Maribel a robed mage-body
+      // (female), Torvald a burly knight-body smith (male), Zoltan a
+      // hooded rogue-body seer (male). The `keeper` Group stays the transform
+      // anchor updateVendors drives (position/rotation), so the swap changes
+      // only the look. If the GLB isn't loaded, buildNpcModel returns null and
+      // the box keeper built above stays visible as the fallback.
+      const VENDOR_NPC = {
+        potions: { cls: 'mage', gender: 'female', skin: 'fair', name: v.name || 'Maribel' },
+        gear: { cls: 'knight', gender: 'male', skin: 'tan', name: v.name || 'Torvald' },
+        mystery: { cls: 'ranger', gender: 'male', skin: 'deep', name: v.name || 'Zoltan' },
+      };
+      const vcfg = VENDOR_NPC[v.type] || VENDOR_NPC.gear;
+      const npc = buildNpcModel(vcfg.cls, vcfg.name, { gender: vcfg.gender, skinTone: vcfg.skin });
+      if (npc) {
+        // clear the box shopkeeper's own body meshes, but KEEP the atmospheric
+        // extras (Zoltan's floating orb + its point light) on the keeper at
+        // their original transform so the seer still has his glowing orb.
+        for (let i = keeper.children.length - 1; i >= 0; i--) {
+          const c = keeper.children[i];
+          if (c.isPointLight || c.material?.transparent) continue; // orb + orb light
+          keeper.remove(c); c.geometry?.dispose?.();
+        }
+        // model feet sit at the keeper's local origin (ground), same as the
+        // box keeper stood; the counter (0.8 tall) is in front of it.
+        keeper.add(npc.mesh);
+        // Drive the model's idle mixer every frame through the smokePuffs tick
+        // (no game.js changes). updateVendors already yaws the whole keeper to
+        // face a nearby player, so the head just follows the idle clip (no
+        // per-frame look-at target needed here).
+        pushNpcAnimDriver(smokePuffs, npc, null);
+      }
+
       keeper.position.z = -0.62;
       stall.add(keeper);
 

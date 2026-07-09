@@ -45,7 +45,7 @@ const MODEL_FILES = {
 const TARGET_HEIGHT = {
   skeleton: 1.3, spider: 0.55, imp: 1.3, golem: 1.75, ghost: 1.4,
   ghoul: 1.15, witch: 1.55, warlock: 1.55, demon: 1.75,
-  boss: 2.4, bossAct1: 2.4, bossAct2: 1.0, bossAct3: 2.4, bossAct4: 2.6, bossAct5: 2.4,
+  boss: 2.4, bossAct1: 2.4, bossAct2: 1.0, bossAct3: 2.4, bossAct4: 2.6, bossAct5: 3.6,
 };
 
 function bossModelKeyForAct(act) {
@@ -183,6 +183,17 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
   // bone literally named "head"/"Head" (verified against every GLB used
   // here), so a single case-insensitive lookup covers all of them for the
   // look-at-player tracking below, no per-family special-casing needed.
+  //
+  // EXCEPT the Dungeon Lord dragon (bossAct5): its head bone's rest
+  // orientation and parent-space axes don't match the shared assumption the
+  // yaw-only lookAt below is built on (its local forward isn't +Z, and the
+  // 100x-scaled Armature root noted above further skews the parent world
+  // matrix), so converting a pure-yaw world quaternion into that bone's parent
+  // space yields a wildly off-axis local target and the head twists/clips as
+  // it moves. The dragon already faces the player via the whole group's
+  // rotation.y (Enemy.update), so per-frame head tracking buys nothing for it:
+  // skip look-at entirely for this rig, keep it for every other creature.
+  const allowLookAt = !SINGLETON_MODEL_KEYS.has(modelKey);
   let headBone = null;
   scene.traverse((o) => {
     if (o.isMesh) {
@@ -264,6 +275,7 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
     mixer,
     actions,
     headBone,
+    allowLookAt,
     current: 'idle',
     _attackT: 0,
     _lookQuat: headBone ? new THREE.Quaternion() : null,
@@ -310,7 +322,7 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
     // for near/aggroed enemies, never the whole floor at once.
     lookAtTarget(worldX, worldY, worldZ, maxAngle = 0.5) {
       const bone = this.headBone;
-      if (!bone) return;
+      if (!bone || !this.allowLookAt) return;
       bone.updateWorldMatrix(true, false);
       const headWorldPos = new THREE.Vector3().setFromMatrixPosition(bone.matrixWorld);
       const toTarget = new THREE.Vector3(worldX - headWorldPos.x, 0, worldZ - headWorldPos.z);

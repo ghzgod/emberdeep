@@ -98,6 +98,16 @@ class NeuralVoice {
     this._idleTimer = null;   // disposes the model after IDLE_RELEASE_MS of silence
     this._released = false;   // true when we freed the model and must lazily reload
     this._loadOpts = null;    // remembers device/dtype so a lazy reload is exact + silent
+
+    // A backgrounded tab still holds the resident WebGPU/WASM Kokoro session (and
+    // its ~90 MB of weights) hot until the idle timer fires. Free it immediately
+    // when the tab is hidden so it stops drawing GPU/power while the player is
+    // away; it lazily reloads (cached weights, no re-download) on the next line.
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) this._releaseIdle();
+      });
+    }
   }
 
   get ready() { return this.status === 'ready'; }
@@ -184,6 +194,13 @@ class NeuralVoice {
           this._loadOpts = { device: opt.device, dtype: opt.dtype };
           this._released = false;
           this._set('ready');
+          // Arm the idle-release countdown from the moment the model is resident.
+          // Previously this was only armed inside speak(), so a model that loaded
+          // at boot but was never spoken with (e.g. the player sits at the title
+          // or plays with barks off) kept its WebGPU/WASM session hot forever,
+          // driving idle GPU. Now an unused model frees itself after the idle
+          // window and lazily reloads on the first line.
+          this._armIdleRelease();
           return true;
         } catch (err) {
           lastErr = err;

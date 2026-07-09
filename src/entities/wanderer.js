@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FLOOR } from '../world/dungeon.js';
-import { TILE, tileToWorld } from '../world/meshbuilder.js';
+import { TILE, tileToWorld, buildNpcModel } from '../world/meshbuilder.js';
 import { roaster } from '../ai/roaster.js';
 import { ACT_BOSSES } from './enemies.js';
 
@@ -19,7 +19,13 @@ export class Wanderer {
     this.target = null;
     this.idle = 2;
     this.speakCooldown = 4;
-    this.mesh = buildFenwick();
+    // Old Fenwick is drawn with a KayKit mage-body model (his voice, am_fenrir,
+    // is male; a robed mage reads as a wandering wizard). Built via the shared
+    // load-once-cache + clone + idle-mixer helper; his own update() ticks the
+    // mixer and turns his head toward the hero. If the GLB isn't loaded the box
+    // buildFenwick() below stays as the fallback so he is never invisible.
+    this.npc = buildNpcModel('mage', 'Old Fenwick', { gender: 'male', skinTone: 'fair' });
+    this.mesh = this.npc ? this.npc.mesh : buildFenwick();
     // start near the notice board if it exists, else mid-green
     const start = dungeon.noticeBoard || { x: 9, y: 12 };
     const w = tileToWorld(start.x + 1, start.y + 1);
@@ -45,6 +51,9 @@ export class Wanderer {
     this.speakCooldown = Math.max(0, this.speakCooldown - dt);
     const p = game.player;
     const dToPlayer = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
+
+    // advance the modeled rig's idle animation (no-op for the box fallback)
+    if (this.npc) this.npc.tick(dt);
 
     if (dToPlayer < 3) {
       // stop and face the hero — he only speaks when spoken to (interact prompt)
@@ -72,6 +81,14 @@ export class Wanderer {
       this.mesh.position.copy(this.pos);
       // gentle hobble
       this.mesh.position.y = Math.abs(Math.sin(performance.now() / 240)) * 0.04;
+    }
+
+    // Eyes-on-you: when the hero is close, nudge Fenwick's head toward them so
+    // the mad prophet tracks the player; relax to rest otherwise. Composes on
+    // top of the idle clip (see buildNpcModel.lookAt).
+    if (this.npc) {
+      if (dToPlayer < 7) this.npc.lookAt(p.pos.x, p.pos.z);
+      else this.npc.lookAt(null);
     }
   }
 
