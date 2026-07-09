@@ -552,6 +552,25 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       // ease it back to neutral once the swing ends so it never fights the walk.
       const targetTilt = attacking ? (this._swingTilt || 0) : 0;
       this.mesh.rotation.x += (targetTilt - this.mesh.rotation.x) * Math.min(1, 12 * dt);
+      // Wide swing body sweep: the torso winds back then drives through the cut
+      // and recovers, so the sword tip travels a broad arc. Applied additively on
+      // top of the facing yaw (player.js sets rotation.y from visualAngle just
+      // before this runs, so re-basing it each frame is fine). Only for knight
+      // variant swings; other classes never set _swingSweepActive.
+      if (this._swingSweepActive) {
+        this._swingSweepT = (this._swingSweepT || 0) + dt;
+        const dur = 0.26;
+        const p = Math.min(1, this._swingSweepT / dur);
+        let off;
+        if (p < 0.22) off = -0.42 * (p / 0.22);                       // cock back
+        else if (p < 0.68) off = -0.42 + 1.12 * ((p - 0.22) / 0.46);  // drive through
+        else off = 0.7 * (1 - (p - 0.68) / 0.32);                     // recover to 0
+        this._swingSweepOffset = off * this._swingSweepMag * this._swingSweepDir;
+        if (p >= 1) { this._swingSweepActive = false; this._swingSweepOffset = 0; }
+      } else if (this._swingSweepOffset) {
+        this._swingSweepOffset += (0 - this._swingSweepOffset) * Math.min(1, 14 * dt);
+      }
+      if (this._swingSweepOffset) this.mesh.rotation.y += this._swingSweepOffset;
     },
     // `variant` picks one of the knight's combo clips (see KNIGHT_COMBO_PATTERNS)
     // for a varied swing; omit it (abilities, other classes) to play the
@@ -570,9 +589,10 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
     // clip read as a slightly different range of motion.
     playAttack(variant) {
       let a = this.actions.attack;
+      let key = null;
       if (variant) {
-        const pool = Object.values(this.attackCombo);
-        if (pool.length) a = pool[Math.floor(Math.random() * pool.length)];
+        const keys = Object.keys(this.attackCombo);
+        if (keys.length) { key = keys[Math.floor(Math.random() * keys.length)]; a = this.attackCombo[key]; }
       }
       if (!a) return;
       for (const other of Object.values(this.attackCombo)) {
@@ -591,6 +611,16 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       // eases rotation.x back). Only for the randomized (knight) swings.
       if (variant) {
         this._swingTilt = (Math.random() - 0.5) * 0.14;
+        // Wide body sweep: the torso rotates through the cut so the blade visibly
+        // carves a broad arc (matching the wide hit arc in classes.js). Big for
+        // the horizontal cleaves, small for the overhead chop and forward stab.
+        // Direction alternates so consecutive cleaves sweep opposite ways.
+        const mag = key === 'chop' ? 0.3 : key === 'stab' ? 0.22 : 1.0;
+        this._swingSweepDir = (key === 'slice_diagonal') ? -1
+          : (this._swingAlt = !this._swingAlt) ? 1 : -1;
+        this._swingSweepMag = mag;
+        this._swingSweepT = 0;
+        this._swingSweepActive = true;
       }
     },
     // Whirlwind pose: freeze the attack clip near mid-swing, where the sword
