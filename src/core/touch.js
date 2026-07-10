@@ -178,7 +178,10 @@ export class TouchControls {
       this.joyKnob.style.transform = 'translate(-50%,-50%)';
       this._advanceTut?.('move');
       this.dismissJoyGhost(true);
-    } else if (this._aimId === null) {
+    } else if (this._aimId === null && !this.gestureLock) {
+      // gestureLock: two idle-joystick fingers are a twist/pinch gesture, so
+      // the second thumb must not start an attack (set/cleared in game.js's
+      // touchstart/touchend gesture tracking).
       this._aimId = e.pointerId;
       this.attacking = true;
       this.game.input.mouse.x = e.clientX;

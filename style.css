@@ -1545,6 +1545,9 @@ body.touch-mode {
   #touch-inv   { right: 81px;  bottom: 104px; } /* next to potion, old rotate-right spot */
   #touch-mic   { right: 110px; bottom: 66px; }
   #touch-pause { right: 104px; bottom: 19px; }  /* kept nearest the left/bottom, as before */
+  /* mic hidden (single player / mic off): close the arc gap - settings slides
+     up into the mic slot so the three visible bubbles stay contiguous */
+  body.mic-hidden #touch-pause { right: 110px; bottom: 66px; }
 }
 
 /* First-time 3-step contextual tutorial (Embervale, first touch visit only):
@@ -1746,6 +1749,7 @@ body.touch-mode #chat-title { font-size: 11px; }
   body.touch-mode #touch-inv   { right: 82px; bottom: 97px; }
   body.touch-mode #touch-mic   { right: 104px; bottom: 63px; }
   body.touch-mode #touch-pause { right: 99px; bottom: 24px; }
+  body.mic-hidden.touch-mode #touch-pause { right: 104px; bottom: 63px; }
   body.touch-mode .act-basic .act-icon { font-size: 26px; }
   body.touch-mode .act-icon { font-size: 20px; }
 }
