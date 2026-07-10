@@ -277,7 +277,10 @@ export class TouchControls {
   }
 
   setVisible(v) {
-    if (!this.touchInput && !this.compact) return;
+    // Desktop shows #touch-ui too now - it carries the shared utility bubbles
+    // (inventory/mic/settings); CSS hides the touch-only pieces (joystick,
+    // ghost, tutorial) on non-compact layouts. The idle fade in update() stays
+    // touch-only, so desktop bubbles never dim.
     document.getElementById('touch-ui').classList.toggle('hidden', !v);
     if (v) this.wake();
   }
