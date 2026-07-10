@@ -182,31 +182,50 @@ export function skinToneById(id) {
   return SKIN_TONES.find((t) => t.id === id) || null;
 }
 
+// Player-chosen hair colors for character creation. Same 8x8 atlas grid as
+// SKIN_TONES above; the hair tile (see tintAtlasTile's col:1/row:0 below) gets
+// the same treatment. A null/missing id means "leave the rig's own baked hair
+// alone" (old saves, peers who haven't picked one yet).
+export const HAIR_TONES = [
+  { id: 'black', label: 'Black', hex: 0x1b1712 },
+  { id: 'darkbrown', label: 'Dark Brown', hex: 0x3b2a1a },
+  { id: 'chestnut', label: 'Chestnut', hex: 0x6b3d22 },
+  { id: 'auburn', label: 'Auburn', hex: 0x8a3220 },
+  { id: 'blonde', label: 'Blonde', hex: 0xd8b26a },
+  { id: 'platinum', label: 'Platinum', hex: 0xe8e2d0 },
+  { id: 'grey', label: 'Grey', hex: 0xb0aca4 },
+  { id: 'blue', label: 'Blue', hex: 0x3a6ea8 },
+];
+
+export function hairToneById(id) {
+  return HAIR_TONES.find((t) => t.id === id) || null;
+}
+
 // All three KayKit rigs share one texture atlas laid out as an 8-column palette
-// grid, and the top-left tile (UV x:[0,0.125) y:[0.875,1)) is always the skin
-// swatch (head + hands sample only that tile; everything else lives in other
-// tiles). So to recolor ONLY the skin, we clone the shared texture, repaint
-// just that one tile to the chosen tone, and hand the clone back as a fresh
-// material map. Cloth/armor tiles are untouched, so a dark-skinned hero still
-// wears the same bright tunic. Returns a new THREE.Texture or null if the
-// source image is not yet decoded.
-function makeSkinTintedTexture(srcTex, hex) {
-  const img = srcTex.image;
+// grid. The top-left tile (UV x:[0,0.125) y:[0.875,1)) is the skin swatch (head
+// + hands sample only that tile) and the tile immediately to its right (col 1,
+// same row) is the hair swatch (verified in wanderer.js's makeWhiteHairTexture).
+// Recoloring either tile clones the shared texture onto a canvas, repaints just
+// that one cell to the chosen tone (preserving the tile's baked light-to-dark
+// shading via luminance), and hands the clone back as a fresh material map -
+// every other tile (cloth/armor/etc.) is untouched. `srcTex` may itself already
+// be a previously-tinted CanvasTexture (e.g. skin tint applied first, then hair)
+// so chained calls extend the same canvas lineage instead of re-deriving from
+// scratch twice. Returns a new THREE.Texture or null if the source image isn't
+// decoded yet.
+function tintAtlasTile(srcTex, col, row, hex) {
+  const img = srcTex && srcTex.image;
   if (!img || !img.width) return null;
   const w = img.width, h = img.height;
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0, w, h);
-  // Skin tile: top-left cell of the 8x8 grid. Image space y grows downward, so
-  // UV y:[0.875,1] is the TOP row of pixels.
   const tw = Math.ceil(w / 8), th = Math.ceil(h / 8);
-  const data = ctx.getImageData(0, 0, tw, th);
+  const tx = col * tw, ty = row * th;
+  const data = ctx.getImageData(tx, ty, tw, th);
   const px = data.data;
   const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255;
-  // Preserve the tile's baked shading (its light-to-dark gradient) by using each
-  // source pixel's luminance to modulate the target tone, so the recolored skin
-  // keeps its form instead of going flat.
   for (let i = 0; i < px.length; i += 4) {
     const lum = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) / 255;
     const shade = 0.55 + lum * 0.6; // keep some floor so deep tones don't crush to black
@@ -214,7 +233,7 @@ function makeSkinTintedTexture(srcTex, hex) {
     px[i + 1] = Math.min(255, g * shade);
     px[i + 2] = Math.min(255, b * shade);
   }
-  ctx.putImageData(data, 0, 0);
+  ctx.putImageData(data, tx, ty);
   const tex = new THREE.CanvasTexture(canvas);
   tex.flipY = srcTex.flipY;
   tex.colorSpace = srcTex.colorSpace;
@@ -224,16 +243,17 @@ function makeSkinTintedTexture(srcTex, hex) {
   return tex;
 }
 
-// Repaint the skin tile on every mesh that uses the model's shared atlas
-// material. One tinted texture is built once and shared across the hero's
-// meshes (cloned material per mesh so it never bleeds to other characters).
+// Repaint the skin tile (grid cell 0,0) on every mesh that uses the model's
+// shared atlas material. One tinted texture is built once and shared across
+// the hero's meshes (cloned material per mesh so it never bleeds to other
+// characters).
 function applySkinTone(mesh, hex) {
   let tinted = null, srcMat = null;
   mesh.traverse((o) => {
     if (!o.isMesh || !o.material || !o.material.map) return;
     if (!srcMat) {
       srcMat = o.material;
-      tinted = makeSkinTintedTexture(srcMat.map, hex);
+      tinted = tintAtlasTile(srcMat.map, 0, 0, hex);
     }
     if (!tinted) return;
     o.material = o.material.clone();
@@ -242,7 +262,30 @@ function applySkinTone(mesh, hex) {
   });
 }
 
-function applyCosmetics(mesh, name, skinToneHex = null) {
+// Repaint the hair tile (grid cell 1,0) on every mesh that uses the model's
+// shared atlas material - this is the same tile the head mesh's hair/ponytail
+// geometry samples (including the female mage's baked-in ponytail, which lives
+// on the same Head mesh/material as the rest of the hair), so one recolor
+// covers both. If a mesh's map is already a tinted CanvasTexture (skin tone
+// applied earlier in applyCosmetics), that becomes the source here, so the
+// hair tint layers onto the same canvas lineage rather than starting a second,
+// unrelated copy of the atlas.
+export function applyHairColor(mesh, hex) {
+  let tinted = null, srcMat = null;
+  mesh.traverse((o) => {
+    if (!o.isMesh || !o.material || !o.material.map) return;
+    if (!srcMat) {
+      srcMat = o.material;
+      tinted = tintAtlasTile(srcMat.map, 1, 0, hex);
+    }
+    if (!tinted) return;
+    o.material = o.material.clone();
+    o.material.map = tinted;
+    o.material.needsUpdate = true;
+  });
+}
+
+function applyCosmetics(mesh, name, skinToneHex = null, hairColorHex = null) {
   const rng = mulberry32(hashSeed(name || 'Hero'));
   let headMesh = null, capeMesh = null, trimMesh = null;
   // Base outfit: a name-seeded shirt (torso) and pants (legs) colour so a
@@ -288,6 +331,13 @@ function applyCosmetics(mesh, name, skinToneHex = null) {
   } else if (headMesh && rng() < 0.6) {
     headMesh.material = headMesh.material.clone();
     jitterColor(headMesh.material, rng, 0.08);
+  }
+  // A player-chosen hair color (character creation), same "explicit choice wins,
+  // null falls back to the rig's own baked hair" pattern as skin tone above.
+  // Applied after skin tone so it extends that same tinted canvas lineage
+  // (see tintAtlasTile) rather than starting a second copy of the atlas.
+  if (hairColorHex != null) {
+    applyHairColor(mesh, hairColorHex);
   }
 }
 
@@ -530,15 +580,19 @@ const KNIGHT_COMBO_PATTERNS = {
 // `name` seeds the small deterministic cosmetic variations (see applyCosmetics
 // above) so the same hero name always looks the same, for the local player
 // and for every peer who sees them in co-op. `opts` carries the character's
-// creation choices: { gender: 'male'|'female', skinTone: <SKIN_TONES id> }.
-// Skin tone is the clearly visible one (repaints the head/hands); gender is a
-// subtle silhouette hint only (the base rigs have no gendered geometry).
+// creation choices: { gender: 'male'|'female', skinTone: <SKIN_TONES id>,
+// hairColor: <HAIR_TONES id> }. Skin tone and hair color are the clearly
+// visible ones (repaint the head/hands and hair tile respectively); gender is
+// a subtle silhouette hint only (the base rigs have no gendered geometry).
+// hairColor defaults to null (no opts.hairColor / unrecognized id), which
+// keeps the rig's own baked hair untouched.
 export function buildAnimatedHero(classId, name = '', opts = {}) {
   const data = loaded.get(classId);
   if (!data) return null;
 
   const gender = opts.gender === 'female' ? 'female' : 'male';
   const skinTone = skinToneById(opts.skinTone);
+  const hairTone = hairToneById(opts.hairColor);
 
   const mesh = skeletonClone(data.scene);
   mesh.scale.setScalar(data.scale);
@@ -679,7 +733,7 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       r: Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2,
     };
   }
-  applyCosmetics(mesh, name, skinTone ? skinTone.hex : null);
+  applyCosmetics(mesh, name, skinTone ? skinTone.hex : null, hairTone ? hairTone.hex : null);
 
   // fake blob shadow
   const shadow = new THREE.Mesh(
