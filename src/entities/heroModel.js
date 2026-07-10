@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // KayKit Adventurers (CC0) animated hero models with per-class animation maps.
 const MODEL_FILES = {
@@ -41,6 +42,87 @@ const _AXIS_X = new THREE.Vector3(1, 0, 0);
 const _AXIS_Y = new THREE.Vector3(0, 1, 0);
 
 const loaded = new Map(); // classId -> { scene, animations, scale }
+
+// Mage authored hood (TODO 93 rewire): a real KayKit-authored static mesh
+// (extracted from the rogue's hooded head, see public/models/mage_hood.glb),
+// loaded once here and cloned per mage instance in buildAnimatedHero below -
+// same one-load-many-clone pattern as MODEL_FILES above, just for a single
+// accessory mesh instead of a whole rig. Populated by preloadHeroModels; stays
+// null (and the mage falls back to the baked pointy hat only) if the file is
+// ever missing, same fail-open behavior as a missing class model.
+let mageHoodMesh = null;
+// The rogue head-local space (Rig-local bind-pose coordinates, exactly the
+// same space buildAnimatedHero measures mesh.userData.headAnchor in below) that
+// the hood mesh above was authored/baked against, verified by a prior research
+// pass against the ORIGINAL Rogue_Hooded.glb head anchor. Every mage instance
+// has a different real headAnchor (own head size/position), so the hood is
+// rescaled+repositioned from this fixed source anchor to each instance's own
+// target anchor at build time (see the mageHoodMesh clone block below).
+const MAGE_HOOD_SOURCE_ANCHOR = { top: 1.8809, cx: 0, cz: 0.075, r: 0.549 };
+
+// Known crown-seam artifact (TODO 93 verification): the extracted hood mesh
+// has two small (7-vertex) genuine holes - not just an unwelded-vertex crack,
+// mergeVertices alone did not close them - punched through its back/crown
+// surface, mirrored left/right of centre. Turntable screenshots at the
+// gameplay zoom (see verification notes) showed these as a small dark notch
+// at the very top of the crown from behind. Boundary-edge analysis of the
+// authored mesh (public/models/mage_hood.glb, fixed static geometry, verified
+// once) found the exact loops below; patchMageHoodCrownSeam fans a small
+// triangle patch across each one so the surface reads as continuous.
+const MAGE_HOOD_CROWN_HOLE_LOOP = [
+  [0.0000, 2.0232, -0.5165],
+  [0.0000, 2.0085, -0.4389],
+  [-0.0000, 1.9874, -0.4052],
+  [-0.1798, 2.0721, -0.3219],
+  [-0.1370, 2.0690, -0.3948],
+  [-0.0486, 2.0477, -0.5136],
+  [0.0000, 2.0290, -0.5675],
+];
+
+function patchMageHoodCrownSeam(geo) {
+  const posAttr = geo.attributes.position;
+  const oldVertCount = posAttr.count;
+  const newPositions = [];
+  const newIndices = [];
+  let next = oldVertCount;
+  for (const mirror of [1, -1]) {
+    const loop = MAGE_HOOD_CROWN_HOLE_LOOP.map(([x, y, z]) => [x * mirror, y, z]);
+    const c = loop.reduce((s, p) => [s[0] + p[0], s[1] + p[1], s[2] + p[2]], [0, 0, 0]).map((s) => s / loop.length);
+    const centerIdx = next; newPositions.push(...c); next++;
+    const loopStart = next;
+    for (const p of loop) { newPositions.push(...p); next++; }
+    for (let i = 0; i < loop.length; i++) {
+      const a = loopStart + i;
+      const b = loopStart + ((i + 1) % loop.length);
+      // Winding matches the boundary walk direction (verified against the
+      // authored mesh) so the patch's outward normal agrees with the
+      // surrounding surface once normals are recomputed below.
+      newIndices.push(centerIdx, b, a);
+    }
+  }
+  const mergedPositions = new Float32Array(posAttr.array.length + newPositions.length);
+  mergedPositions.set(posAttr.array, 0);
+  mergedPositions.set(newPositions, posAttr.array.length);
+  const newVertCount = mergedPositions.length / 3;
+  const oldIndex = geo.index.array;
+  const IdxCtor = newVertCount > 65535 ? Uint32Array : Uint16Array;
+  const mergedIndex = new IdxCtor(oldIndex.length + newIndices.length);
+  mergedIndex.set(oldIndex, 0);
+  mergedIndex.set(newIndices, oldIndex.length);
+  const patched = new THREE.BufferGeometry();
+  patched.setAttribute('position', new THREE.BufferAttribute(mergedPositions, 3));
+  patched.setIndex(new THREE.BufferAttribute(mergedIndex, 1));
+  const oldUv = geo.attributes.uv;
+  if (oldUv) {
+    // The new patch verts get uv (0,0) - fine, the material is a flat rarity
+    // colour with no texture map, so uv is unused for this mesh.
+    const mergedUv = new Float32Array(oldUv.array.length + (newVertCount - oldVertCount) * 2);
+    mergedUv.set(oldUv.array, 0);
+    patched.setAttribute('uv', new THREE.BufferAttribute(mergedUv, 2));
+  }
+  patched.computeVertexNormals();
+  return patched;
+}
 
 // Roughly how much of a held weapon's length (measured outward from the
 // hand-bone pivot, which is this mesh's local origin) belongs to the
@@ -121,6 +203,33 @@ export async function preloadHeroModels(onProgress) {
     done++;
     if (onProgress) onProgress(done / entries.length);
   }));
+  // Mage authored hood mesh (see mageHoodMesh above) - loaded alongside the
+  // class rigs so it is ready before any buildAnimatedHero('mage', ...) call.
+  // Failure here just leaves mageHoodMesh null; the mage still gets its
+  // baked pointy-hat fallback (see updateHeroGear in game.js), never a blank
+  // headgear slot.
+  try {
+    const hoodGltf = await loader.loadAsync(import.meta.env.BASE_URL + 'models/mage_hood.glb');
+    let found = null;
+    hoodGltf.scene.traverse((o) => { if (!found && o.isMesh) found = o; });
+    if (found) {
+      // Known crown-seam artifact (TODO 93 verification note): the extracted
+      // mesh has a few coincident-but-unwelded vertices along its back/crown
+      // seam (a leftover of however it was cut from the rogue's original
+      // hooded head), which shows as a tiny dark notch punched through the
+      // crown at some viewing angles. mergeVertices welds any coincident but
+      // unshared positions back into one vertex (harmless general cleanup),
+      // but the actual notch turned out to be two genuine small holes (not
+      // just an unwelded seam) - patchMageHoodCrownSeam fans a small patch
+      // across each one (see its own comment above). Both run once here
+      // since every mage instance below clones this same fixed geometry.
+      found.geometry = mergeVertices(found.geometry, 1e-3);
+      found.geometry = patchMageHoodCrownSeam(found.geometry);
+    }
+    mageHoodMesh = found;
+  } catch (err) {
+    console.warn('Mage hood asset failed to load; the mage will keep its baked pointy hat.', err);
+  }
 }
 
 export function hasHeroModel(classId) {
@@ -1087,6 +1196,38 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       cz: (bb.min.z + bb.max.z) / 2,
       r: Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2,
     };
+  }
+  // Mage authored hood (TODO 93 rewire): a real cloned+refit instance of the
+  // rogue's authored hood mesh (mageHoodMesh, loaded once in
+  // preloadHeroModels), rescaled/repositioned from the fixed source anchor it
+  // was baked in (MAGE_HOOD_SOURCE_ANCHOR) onto THIS mage instance's own real
+  // headAnchor above, so it fits every mage body/face-shape combination
+  // without re-baking per instance. Built here (once per hero instance,
+  // alongside every other baked accessory) rather than in game.js so it can
+  // be parented under headMesh.parent - the SAME space headAnchor itself was
+  // measured in - matching how the baked hat/hood accessories above are
+  // positioned. Hidden by default; updateHeroGear (game.js) shows it (and
+  // hides the baked pointy hat) only when a hood-named helmet is worn with a
+  // chest robe, exactly mirroring the old procedural hood's own gating.
+  if (classId === 'mage' && mageHoodMesh && headMesh && mesh.userData.headAnchor) {
+    const anchor = mesh.userData.headAnchor;
+    const scale = anchor.r / MAGE_HOOD_SOURCE_ANCHOR.r;
+    const hoodMesh = mageHoodMesh.clone();
+    hoodMesh.material = mageHoodMesh.material.clone(); // per-instance tint (see updateHeroGear)
+    hoodMesh.castShadow = false; hoodMesh.receiveShadow = false; hoodMesh.frustumCulled = false;
+    // Shift the hood's own baked-in coordinates so the SOURCE anchor point
+    // (the rogue head position it was authored around) lands at this group's
+    // local origin - the group's own scale/position below then re-seats that
+    // origin onto the mage's real head, in one uniform transform.
+    hoodMesh.position.set(-MAGE_HOOD_SOURCE_ANCHOR.cx, -MAGE_HOOD_SOURCE_ANCHOR.top, -MAGE_HOOD_SOURCE_ANCHOR.cz);
+    const hoodGroup = new THREE.Group();
+    hoodGroup.add(hoodMesh);
+    hoodGroup.scale.setScalar(scale);
+    hoodGroup.position.set(anchor.cx, anchor.top, anchor.cz);
+    hoodGroup.visible = false; // shown by updateHeroGear only for hood-named helmet + robe
+    headMesh.parent.add(hoodGroup);
+    mesh.userData.mageHood = hoodGroup;
+    mesh.userData.mageHoodMesh = hoodMesh;
   }
   const useAtlasTones = ATLAS_COSMETICS_CLASSES.has(classId);
   // Face shape (TODO 97): scale the HEAD MESH NODE only, after headAnchor is

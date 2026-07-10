@@ -2154,64 +2154,51 @@ export class Game {
         // dome), and a draped back POINT hanging past the collar toward the
         // shoulders (see the isHoodStyle block below).
         const isHoodStyle = !!(anchor && equipped.chest && /hood|visage|coif/i.test(it.name));
-        if (isHoodStyle) {
+        // Hood style DISABLED (TODO 671): the procedural THREE-piece
+        // LatheGeometry cowl that used to live here is retired. TODO 93
+        // reopened because it still read as "a turban" from the gameplay
+        // camera angle - a procedural silhouette, however carefully profiled,
+        // is not the same as a real authored cowl. It is replaced by
+        // mesh.userData.mageHood: a REAL authored KayKit mesh (extracted from
+        // the rogue's own hooded head, see heroModel.js's mageHoodMesh /
+        // MAGE_HOOD_SOURCE_ANCHOR) already built, refit to this exact hero
+        // instance's head, and parented in place at hero-build time - this
+        // block now only shows/hides/tints it, it builds nothing.
+        const mageHood = mesh.userData.mageHood;
+        if (isHoodStyle && mageHood) {
           hat.visible = false; // baked pointy-hat mesh stays hidden for this style
+          mageHood.visible = true;
           // Two-tone: the hood tints from the HELMET item's own rarity colour
           // while the robe (built in the equipped.chest/mage block below)
           // keeps its own tint from the chest item - a real hooded-robe often
           // uses a contrast lining, not the exact same dye lot as the robe.
+          // The authored hood is ONE flat material slot, so this is a single
+          // colour/emissive set rather than the old multi-piece material.
           const hoodColor = RARITIES[it.rarity]?.color ?? 0x8a8a8a;
           const hoodHot = it.rarity === 'legendary' || it.rarity === 'epic';
-          const hoodMat = new THREE.MeshStandardMaterial({ color: hoodColor, metalness: 0.05, roughness: 0.85, emissive: hoodHot ? hoodColor : 0x000000, emissiveIntensity: it.rarity === 'legendary' ? 0.28 : it.rarity === 'epic' ? 0.16 : 0, side: THREE.DoubleSide });
-          const topY = anchor.top + 0.05; // small peak above the crown
-          const domeR = Math.max(0.22, anchor.r) * 1.15; // hood enclosure radius, a modest margin over the real head
-          // A first attempt built this from a full-360-degree crown CAP plus
-          // a separately phi-gapped WALL below it. That failed: the cap's
-          // thetaLength reached down far enough to still be rotationally
-          // symmetric AT the face's height, so it covered the front too (at
-          // every longitude, including the face) before the gapped wall ever
-          // got a chance to show anything through - screenshots confirmed it
-          // still read as a fully enclosing dome/brim, not an open hood.
-          // This version is instead ONE continuous LatheGeometry: a single 2D
-          // side-profile (crown peak -> puffy top -> widest point near the
-          // brow/ear -> narrowing past the jaw -> flare at the collar -> a
-          // point hanging past it) revolved with the SAME phi gap applied at
-          // every height. Because the gap is baked into the one revolved
-          // surface rather than stacked on top of a separate full-360 piece,
-          // there is no height at which the front can accidentally seal shut
-          // - the face is open from brow to chin, the shell has real
-          // thickness/depth (you see its own concave inside through the
-          // gap, not a flat cutout), and the profile's own tail flows
-          // straight into a draped point past the shared MAGE_ROBE_COLLAR
-          // seam, so the hem meets the robe collar with no separate ring.
-          const wallBotR = Math.max(MAGE_ROBE_COLLAR.r * 1.25, domeR * 0.7); // flare at the collar seam
-          const drapeLen = 0.22 + r * 0.12; // how far the back point hangs past the collar
-          const profile = [
-            new THREE.Vector2(0.015, topY + 0.03), // pointed peak tip, just above the crown
-            new THREE.Vector2(domeR * 0.55, topY), // shoulder of the peak
-            new THREE.Vector2(domeR * 0.95, topY - domeR * 0.55), // puffy crown
-            new THREE.Vector2(domeR, topY - domeR * 0.95), // widest point, roughly brow/ear height
-            new THREE.Vector2(domeR * 0.82, topY - domeR * 1.45), // narrows in around the jaw
-            new THREE.Vector2(wallBotR, MAGE_ROBE_COLLAR.y + 0.04), // flares out toward the collar
-            new THREE.Vector2(wallBotR * 0.95, MAGE_ROBE_COLLAR.y), // the collar seam itself
-            new THREE.Vector2(0.02, MAGE_ROBE_COLLAR.y - drapeLen), // draped back point, hanging past the collar
-          ];
-          const faceGap = 0.85; // half-angle (rad) of the face opening each side of +z, held at every height
-          // LatheGeometry's own phi convention is x = r*sin(phi), z = r*cos(phi)
-          // - phi=0 sits at +z (the rig's facing), NOT pi/2 like Sphere/Cylinder
-          // geometry's theta/phi. phiStart=faceGap (not pi/2+faceGap) is what
-          // actually centers the open gap on the front; getting this backwards
-          // once already put the gap on the SIDE of the head instead, leaving
-          // the front solid and looking exactly like an enclosing ball again.
-          const hoodGeo = new THREE.LatheGeometry(profile, 16, faceGap, Math.PI * 2 - faceGap * 2);
-          const hood = new THREE.Mesh(hoodGeo, hoodMat);
-          hood.position.set(anchor.cx, 0, anchor.cz + MAGE_ROBE_COLLAR.z * 0.5);
-          grp.add(hood);
-          // sway target: the whole hood, reusing the hat's single sway slot
-          // (see the shared sway.hat assignment and animateGearSway) so it
-          // still moves gently in the idle breeze.
-          sway.hat = { obj: hood, baseZ: hood.rotation.z, baseX: hood.rotation.x, amp: 0.025 + r * 0.015 };
+          const hoodMesh = mesh.userData.mageHoodMesh;
+          hoodMesh.material.color.set(hoodColor);
+          hoodMesh.material.metalness = 0.05;
+          hoodMesh.material.roughness = 0.85;
+          // DoubleSide (the old procedural hood used this too, for the same
+          // reason - see its own side: THREE.DoubleSide): this is a thin,
+          // open cowl shell, so some angles look through the inside surface
+          // (e.g. through the open face) where FrontSide culling would show
+          // nothing at all. The actual crown-seam hole (TODO 93 verification:
+          // two small genuine gaps in the extracted mesh, patched with a
+          // fanned triangle patch) is fixed at the geometry level in
+          // heroModel.js's patchMageHoodCrownSeam, not by this DoubleSide.
+          hoodMesh.material.side = THREE.DoubleSide;
+          if (hoodMesh.material.emissive) {
+            hoodMesh.material.emissive.set(hoodHot ? hoodColor : 0x000000);
+            hoodMesh.material.emissiveIntensity = it.rarity === 'legendary' ? 0.28 : it.rarity === 'epic' ? 0.16 : 0;
+          }
+          // sway target: the whole hood group, reusing the hat's single sway
+          // slot (see the shared sway.hat assignment and animateGearSway) so
+          // it still moves gently in the idle breeze.
+          sway.hat = { obj: mageHood, baseZ: mageHood.rotation.z, baseX: mageHood.rotation.x, amp: 0.025 + r * 0.015 };
         } else {
+          if (mageHood) mageHood.visible = false; // no robe, or the authored asset failed to load - fall back to the hat below
         // The authored Mage_Hat brim is wide enough to curtain the whole face at
         // the game's slightly-zoomed camera. Squash ONLY the brim radius (local
         // X/Z) so at least the lower half of the face clears it, while keeping
@@ -2350,6 +2337,7 @@ export class Game {
       // No helmet equipped: keep the baked hat hidden (bare head / default
       // hood, per each class's own default-look logic above).
       mesh.userData.bakedHat.visible = false;
+      if (mesh.userData.mageHood) mesh.userData.mageHood.visible = false;
     }
     // Ranger: this class has no baked hat/helmet mesh of its own (the
     // Rogue_Hooded model ships no _Hat/_Helmet-suffixed mesh, so bakedHat is
