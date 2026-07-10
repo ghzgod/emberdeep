@@ -41,7 +41,7 @@ export class TouchControls {
     this.move = { x: 0, z: 0 };
     this.joyActive = false;
     this.attacking = false;
-    this.rotDir = 0; // -1 / +1 while a rotate button is held
+    this.rotDir = 0; // legacy field read by game.js's camera-rotate check; always 0 now that rotation is twist-gesture only
     this.fadeTimer = 4; // touch buttons dim after a few idle seconds
     this._joyId = null;
     this._aimId = null;
@@ -84,11 +84,11 @@ export class TouchControls {
     this.joyBase = document.getElementById('joystick-base');
     this.joyKnob = document.getElementById('joystick-knob');
 
-    // Colorful hand-drawn icons for the utility inner-arc bubbles (rotate/
+    // Colorful hand-drawn icons for the utility inner-arc bubbles (inventory/
     // mic/settings), matching the ability-icon art style (see icons.js) -
     // injected here rather than baked into index.html so icons.js stays the
     // single source of truth for every glyph in the game.
-    const utilIcons = { 'touch-rotl': 'rotate_left', 'touch-rotr': 'rotate_right', 'touch-mic': 'mic_color', 'touch-pause': 'gear_color' };
+    const utilIcons = { 'touch-inv': 'bag_color', 'touch-mic': 'mic_color', 'touch-pause': 'gear_color' };
     for (const [id, key] of Object.entries(utilIcons)) {
       const slot = document.getElementById(id)?.querySelector('.util-icon');
       if (slot) slot.innerHTML = svgIcon(key);
@@ -99,7 +99,7 @@ export class TouchControls {
       const el = document.getElementById(id);
       if (el) el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); fn(); });
     };
-    // Utility row (inventory/settings/rotate-L/rotate-R) is always visible now -
+    // Utility row (inventory/settings/mic/potion) is always visible now -
     // no drawer/toggle to open or auto-close (see index.html + style.css).
     bind('touch-inv', () => { game.toggleInventory(); });
     bind('touch-pause', () => { game.togglePause(true); });
@@ -155,37 +155,6 @@ export class TouchControls {
       }
       this.scheduleJoyGhost();
     };
-
-    // hold-to-rotate camera buttons: a ~1s held press before rotation actually
-    // starts, with a gold progress ring filling while held (see style.css
-    // .hold-ring-fg + update() below, which drives it every frame). A quick
-    // tap that releases before the hold completes does nothing but reset.
-    this._rotHolds = [];
-    const bindRotate = (id, dir) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      const ring = el.querySelector('.hold-ring-fg');
-      const RING_C = 282.74;
-      const hold = { el, ring, dir, elapsed: 0, active: false, rotating: false, C: RING_C };
-      this._rotHolds.push(hold);
-      const start = (e) => {
-        e.preventDefault(); e.stopPropagation();
-        hold.elapsed = 0; hold.active = true; hold.rotating = false;
-        el.classList.add('holding'); el.classList.remove('rotating');
-        if (ring) ring.style.strokeDashoffset = RING_C.toFixed(1);
-      };
-      const end = () => {
-        if (!hold.active) return;
-        hold.active = false; hold.rotating = false;
-        if (this.rotDir === dir) this.rotDir = 0;
-        el.classList.remove('holding', 'rotating');
-        if (ring) ring.style.strokeDashoffset = RING_C.toFixed(1);
-      };
-      el.addEventListener('pointerdown', start);
-      for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(ev, end);
-    };
-    bindRotate('touch-rotl', 1);
-    bindRotate('touch-rotr', -1);
 
     // hold-to-talk mic button
     const mic = document.getElementById('touch-mic');
@@ -324,21 +293,6 @@ export class TouchControls {
       this.fadeTimer -= dt;
       if (this.fadeTimer <= 0) {
         document.getElementById('touch-ui')?.classList.add('ui-faded');
-      }
-    }
-    // hold-to-rotate progress rings: fill from empty (dashoffset = C) to full
-    // (dashoffset 0) over ~1s of holding; reaching full starts the rotation.
-    const HOLD_S = 1.0;
-    for (const hold of this._rotHolds || []) {
-      if (!hold.active || hold.rotating) continue;
-      hold.elapsed += dt;
-      const frac = Math.min(hold.elapsed / HOLD_S, 1);
-      if (hold.ring) hold.ring.style.strokeDashoffset = (hold.C * (1 - frac)).toFixed(1);
-      if (frac >= 1) {
-        hold.rotating = true;
-        this.rotDir = hold.dir;
-        hold.el.classList.remove('holding');
-        hold.el.classList.add('rotating');
       }
     }
   }

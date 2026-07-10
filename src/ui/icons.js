@@ -192,6 +192,11 @@ const COLOR = {
     '<path fill="none" stroke="#c3cbd8" stroke-width="2.4" stroke-linecap="round" d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8M18.4 18.4l-1.8-1.8M7.4 7.4 5.6 5.6"/>' +
     '<circle cx="12" cy="12" r="3.4" fill="#8fa9cf" stroke="#3a4150" stroke-width="1"/>' +
     '<circle cx="12" cy="12" r="1.3" fill="#e8c05a" stroke="#8a5f14" stroke-width="0.6"/>',
+  bag_color:
+    '<path fill="none" stroke="#8a5f3a" stroke-width="1.8" stroke-linecap="round" d="M9 8V6.5a3 3 0 0 1 6 0V8"/>' +
+    '<path fill="#c8a35a" stroke="#7a5514" stroke-width="1" stroke-linejoin="round" d="M5 8h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 20H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 8Z"/>' +
+    '<path fill="#e6dcc2" stroke="none" d="M5.5 9h4v3.4h-4z"/>' +
+    '<path fill="none" stroke="#7a5514" stroke-width="1" d="M3.5 13h17"/>',
 };
 
 // ---- flat-stroke chrome icons (inherit currentColor) ----

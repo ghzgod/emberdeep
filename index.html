@@ -256,40 +256,24 @@
     <!-- Touch controls (coarse-pointer devices) -->
     <div id="touch-ui" class="hidden">
       <div id="joystick-base"><div id="joystick-knob"></div></div>
-      <!-- Utility inner arc: four small circular bubbles concentric with the
-           ability arc but at a smaller radius, nested between the basic-attack
-           button and the ability bubbles (rotate-left, rotate-right, mic,
-           settings) - always rendered, no drawer/toggle to open first. Icons
-           are injected by touch.js from icons.js (colorful, matching the
-           ability-icon art style) into the .util-icon placeholder in each.
-           Rotate bubbles require a held press (~1s, see touch.js bindRotate)
-           before they start rotating; a hold-progress ring (SVG stroke, same
-           technique as the ability cooldown rings) fills while held. The
-           potion bubble lives in the ability arc itself (ui.js
-           _buildPotionBubble); inventory lives in Settings on this layout. -->
+      <!-- Utility inner arc: FOUR equal, larger circular bubbles concentric
+           with the ability arc but at a smaller radius, nested between the
+           basic-attack button and the ability bubbles - settings, inventory,
+           mic (push-to-talk) and potion - always rendered, no drawer/toggle to
+           open first. Icons are injected by touch.js from icons.js (colorful,
+           matching the ability-icon art style) into the .util-icon
+           placeholder in each. Screen rotation is the two-finger twist
+           gesture only (see game.js) - the old hold-to-rotate bubbles are
+           gone; potion moved out of the ability arc into that freed spot
+           (built by ui.js _buildPotionBubble, styled as a 4th inner-arc
+           bubble via .act-potion.util-slot). -->
       <button id="touch-inv" aria-label="Inventory">
-        <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>
-          <path d="M5 8h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 20H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 8Z"/>
-          <path d="M3.5 13h17"/>
-        </svg>
+        <span class="util-icon"></span>
       </button>
       <button id="touch-mic" class="hidden" aria-label="Push to talk">
         <span class="util-icon"></span>
       </button>
       <button id="touch-pause" aria-label="Settings">
-        <span class="util-icon"></span>
-      </button>
-      <button id="touch-rotl" aria-label="Hold to rotate camera left">
-        <svg class="hold-ring" viewBox="0 0 100 100" aria-hidden="true">
-          <circle class="hold-ring-fg" cx="50" cy="50" r="45" stroke-dasharray="282.74" stroke-dashoffset="282.74"></circle>
-        </svg>
-        <span class="util-icon"></span>
-      </button>
-      <button id="touch-rotr" aria-label="Hold to rotate camera right">
-        <svg class="hold-ring" viewBox="0 0 100 100" aria-hidden="true">
-          <circle class="hold-ring-fg" cx="50" cy="50" r="45" stroke-dasharray="282.74" stroke-dashoffset="282.74"></circle>
-        </svg>
         <span class="util-icon"></span>
       </button>
       <!-- First-time joystick ghost: fades in if the player has not moved
