@@ -172,6 +172,40 @@ const VENDOR_CALLBACKS = {
 const FEMALE_HINT = /female|samantha|victoria|karen|moira|tessa|fiona|kate|serena|susan|allison|ava|zira|jenny/i;
 const MALE_HINT = /male|daniel|alex|fred|arthur|george|aaron|guy|david|mark|james|oliver/i;
 
+// The browser's built-in speechSynthesis (Web Speech) has no game-tuned G2P:
+// unlike Kokoro (see neuralVoice.js normalizeForTTS) it gets no normalization
+// at all today, so it reads written vocalizations letter-by-letter or with
+// the wrong vowel, spells out ALL-CAPS emphasis words, and stumbles on
+// em-dashes/ellipses. This maps those patterns to forms system voices read
+// naturally. Audited against every bank below (LINES, GREETINGS, BOSS_LINES,
+// onBigHit) -- the only unpronounceables actually present today are ALL-CAPS
+// emphasis words (MINE, TWO, BURN, STAY, THAT, DARE) and em-dashes in
+// GREETINGS; the interjection table exists for any line added later.
+const VOCALIZATIONS = [
+  [/\bh+m+\b/gi, 'hum'],        // hmm, hmmm, hm -> "hum" (bare "hmm" gets spelled out on several system voices)
+  [/\bheh+\b/gi, 'heh'],        // heh, hehe -> unchanged; reads fine as a real word on tested system voices
+  [/\bgr+\b/gi, 'gurr'],        // grr, grrr -> "gurr" (no vowel for the synth to grab onto otherwise)
+  [/\b(?:tsk)+\b/gi, 'tisk'],   // tsk, tsktsk -> "tisk"
+  [/\bpf+t+\b/gi, 'pft'],       // pfft, pft -> "pft"
+];
+
+// Web-speech-only text cleanup. Captions/subtitles always keep the original
+// `text` -- only the utterance handed to speechSynthesis runs through this.
+export function normalizeForSpeech(text) {
+  let t = String(text || '');
+  // strip *action* asides (*sighs*, *sword clangs*) entirely -- web-speech has
+  // no stage-direction concept and would otherwise read the asterisks aloud
+  t = t.replace(/\*[^*]+\*/g, ' ');
+  for (const [re, rep] of VOCALIZATIONS) t = t.replace(re, rep);
+  // em/en dashes + ellipses -> a comma pause (same fix Kokoro needs)
+  t = t.replace(/\s*[—–]\s*/g, ', ').replace(/\.{2,}|…/g, ', ');
+  // ALL-CAPS emphasis words -> lowercase (web-speech spells some caps out letter by letter)
+  t = t.replace(/\b[A-Z]{2,}\b/g, (m) => m.toLowerCase());
+  // collapse leftover whitespace / stray punctuation runs
+  t = t.replace(/\s+/g, ' ').replace(/\s+([,.!?])/g, '$1').replace(/(,){2,}/g, ',').trim();
+  return t;
+}
+
 export class Roaster {
   constructor() {
     this.enabled = true;
@@ -256,7 +290,7 @@ export class Roaster {
     if (!this.enabled || !('speechSynthesis' in window)) return;
     try {
       speechSynthesis.cancel(); // characters don't talk over each other
-      const u = new SpeechSynthesisUtterance(text);
+      const u = new SpeechSynthesisUtterance(normalizeForSpeech(text));
       let voice = cast.voice;
       if (!voice) {
         const en = this.voices.filter((v) => v.lang.startsWith('en'));
