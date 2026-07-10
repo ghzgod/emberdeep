@@ -7,6 +7,10 @@ const MODEL_FILES = {
   knight: 'models/Knight.glb',
   mage: 'models/Mage.glb',
   ranger: 'models/Rogue_Hooded.glb',
+  // Townsfolk-only bodies (same KayKit pack/rig, never playable): vendors and
+  // patrons draw from these so an NPC can never look like the player's hero.
+  barbarian: 'models/Barbarian.glb',
+  villager: 'models/Rogue.glb',
 };
 
 const TARGET_HEIGHT = 1.6; // world units
@@ -650,6 +654,8 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
     knight: ['1H_Sword', 'Round_Shield'],
     mage: ['2H_Staff'],
     ranger: ['2H_Crossbow'],
+    barbarian: [], // townsfolk keep empty hands - every baked weapon hidden
+    villager: [],
   };
   const keepHeld = new Set(HELD_LOADOUT[classId] || []);
   const HELD_PATTERN = /Sword|Shield|Wand|Staff|Crossbow|Bow|Knife|Axe|Hammer|Mace|Dagger|Spear|Throwable/i;
