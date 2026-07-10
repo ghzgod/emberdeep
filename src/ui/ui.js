@@ -2388,10 +2388,10 @@ export class UI {
   // ---------- inventory paper-doll live 3D preview ----------
   // Same pattern as startCharPreview (own tiny renderer, idle animation,
   // fully disposed on close) but shows the ACTUAL playing hero: real class,
-  // gender, skin tone and name. There is no gear-cosmetic system in this repo
-  // (equip() in game.js only changes stats - see player.js `equipped`), so
-  // per spec this falls back to the plain class/gender/skin hero rather than
-  // pretending to show worn gear that has no visual representation.
+  // gender, skin tone, name AND worn gear - the same updateHeroGear pass the
+  // in-game hero gets (helmet, rarity tints, weapon dressing), re-applied in
+  // the render loop so equipping from the bag updates the doll instantly
+  // (updateHeroGear no-ops on an unchanged gear signature, so this is cheap).
   startInvPreview() {
     const canvas = $('inv-preview-canvas');
     if (!canvas) return;
@@ -2422,6 +2422,7 @@ export class UI {
     if (anim) mesh = anim.mesh;
     else { mesh = buildHeroMesh(CLASSES[p.classId], this.game.playerName()); gait = mesh.userData.updateGait; }
     turntable.add(mesh);
+    if (anim) this.game.updateHeroGear(mesh, p.equipped, p.classId);
 
     const P = this._invPrev = {
       renderer, scene, camera, turntable, canvas, mesh, anim, gait,
@@ -2445,6 +2446,7 @@ export class UI {
         P.camera.updateProjectionMatrix();
       }
       P.turntable.rotation.y += dt * 0.7;
+      if (P.anim) this.game.updateHeroGear(P.mesh, this.game.player.equipped, this.game.player.classId);
       if (P.anim) { P.anim.setLocomotion(0, dt, false); P.anim.mixer.update(dt); }
       if (P.gait) P.gait(dt, 0, false);
       P.renderer.render(P.scene, P.camera);
