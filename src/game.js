@@ -2139,58 +2139,78 @@ export class Game {
         // item - a real hooded-robe often uses a contrast lining, not the
         // exact same dye lot as the robe body.
         const anchor = mesh.userData.headAnchor;
-        // Hood style DISABLED (TODO 671): the procedural sphere-dome cowl read
-        // as "a turban", not a hood, from most angles - even with an open
-        // face. Every mage helmet renders the authored pointy hat (with the
-        // per-item height/palette variance below) until a real modeled hood
-        // mesh exists to do TODO 93 justice.
-        const isHoodStyle = false && !!(anchor && equipped.chest && r3 < 0.45);
+        // Hood style (TODO 93): only for hood-flavored helmet items (name
+        // matches the same /hood|visage|coif/i test itemIcon.js's ICON_RULES
+        // uses to pick the hood icon), and only when a chest robe is worn -
+        // a floating cloth cowl with no robe collar to meet would look like a
+        // mistake, not a style. A prior attempt (TODO 671) built this as a
+        // single procedural sphere-dome and it read as "a turban", not a
+        // hood, from most angles - a featureless ball is a ball no matter how
+        // wide the face cutout is. This version is instead built from THREE
+        // distinct pieces so the silhouette can never collapse into a ball:
+        // a small crown CAP (top-of-skull only, not the whole head), an
+        // open-fronted cowl WALL hanging from the cap down to the collar
+        // (a real cylinder has depth at its cut edges, unlike a paper-thin
+        // dome), and a draped back POINT hanging past the collar toward the
+        // shoulders (see the isHoodStyle block below).
+        const isHoodStyle = !!(anchor && equipped.chest && /hood|visage|coif/i.test(it.name));
         if (isHoodStyle) {
           hat.visible = false; // baked pointy-hat mesh stays hidden for this style
+          // Two-tone: the hood tints from the HELMET item's own rarity colour
+          // while the robe (built in the equipped.chest/mage block below)
+          // keeps its own tint from the chest item - a real hooded-robe often
+          // uses a contrast lining, not the exact same dye lot as the robe.
           const hoodColor = RARITIES[it.rarity]?.color ?? 0x8a8a8a;
           const hoodHot = it.rarity === 'legendary' || it.rarity === 'epic';
           const hoodMat = new THREE.MeshStandardMaterial({ color: hoodColor, metalness: 0.05, roughness: 0.85, emissive: hoodHot ? hoodColor : 0x000000, emissiveIntensity: it.rarity === 'legendary' ? 0.28 : it.rarity === 'epic' ? 0.16 : 0, side: THREE.DoubleSide });
           const topY = anchor.top + 0.05; // small peak above the crown
-          // A round DOME (partial sphere, stretched in Y) rather than a
-          // straight-taper cone - these hero heads are big chibi-proportioned
-          // spheres, and a linear cone narrows too fast near the top to
-          // actually enclose that roundness, leaving the real head poking
-          // through above the hood (a cone's radius shrinks linearly toward
-          // its point; a head's widest point is at its equator, not its
-          // base). A sphere segment bulges at the equator like a real skull,
-          // so scaling it to the head's real radius keeps it fully enclosed
-          // at every height. thetaLength stops short of the south pole,
-          // leaving the neck opening (open, no bottom cap) at that rim.
-          const domeR = Math.max(0.22, anchor.r) * 1.18; // enclosure radius, a modest margin over the real head
-          const domeThetaLen = Math.PI * 0.92;
-          const rawSpan = domeR * (1 - Math.cos(domeThetaLen)); // unscaled top-to-rim height
-          const hoodHeight = Math.max(0.2, topY - MAGE_ROBE_COLLAR.y);
-          const yScale = hoodHeight / rawSpan; // squash/stretch to span exactly crown-to-collar
-          // Open-FACE hood: sweep phi around the back/sides only, leaving a
-          // ~115-degree window at the front (+z is the rig's facing) so the
-          // face shows inside the cowl. A full 360 sweep enclosed the whole
-          // head in a featureless ball that read as "a turban", not a hood
-          // (user report, TODO 671).
-          const faceGap = 1.0; // half-angle (rad) of the face opening each side of +z
-          const hood = new THREE.Mesh(
-            new THREE.SphereGeometry(domeR, 14, 8, Math.PI / 2 + faceGap, Math.PI * 2 - faceGap * 2, 0, domeThetaLen), hoodMat);
-          hood.scale.y = yScale;
-          hood.scale.z = 1.1; // slight backward drape so the cowl reads deeper than the skull
-          hood.position.set(anchor.cx, topY - domeR * yScale, anchor.cz + MAGE_ROBE_COLLAR.z * 0.5);
+          const domeR = Math.max(0.22, anchor.r) * 1.15; // hood enclosure radius, a modest margin over the real head
+          // A first attempt built this from a full-360-degree crown CAP plus
+          // a separately phi-gapped WALL below it. That failed: the cap's
+          // thetaLength reached down far enough to still be rotationally
+          // symmetric AT the face's height, so it covered the front too (at
+          // every longitude, including the face) before the gapped wall ever
+          // got a chance to show anything through - screenshots confirmed it
+          // still read as a fully enclosing dome/brim, not an open hood.
+          // This version is instead ONE continuous LatheGeometry: a single 2D
+          // side-profile (crown peak -> puffy top -> widest point near the
+          // brow/ear -> narrowing past the jaw -> flare at the collar -> a
+          // point hanging past it) revolved with the SAME phi gap applied at
+          // every height. Because the gap is baked into the one revolved
+          // surface rather than stacked on top of a separate full-360 piece,
+          // there is no height at which the front can accidentally seal shut
+          // - the face is open from brow to chin, the shell has real
+          // thickness/depth (you see its own concave inside through the
+          // gap, not a flat cutout), and the profile's own tail flows
+          // straight into a draped point past the shared MAGE_ROBE_COLLAR
+          // seam, so the hem meets the robe collar with no separate ring.
+          const wallBotR = Math.max(MAGE_ROBE_COLLAR.r * 1.25, domeR * 0.7); // flare at the collar seam
+          const drapeLen = 0.22 + r * 0.12; // how far the back point hangs past the collar
+          const profile = [
+            new THREE.Vector2(0.015, topY + 0.03), // pointed peak tip, just above the crown
+            new THREE.Vector2(domeR * 0.55, topY), // shoulder of the peak
+            new THREE.Vector2(domeR * 0.95, topY - domeR * 0.55), // puffy crown
+            new THREE.Vector2(domeR, topY - domeR * 0.95), // widest point, roughly brow/ear height
+            new THREE.Vector2(domeR * 0.82, topY - domeR * 1.45), // narrows in around the jaw
+            new THREE.Vector2(wallBotR, MAGE_ROBE_COLLAR.y + 0.04), // flares out toward the collar
+            new THREE.Vector2(wallBotR * 0.95, MAGE_ROBE_COLLAR.y), // the collar seam itself
+            new THREE.Vector2(0.02, MAGE_ROBE_COLLAR.y - drapeLen), // draped back point, hanging past the collar
+          ];
+          const faceGap = 0.85; // half-angle (rad) of the face opening each side of +z, held at every height
+          // LatheGeometry's own phi convention is x = r*sin(phi), z = r*cos(phi)
+          // - phi=0 sits at +z (the rig's facing), NOT pi/2 like Sphere/Cylinder
+          // geometry's theta/phi. phiStart=faceGap (not pi/2+faceGap) is what
+          // actually centers the open gap on the front; getting this backwards
+          // once already put the gap on the SIDE of the head instead, leaving
+          // the front solid and looking exactly like an enclosing ball again.
+          const hoodGeo = new THREE.LatheGeometry(profile, 16, faceGap, Math.PI * 2 - faceGap * 2);
+          const hood = new THREE.Mesh(hoodGeo, hoodMat);
+          hood.position.set(anchor.cx, 0, anchor.cz + MAGE_ROBE_COLLAR.z * 0.5);
           grp.add(hood);
-          // Hem ring at the shared collar seam, sized to the dome's own open
-          // rim radius (the sphere naturally narrows again near that
-          // rim - see domeThetaLen), so there is no visible gap or step
-          // where the hood meets the robe collar.
-          const rimR = domeR * Math.sin(domeThetaLen);
-          const hoodHem = new THREE.Mesh(new THREE.TorusGeometry(rimR, 0.025, 6, 12), hoodMat);
-          hoodHem.rotation.x = Math.PI / 2;
-          hoodHem.position.set(anchor.cx, MAGE_ROBE_COLLAR.y, anchor.cz + MAGE_ROBE_COLLAR.z);
-          grp.add(hoodHem);
-          // The dome's own crown IS the peaked hood tip; reusing the hat's
-          // single sway slot (see the shared sway.hat assignment and
-          // animateGearSway) so it still sways gently in the idle breeze.
-          sway.hat = { obj: hood, baseZ: hood.rotation.z, baseX: hood.rotation.x, amp: 0.03 + r * 0.02 };
+          // sway target: the whole hood, reusing the hat's single sway slot
+          // (see the shared sway.hat assignment and animateGearSway) so it
+          // still moves gently in the idle breeze.
+          sway.hat = { obj: hood, baseZ: hood.rotation.z, baseX: hood.rotation.x, amp: 0.025 + r * 0.015 };
         } else {
         // The authored Mage_Hat brim is wide enough to curtain the whole face at
         // the game's slightly-zoomed camera. Squash ONLY the brim radius (local
