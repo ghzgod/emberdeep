@@ -4300,6 +4300,14 @@ export class Game {
     const left = Math.ceil(((this._portalReadyAt || 0) - performance.now()) / 1000);
     if (left > 0) { this.ui.floaters.spawn(this.player.pos, `The way must settle — ${left}s`, 'player-dmg'); return; }
     this._portalReadyAt = performance.now() + 10000;
+    // First-ever trip through the portal: one device-appropriate hint on how
+    // to attack (the touch tutorial teaches move/attack/ability in town, so
+    // this mainly serves desktop, where no tutorial exists). Shown once.
+    if (!localStorage.getItem('emberdeep-attack-tip')) {
+      localStorage.setItem('emberdeep-attack-tip', '1');
+      const tip = this.touch?.touchInput ? 'Tap the screen to attack' : 'Click the mouse to attack';
+      setTimeout(() => this.ui.showFloorBanner?.(tip, 'Slay your way to the stairs', true), 1600);
+    }
     audio.play('stairs', { volume: 0.8 });
     if (net.active && !net.isHost) {
       this.stairsCooldown = 2;
