@@ -18,10 +18,12 @@ import { buildAnimatedHero } from '../entities/heroModel.js';
 // no model), so every caller keeps its original primitive box-build as a
 // fallback and no NPC is ever left invisible.
 
-// The KayKit rigs stand ~1.6 world units tall (heroModel's TARGET_HEIGHT). The
-// old box NPCs were a touch shorter/stockier; a small down-scale seats the
-// modeled townsfolk at a friendly, non-heroic height beside the player.
-const NPC_SCALE = 0.92;
+// The KayKit rigs stand ~1.6 world units tall (heroModel's TARGET_HEIGHT).
+// Townsfolk (vendors, barkeep, patrons) read at full hero height beside the
+// player. Old Fenwick applies his own FENWICK_SCALE (wanderer.js) on top of
+// this, landing taller (1.0 * 1.25 = 1.25x hero height) so he still reads
+// clearly above every other townsperson.
+const NPC_SCALE = 1.0;
 
 // Wrap buildAnimatedHero for a stationary, idling townsperson that can glance
 // at the player. Returns { mesh, mixer, headBone, restQuat, tick(dt),
@@ -561,6 +563,102 @@ function dressDungeonArchitecture(group, dungeon, theme, floor, ctx) {
   });
 }
 
+// ---------------- Destructible interior walls ----------------
+// A broken/fallen stone stub + a few loose chunks, textured with the wall's
+// own stone map so it reads as "this wall came down" rather than generic
+// gravel. Purely decorative and never blocks movement (the grid cell is
+// FLOOR the moment this is placed) — distinct from the RUBBLE tile type
+// (dungeon.js), which is a still-SOLID crumbled wall used for ruin dressing.
+function spawnWallRubblePile(group, wallTex, x, z) {
+  const rubbleMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 1 });
+  const stub = new THREE.Mesh(new THREE.BoxGeometry(TILE * 0.85, 0.45 + Math.random() * 0.35, TILE * 0.85), rubbleMat);
+  stub.position.set(x, stub.geometry.parameters.height / 2, z);
+  stub.rotation.y = (Math.random() - 0.5) * 0.3;
+  group.add(stub);
+  for (let c = 0; c < 4; c++) {
+    const s = 0.16 + Math.random() * 0.22;
+    const chunk = new THREE.Mesh(new THREE.BoxGeometry(s, s * 0.7, s), rubbleMat);
+    chunk.position.set(x + (Math.random() - 0.5) * 1.3, s * 0.3, z + (Math.random() - 0.5) * 1.3);
+    chunk.rotation.set(Math.random(), Math.random(), Math.random());
+    group.add(chunk);
+  }
+}
+
+// Swaps every still-intact destructible cell's plain box (the fallback built
+// alongside it in buildDungeonMeshes) for the same modeled "wall" GLB the
+// bulk wall batch uses, once it resolves — so a fresh, unhit floor reads
+// consistently with its neighbors instead of a handful of plain boxes.
+// Skipped for any cell that has already taken damage or broken by the time
+// the GLB resolves (setWallCellStage owns those from that point on).
+function dressDestructibleWallsIntact(states, group, theme) {
+  if (!states.size) return;
+  loadDungeonTemplate('wall').then((tpl) => {
+    if (!tpl) return;
+    const wallColor = new THREE.Color(theme.wall);
+    for (const st of states.values()) {
+      if (st.gone || st.stage !== 0 || !st.mesh?.parent) continue;
+      const placement = [{ x: st.worldX, y: 0, z: st.worldZ, ry: 0, sx: TILE / 4, sy: WALL_HEIGHT / 4, sz: TILE / 1 }];
+      const node = buildArchInstances(tintTemplate(tpl, wallColor, 0.3), placement);
+      st.mesh.parent.remove(st.mesh);
+      st.mesh.geometry?.dispose?.();
+      group.add(node);
+      st.mesh = node;
+    }
+  });
+}
+
+// Advances one destructible wall cell to `stage` (0 intact, 1 cracked, 2 =
+// final hit -> the wall is gone). Called from game.js's wall-impact path
+// (wallDebris) once a destructible cell has taken enough hits; game.js owns
+// the per-cell hit-count and the session-persistence record, this just drives
+// the visual + grid/pathing side of a single cell. Stages 0/1 show an
+// immediately-visible tinted box (readable the same frame the hit lands) that
+// gets swapped for the modeled wall/wall_cracked GLB the instant it resolves
+// (already loading — dressDungeonArchitecture kicks off the same templates
+// for the bulk walls). Stage 2 removes the wall mesh outright, patches the
+// grid cell to FLOOR (the single isWalkable/PATHING source of truth in
+// game.js, so enemies and the minimap see the opening immediately) and drops
+// a rubble pile in its place.
+// `stage` is the number of hits landed so far: 1 = cracked (wall_cracked),
+// 2 = broken (wall_broken), 3 = the final hit — the cell is gone.
+const WALL_STAGE_TEMPLATE = { 1: 'wallCracked', 2: 'wallBroken' };
+const WALL_STAGE_TINT = { 1: 0x8a7060, 2: 0x5a4c40 };
+export function setWallCellStage(dungeonMeshes, dungeon, x, y, stage) {
+  const key = `${x},${y}`;
+  const states = dungeonMeshes?.destructibleWalls;
+  const st = states?.get(key);
+  if (!st || st.gone) return;
+  const group = dungeonMeshes.group;
+  if (st.mesh?.parent) { st.mesh.parent.remove(st.mesh); st.mesh.geometry?.dispose?.(); }
+  st.stage = stage;
+  if (stage >= 3) {
+    st.gone = true;
+    st.mesh = null;
+    if (dungeon?.grid?.[y]) dungeon.grid[y][x] = FLOOR;
+    spawnWallRubblePile(group, dungeonMeshes.wallTex, st.worldX, st.worldZ);
+    return;
+  }
+  const theme = dungeonMeshes.theme;
+  const wallColor = new THREE.Color(theme.wall);
+  // Immediately-visible tinted-box fallback (readable the instant the hit
+  // lands), swapped for the modeled cracked/broken GLB the moment it resolves.
+  const box = new THREE.Mesh(
+    new THREE.BoxGeometry(TILE, WALL_HEIGHT, TILE),
+    new THREE.MeshStandardMaterial({ map: dungeonMeshes.wallTex, roughness: 0.95, flatShading: true, color: WALL_STAGE_TINT[stage] ?? 0xffffff }),
+  );
+  box.position.set(st.worldX, WALL_HEIGHT / 2, st.worldZ);
+  group.add(box);
+  st.mesh = box;
+  loadDungeonTemplate(WALL_STAGE_TEMPLATE[stage] ?? 'wall').then((tpl) => {
+    if (!tpl || st.gone || st.stage !== stage) return;
+    const placement = [{ x: st.worldX, y: 0, z: st.worldZ, ry: 0, sx: TILE / 4, sy: WALL_HEIGHT / 4, sz: TILE / 1 }];
+    const node = buildArchInstances(tintTemplate(tpl, wallColor, 0.3), placement);
+    if (st.mesh?.parent) { st.mesh.parent.remove(st.mesh); st.mesh.geometry?.dispose?.(); }
+    group.add(node);
+    st.mesh = node;
+  });
+}
+
 // Built once per theme (cheap; avoids regenerating the canvas per banner prop).
 const _bannerTexCache = new Map();
 const bannerTexture = (theme) => {
@@ -696,6 +794,22 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       else if (t === WALL) {
         wallTiles.push({ x, y });
         if (town) floorTiles.push({ x, y }); // grass under trees/tavern/walls
+      }
+    }
+  }
+
+  // --- Destructible interior walls: pulled OUT of the bulk instanced wall
+  // batch below so a single cell's stage (intact/cracked/gone) can be swapped
+  // independently at hit-time, without rebuilding the shared draw call every
+  // other wall tile rides on. Town/boss floors never populate
+  // dungeon.destructibleWalls (generateDungeon-only), so this is a no-op there.
+  const destructibleTiles = [];
+  if (!town && dungeon.destructibleWalls?.size) {
+    for (let i = wallTiles.length - 1; i >= 0; i--) {
+      const tp = wallTiles[i];
+      if (dungeon.destructibleWalls.has(`${tp.x},${tp.y}`)) {
+        destructibleTiles.push(tp);
+        wallTiles.splice(i, 1);
       }
     }
   }
@@ -895,6 +1009,37 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       rubbleMesh.instanceMatrix.needsUpdate = true;
       group.add(rubbleMesh);
       wallDecorMeshes.push(rubbleMesh);
+    }
+  }
+
+  // --- Destructible interior walls: individually-swappable cell meshes ---
+  // Each starts as a plain box sharing the bulk wall's own texture/material
+  // (so it's visually identical to its neighbors this frame); once the
+  // modeled GLB variants resolve, dressDestructibleWallsIntact swaps still-
+  // untouched cells for the same "wall" model the bulk batch uses.
+  // setWallCellStage (game.js's wall-impact path) later swaps/removes exactly
+  // one cell here per hit without touching the shared InstancedMesh batch.
+  const destructibleWallStates = new Map();
+  for (const tp of destructibleTiles) {
+    const w = tileToWorld(tp.x, tp.y);
+    const mesh = new THREE.Mesh(wallGeo, wallMat);
+    mesh.position.set(w.x, wallH / 2, w.z);
+    group.add(mesh);
+    destructibleWallStates.set(`${tp.x},${tp.y}`, { x: tp.x, y: tp.y, mesh, stage: 0, gone: false, worldX: w.x, worldZ: w.z });
+  }
+  if (!town) dressDestructibleWallsIntact(destructibleWallStates, group, theme);
+
+  // Session revisit: cells this character already broke down earlier in the
+  // same session arrive with dungeon.grid already patched back to FLOOR by
+  // game.js's loadFloor (applied AFTER the seeded generation above, so the
+  // seeded room layout itself never changes) — they never entered wallTiles/
+  // destructibleTiles, so they already render as ordinary floor. All that's
+  // missing is the rubble the earlier break left behind.
+  if (dungeon.preOpenedWalls?.size) {
+    for (const key of dungeon.preOpenedWalls) {
+      const [hx, hy] = key.split(',').map(Number);
+      const w = tileToWorld(hx, hy);
+      spawnWallRubblePile(group, wallTex, w.x, w.z);
     }
   }
 
@@ -1535,7 +1680,8 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
     });
   }
 
-  return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh, smokePuffs, breakables, townGlows };
+  return { group, doorMeshes, chestMeshes, stairsMesh, torchPositions, vendorMeshes, portalMesh, returnPortalMesh, smokePuffs, breakables, townGlows,
+    destructibleWalls: destructibleWallStates, theme, floor, wallTex };
 }
 
 // ---------------- Embervale decor ----------------

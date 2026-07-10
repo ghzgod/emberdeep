@@ -152,6 +152,25 @@ export function generateDungeon(floor) {
     }
   }
 
+  // Destructible interior walls: a wall cell whose OPPOSITE sides (both N/S,
+  // or both E/W) are walkable floor/bridge separates two open areas, so
+  // breaking it can never breach the dungeon's sealed outer boundary — a
+  // perimeter wall always has void/edge on one side and fails this test
+  // automatically. Computed on the FINAL grid (after rubble/courtyard
+  // crumbling above), never on doors (a separate tile value) or boss/town
+  // floors (this function only runs for the standard room-and-corridor
+  // dungeon, not generateBossFloor/generateTown below).
+  const isBreachOpen = (t) => t === FLOOR || t === BRIDGE;
+  const destructibleWalls = new Set();
+  for (let y = 1; y < GRID - 1; y++) {
+    for (let x = 1; x < GRID - 1; x++) {
+      if (grid[y][x] !== WALL) continue;
+      const vertOpen = isBreachOpen(grid[y - 1][x]) && isBreachOpen(grid[y + 1][x]);
+      const horizOpen = isBreachOpen(grid[y][x - 1]) && isBreachOpen(grid[y][x + 1]);
+      if (vertOpen || horizOpen) destructibleWalls.add(`${x},${y}`);
+    }
+  }
+
   const isOpen = (t) => t === FLOOR || t === BRIDGE || t === DOOR;
   // nudge a tile onto solid ground if it landed on a chasm
   const solidNear = (x, y) => {
@@ -271,7 +290,7 @@ export function generateDungeon(floor) {
   }
 
   return { grid, size: GRID, rooms, spawn, stairs, torches, chests, doors, enemies, boss: null,
-    scuffs, rubble, pits, props, chasmTiles, bridgeTiles, rubbleWalls,
+    scuffs, rubble, pits, props, chasmTiles, bridgeTiles, rubbleWalls, destructibleWalls,
     archetype, columns: decor.columns || [], pews: decor.pews || [], altar: decor.altar || null,
     naveRoom: decor.naveRoom || null };
 }
