@@ -124,6 +124,16 @@ const COLOR = {
   flask: redFlask,
   alchemy: redFlask,
 
+  // ---- offhand slot (paper-doll empty state + item cards) — a shield/book
+  // hybrid so it reads as "carried in the off hand", covering knight shields
+  // as well as mage tomes/ranger quivers that also live in this slot.
+  offhand:
+    `<path fill="#6b7484" stroke="#3a4150" stroke-width="1.1" stroke-linejoin="round" d="${SHIELD_BODY}"/>` +
+    '<path fill="#8f9bb0" stroke="none" d="M12 4.6 17.8 6.7v3.9c0 1.1-.2 2.1-.6 3L12 4.6Z"/>' +
+    '<path fill="#c8a35a" stroke="#8a5f14" stroke-width="0.8" stroke-linejoin="round" d="M8.3 10.4h7.4v6.6H8.3z"/>' +
+    '<path fill="none" stroke="#5f6b80" stroke-width="0.9" d="M12 10.4v6.6"/>' +
+    '<path fill="#e6dcc2" stroke="none" d="M9 11.3h2.5v4.8H9zM12.5 11.3H15v4.8h-2.5z"/>',
+
   // ---- shop portraits ----
   anvil:
     '<path fill="#6b7484" stroke="#3a4150" stroke-width="1" stroke-linejoin="round" d="M7 4H3a1 1 0 0 0-1 1 4 4 0 0 0 4 4h1V4Z"/>' +

@@ -10,7 +10,11 @@ export function xpForLevel(level) {
 export const LEVEL_CAP = 100;
 // Gear stat keys recompute() actually understands; anything else on a loaded
 // item is ignored so a hand-edited save can't inject bogus stats.
-const ALLOWED_ITEM_STATS = ['damagePct', 'maxHp', 'armor', 'crit', 'speed', 'regen', 'cdr4'];
+const ALLOWED_ITEM_STATS = [
+  'damagePct', 'maxHp', 'armor', 'crit', 'speed', 'regen', 'cdr4',
+  // offhand special-ability procs (see loot.js OFFHAND_PROCS)
+  'blockChance', 'thorns', 'procRegen', 'goldFind', 'killHeal',
+];
 
 export class Player {
   constructor(classId) {
@@ -22,7 +26,7 @@ export class Player {
     this.potions = 2;
     this.inventory = [];     // gear items
     this.invSize = 12;       // expandable via rare bag drops, max 24
-    this.equipped = { weapon: null, helmet: null, chest: null, legs: null, hands: null, trinket: null };
+    this.equipped = { weapon: null, helmet: null, chest: null, legs: null, hands: null, trinket: null, offhand: null };
     this.skills = {};        // mastery tree: id -> rank
 
     this.pos = new THREE.Vector3();
@@ -111,6 +115,9 @@ export class Player {
     //   damage: full value to +100%, half value beyond
     //   move speed: capped at +30% · crit: capped 50% total · armor: 60%
     let dmgPct = 0, speedPct = 0, critPct = 0, armorPct = 0, regenFlat = 0, cdr4 = 0;
+    // Offhand special-ability procs (see loot.js OFFHAND_PROCS) — one stat
+    // slot each, capped below so no single item trivializes combat.
+    let blockChance = 0, thorns = 0, goldFindPct = 0, killHealPct = 0;
     for (const item of Object.values(this.equipped)) {
       if (!item) continue;
       // Off-class gear (attuned to another class) yields HALF its stats, so
@@ -125,6 +132,11 @@ export class Player {
         else if (stat === 'speed') speedPct += v;
         else if (stat === 'regen') regenFlat += v;
         else if (stat === 'cdr4') cdr4 += v; // ultimate (slot-4) cooldown reduction %
+        else if (stat === 'blockChance') blockChance += v;
+        else if (stat === 'thorns') thorns += v;
+        else if (stat === 'procRegen') regenFlat += v; // folds into the same regen pool/cap
+        else if (stat === 'goldFind') goldFindPct += v;
+        else if (stat === 'killHeal') killHealPct += v;
       }
     }
     // Weapon-borne reduction to the slot-4 (ultimate/AoE) ability cooldown, capped.
@@ -135,6 +147,10 @@ export class Player {
     crit += Math.min(35, critPct) / 100;
     armor += Math.min(45, armorPct) / 100;
     regen += Math.min(15, regenFlat);
+    this.blockChance = Math.min(30, blockChance) / 100;
+    this.thorns = Math.min(60, thorns);
+    this.goldFindPct = Math.min(60, goldFindPct);
+    this.killHealPct = Math.min(15, killHealPct) / 100;
 
     // mastery tree bonuses (small, capped by the same limits below)
     maxHp *= 1 + 0.06 * this.skillRank('vitality');
@@ -242,13 +258,28 @@ export class Player {
     if (game.inSafeZone && game.inSafeZone(this.pos)) return;
     let mult = 1 - this.armor;
     for (const b of this.buffs) if (b.damageTakenMult) mult *= b.damageTakenMult;
+    // Offhand block-chance proc: a successful block cuts the hit sharply
+    // (partial, not a full negate, so it stays a bonus rather than immunity).
+    const blocked = this.blockChance > 0 && Math.random() < this.blockChance;
+    if (blocked) mult *= 0.4;
     const final = Math.max(1, Math.round(amount * mult));
     this.hp -= final;
     audio.classHurt(this.classId); // per-class vocal grunt (throttled internally)
-    game.ui.floaters.spawn(this.pos, `-${final}`, 'player-dmg');
+    game.ui.floaters.spawn(this.pos, blocked ? `-${final} (blocked)` : `-${final}`, 'player-dmg');
     game.particles.burst(this.pos.x, 1.0, this.pos.z, 10, 0xd94a4a, { speed: 3.5, life: 0.35, size: 0.11 });
     game.shake(0.25);
     this.invulnTimer = 0.25;
+    // Offhand thorns proc: a small burst of damage to whatever's nearby when
+    // hit. No single-target attacker ref is threaded through every damage
+    // path in this codebase (AoE splash has none), so this reads as "reflect"
+    // without needing one — same damageEnemy call the dash/charge path uses.
+    if (this.thorns > 0) {
+      for (const e of game.enemies) {
+        if (e.dead) continue;
+        const d = Math.hypot(e.pos.x - this.pos.x, e.pos.z - this.pos.z);
+        if (d < 2.2 + (e.radius || 0)) game.damageEnemy(e, this.thorns, { silent: true });
+      }
+    }
     if (this.hp <= 0) {
       this.hp = 0;
       this.dead = true;
@@ -568,6 +599,7 @@ export class Player {
       legs: cleanItem(eq.legs),
       hands: cleanItem(eq.hands),
       trinket: cleanItem(eq.trinket),
+      offhand: cleanItem(eq.offhand), // absent on old saves — stays null, no migration needed
     };
     // Mastery ranks are capped at 5 in play; clamp loaded ranks the same way.
     const skills = {};
