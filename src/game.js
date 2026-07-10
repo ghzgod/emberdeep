@@ -127,7 +127,15 @@ export class Game {
         e.touches[0].clientY - e.touches[1].clientY),
     });
     window.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) this._twist = twistSample(e);
+      if (e.touches.length === 2) {
+        this._twist = twistSample(e);
+        // Two fingers down with the joystick idle = gesture territory (twist
+        // or pinch): the second thumb must never register as an attack tap,
+        // and any attack the first finger started is cancelled. When the
+        // joystick IS steering, two fingers are move+attack play - untouched.
+        const t = this.touch;
+        if (t && !t.joyActive) { t.attacking = false; t._aimId = null; t.gestureLock = true; }
+      }
     }, { passive: true });
     window.addEventListener('touchmove', (e) => {
       if (this.state !== 'playing' || e.touches.length !== 2 || !this._twist) return;
@@ -147,7 +155,10 @@ export class Game {
       if (Math.abs(da) < 0.004 || Math.abs(da) > 0.5 || arc < radial * 2) return;
       this._twistPending += da;
     }, { passive: true });
-    window.addEventListener('touchend', () => { this._twist = null; }, { passive: true });
+    window.addEventListener('touchend', (e) => {
+      this._twist = null;
+      if (e.touches.length < 2 && this.touch) this.touch.gestureLock = false;
+    }, { passive: true });
 
     // lights
     this.ambient = new THREE.AmbientLight(0x8a7a9a, 0.55);

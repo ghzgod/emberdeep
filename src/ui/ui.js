@@ -1633,6 +1633,10 @@ export class UI {
 
   setMicAvailable(on) {
     $('ab-mic').classList.toggle('hidden', !on);
+    // With the mic bubble hidden (single player / mic off), the utility arc
+    // would show a hole at its slot - body.mic-hidden re-spaces the remaining
+    // bubbles over the gap (style.css).
+    document.body.classList.toggle('mic-hidden', !on);
   }
 
   showInteract(candidate) {
