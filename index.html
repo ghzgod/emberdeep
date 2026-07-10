@@ -333,7 +333,11 @@
     <div id="inventory-screen" class="overlay panel">
       <button class="overlay-close" data-close="inventory" title="Close">✕</button>
       <h2 class="screen-heading">Inventory</h2>
-      <div id="equip-slots" class="equip-row"></div>
+      <div id="paperdoll">
+        <div id="inv-preview"><canvas id="inv-preview-canvas"></canvas></div>
+        <div id="equip-slots" class="equip-row"></div>
+      </div>
+      <div id="inv-stats"></div>
       <div id="inv-grid" class="inv-grid"></div>
       <div id="item-tooltip" class="hidden"></div>
       <p class="hint">Tap an item for stats · Ctrl-click or hold to multi-select · Tab/Esc to close</p>

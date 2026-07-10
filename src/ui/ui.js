@@ -2275,6 +2275,7 @@ export class UI {
   openInventory() {
     this.renderInventory();
     this.show('inventory');
+    this.startInvPreview();
     audio.play('ui_open');
   }
   closeInventory() {
@@ -2283,7 +2284,91 @@ export class UI {
     // explicitly so it never gets orphaned open behind a closed inventory.
     this.closeItemActions();
     this.hideAll();
+    this.stopInvPreview();
     audio.play('ui_close');
+  }
+
+  // ---------- inventory paper-doll live 3D preview ----------
+  // Same pattern as startCharPreview (own tiny renderer, idle animation,
+  // fully disposed on close) but shows the ACTUAL playing hero: real class,
+  // gender, skin tone and name. There is no gear-cosmetic system in this repo
+  // (equip() in game.js only changes stats - see player.js `equipped`), so
+  // per spec this falls back to the plain class/gender/skin hero rather than
+  // pretending to show worn gear that has no visual representation.
+  startInvPreview() {
+    const canvas = $('inv-preview-canvas');
+    if (!canvas) return;
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    } catch { return; } // no WebGL: the panel still works without the preview
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const w = canvas.clientWidth || 190, h = canvas.clientHeight || 260;
+    renderer.setSize(w, h, false);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(34, w / h, 0.1, 30);
+    camera.position.set(0, 1.35, 3.4);
+    camera.lookAt(0, 0.85, 0);
+    scene.add(new THREE.HemisphereLight(0xcdc4ea, 0x2a2033, 1.15));
+    const key = new THREE.DirectionalLight(0xffe2b0, 1.7);
+    key.position.set(2.2, 3.5, 2.6);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0x8a6cff, 0.8);
+    rim.position.set(-2.5, 2, -2);
+    scene.add(rim);
+    const turntable = new THREE.Group();
+    scene.add(turntable);
+
+    const p = this.game.player;
+    const anim = buildAnimatedHero(p.classId, this.game.playerName(), { gender: p.gender, skinTone: p.skinTone });
+    let mesh, gait = null;
+    if (anim) mesh = anim.mesh;
+    else { mesh = buildHeroMesh(CLASSES[p.classId], this.game.playerName()); gait = mesh.userData.updateGait; }
+    turntable.add(mesh);
+
+    const P = this._invPrev = {
+      renderer, scene, camera, turntable, canvas, mesh, anim, gait,
+      lastT: performance.now(), raf: 0, w, h,
+    };
+    const loop = () => {
+      if (this._invPrev !== P) return;
+      P.raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - P.lastT) / 1000);
+      P.lastT = now;
+      // Paused (but still ticking the clock above) while the item-actions
+      // card is open: it's a full-screen overlay that fully hides the doll,
+      // so rendering behind it would be wasted GPU work every frame.
+      if (!$('item-actions')?.classList.contains('hidden')) return;
+      const cw = P.canvas.clientWidth, ch = P.canvas.clientHeight;
+      if (cw && ch && (cw !== P.w || ch !== P.h)) {
+        P.w = cw; P.h = ch;
+        P.renderer.setSize(cw, ch, false);
+        P.camera.aspect = cw / ch;
+        P.camera.updateProjectionMatrix();
+      }
+      P.turntable.rotation.y += dt * 0.7;
+      if (P.anim) { P.anim.setLocomotion(0, dt, false); P.anim.mixer.update(dt); }
+      if (P.gait) P.gait(dt, 0, false);
+      P.renderer.render(P.scene, P.camera);
+    };
+    loop();
+  }
+
+  stopInvPreview() {
+    const P = this._invPrev;
+    if (!P) return;
+    cancelAnimationFrame(P.raf);
+    P.turntable.remove(P.mesh);
+    P.mesh.traverse((o) => {
+      if (o.isMesh && o.material) {
+        if (o.material.map && o.material.map.isCanvasTexture) o.material.map.dispose();
+        o.material.dispose();
+      }
+    });
+    P.renderer.dispose();
+    P.renderer.forceContextLoss?.();
+    this._invPrev = null;
   }
 
   renderInventory() {
@@ -2295,6 +2380,7 @@ export class UI {
       const el = document.createElement('div');
       const offClass = item && item.affinity && item.affinity !== p.classId;
       el.className = `inv-slot equip ${item ? 'rarity-' + item.rarity : ''} ${offClass ? 'off-class' : ''}`;
+      el.dataset.slot = slotName;
       const eqIcon = item ? (item.slot ? `<img class="inv-item-icon" src="${makeItemIcon(item)}" alt="">` : item.icon) : '·';
       el.innerHTML = `${eqIcon}<span class="slot-label">${slotName}</span>`;
       if (item) {
@@ -2314,6 +2400,17 @@ export class UI {
       }
       equipWrap.appendChild(el);
     }
+    // Offhand has no slot type in loot.js (GEAR_SLOTS is weapon/helmet/chest/
+    // legs/hands/trinket - no off-hand item ever generates) so the anatomy
+    // position is shown locked rather than implying a system that isn't there.
+    const offhand = document.createElement('div');
+    offhand.className = 'inv-slot equip locked';
+    offhand.dataset.slot = 'offhand';
+    offhand.title = 'Offhand - coming soon';
+    offhand.innerHTML = `${svgIcon('lock', 'lock-icon')}<span class="slot-label">offhand</span>`;
+    equipWrap.appendChild(offhand);
+
+    this.renderInvStats(p);
 
     this.destroySel ||= new Set();
     // drop any queued-for-destruction items that left the pack
@@ -2403,6 +2500,31 @@ export class UI {
     }
     db.innerHTML = `${svgIcon('trash')} Destroy ${this.destroySel.size} items`;
     db.style.display = this.destroySel.size >= 2 ? '' : 'none';
+  }
+
+  // Two-column totals under the doll: Offense (damage/crit/speed/ultimate
+  // cooldown) and Defense (health/armor/regen/level). Pulls from the same
+  // derived stats recompute() already produces, so it always matches what
+  // combat actually uses - no separate calculation to drift out of sync.
+  renderInvStats(p) {
+    const wrap = $('inv-stats');
+    if (!wrap) return;
+    const row = (label, val) => `<div class="stat-row"><span>${label}</span><span>${val}</span></div>`;
+    wrap.innerHTML = `
+      <div class="inv-stats-col">
+        <h4>Offense</h4>
+        ${row('Damage', Math.round(p.baseDamage))}
+        ${row('Crit chance', Math.round(p.crit * 100) + '%')}
+        ${row('Move speed', Math.round(p.speed))}
+        ${row('Ultimate CDR', Math.round((p.ult4Cdr || 0) * 100) + '%')}
+      </div>
+      <div class="inv-stats-col">
+        <h4>Defense</h4>
+        ${row('Max health', p.maxHp)}
+        ${row('Armor', Math.round(p.armor * 100) + '%')}
+        ${row('Resource regen', p.resourceRegen.toFixed(1))}
+        ${row('Level', p.level)}
+      </div>`;
   }
 
   // List the doomed items and ask before wiping them for good. Anything
