@@ -94,6 +94,8 @@ class NeuralVoice {
     this._current = null;
     this._busy = false;
     this._cache = new Map(); // key: voice|speed|text -> { audio, sr }
+    this._preloading = new Map(); // key -> in-flight preload Promise (dedupes repeat calls)
+    this._preloadTokens = new Map(); // key -> { aborted } so a death mid-synthesis can drop the result
     this._combatBusy = false; // set via reportCombatLoad(); gates fresh generation only
     this._idleTimer = null;   // disposes the model after IDLE_RELEASE_MS of silence
     this._released = false;   // true when we freed the model and must lazily reload
@@ -305,7 +307,10 @@ class NeuralVoice {
 
   // anchor: optional { x, y, z } world position of the speaking character, passed
   // straight to onGenerating so the UI can float a "speaking soon" bubble on them.
-  async speak(text, { voice = 'af_heart', speed = 1, anchor = null } = {}) {
+  // rate: optional playback-rate multiplier applied to the DECODED buffer at
+  // play time only (never affects the cached PCM or the generate() call), so
+  // per-character pitch shaping (deep boss, squeaky imp) is free on cache hits.
+  async speak(text, { voice = 'af_heart', speed = 1, anchor = null, rate = 1 } = {}) {
     // ready === status 'ready' even after an idle release (tts is null then), so
     // gate on the status, not on tts: a released model is reloaded below.
     if (!this.ready) return false;
@@ -317,7 +322,7 @@ class NeuralVoice {
     // This is what makes repeated barks/vendor lines feel snappy. Re-arm the
     // idle timer so a steady stream of cached lines still counts as activity.
     const cached = this._cache.get(key);
-    if (cached) { this._armIdleRelease(); return this._playPcm(cached.audio, cached.sr); }
+    if (cached) { this._armIdleRelease(); return this._playPcm(cached.audio, cached.sr, rate); }
 
     // A fresh line needs a real generate() call. Skip it (rather than pile onto
     // an already-heavy fight) if the fight is heavy right now; the next calm
@@ -346,7 +351,7 @@ class NeuralVoice {
       const result = await this.tts.generate(clean, { voice, speed });
       this._cache.set(key, { audio: result.audio, sr: result.sampling_rate });
       if (this._cache.size > 80) this._cache.delete(this._cache.keys().next().value);
-      return this._playPcm(result.audio, result.sampling_rate);
+      return this._playPcm(result.audio, result.sampling_rate, rate);
     } catch (err) {
       console.warn('[neural-tts] generate failed', err);
       return false;
@@ -359,14 +364,73 @@ class NeuralVoice {
     }
   }
 
+  // Pre-synthesize a line WITHOUT playing it, so the boss's opening line is
+  // already a decoded PCM buffer in _cache by the time aggro actually happens
+  // (speak() with the same text/voice/speed then hits the cache and plays
+  // instantly). Idempotent and safe to call every frame: cached/in-flight
+  // requests short-circuit cheaply. Respects the same combat-load/busy gates
+  // as speak() so preloading never competes with an in-progress fight line.
+  async preload(text, { voice = 'af_heart', speed = 1 } = {}) {
+    if (!this.ready) return false;
+    const clean = normalizeForTTS(text);
+    if (!clean) return false;
+    const key = `${voice}|${speed}|${clean}`;
+    if (this._cache.has(key)) return true;
+    if (this._preloading.has(key)) return this._preloading.get(key);
+    if (this._combatBusy || this._busy) return false;
+
+    const token = { aborted: false };
+    this._preloadTokens.set(key, token);
+    const p = (async () => {
+      this._busy = true;
+      try {
+        if (this._released || !this.tts) await this._ensureLoaded();
+        if (!this.tts) return false;
+        const result = await this.tts.generate(clean, { voice, speed });
+        // The boss died (or otherwise got cancelled) while this was in flight:
+        // drop the result silently instead of caching a line for a corpse.
+        if (token.aborted) return false;
+        this._cache.set(key, { audio: result.audio, sr: result.sampling_rate });
+        if (this._cache.size > 80) this._cache.delete(this._cache.keys().next().value);
+        return true;
+      } catch (err) {
+        console.warn('[neural-tts] preload failed', err);
+        return false;
+      } finally {
+        this._busy = false;
+        this._preloading.delete(key);
+        this._preloadTokens.delete(key);
+        this._armIdleRelease();
+      }
+    })();
+    this._preloading.set(key, p);
+    return p;
+  }
+
+  // Abort an in-flight preload (its result gets dropped when generate() settles)
+  // and/or discard an already-finished-but-unplayed preload from the cache, so a
+  // killed boss can never speak posthumously. Safe to call for a line that was
+  // never preloaded (both lookups simply miss).
+  cancelPreload(text, { voice = 'af_heart', speed = 1 } = {}) {
+    const clean = normalizeForTTS(text);
+    const key = `${voice}|${speed}|${clean}`;
+    const token = this._preloadTokens.get(key);
+    if (token) token.aborted = true;
+    this._cache.delete(key);
+  }
+
   // Play raw PCM (Float32) through the SFX bus. Reused by fresh + cached lines.
-  _playPcm(audioData, sr) {
+  // rate: playbackRate on the buffer source -- a cheap per-character pitch/tempo
+  // shift (dragons/golems slowed+deepened, imps sped+raised) applied at the
+  // moment of playback so it works identically for fresh and cached audio.
+  _playPcm(audioData, sr, rate = 1) {
     this.stop();
     if (!audio.ctx) return false;
     const buf = audio.ctx.createBuffer(1, audioData.length, sr);
     buf.getChannelData(0).set(audioData);
     const src = audio.ctx.createBufferSource();
     src.buffer = buf;
+    if (rate && rate !== 1) src.playbackRate.value = rate;
     const gain = audio.ctx.createGain();
     gain.gain.value = this.volume ?? 0.9;
     src.connect(gain);
