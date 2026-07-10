@@ -225,6 +225,86 @@ export function hairToneById(id) {
   return HAIR_TONES.find((t) => t.id === id) || null;
 }
 
+// Player-chosen eye colors for character creation. Unlike SKIN_TONES/HAIR_TONES
+// above, the KayKit atlas has no dedicated flat-color eye tile - the iris/pupil
+// detail is painted directly into the head texture at the eyes' fixed UV spot,
+// so tintAtlasTile can't retint just that (it would also recolor the skin
+// pixels sharing the same tile). See addEyeDiscs below for how this is applied
+// instead. Brown is the default so an untouched/old save still shows a normal
+// eye colour rather than nothing.
+export const EYE_COLORS = [
+  { id: 'brown', label: 'Brown', hex: 0x4a2f1a },
+  { id: 'blue', label: 'Blue', hex: 0x3a6ea8 },
+  { id: 'green', label: 'Green', hex: 0x3a8a52 },
+  { id: 'amber', label: 'Amber', hex: 0xc08a2a },
+  { id: 'violet', label: 'Violet', hex: 0x6a4a9a },
+  { id: 'grey', label: 'Grey', hex: 0x8a8a90 },
+];
+
+export function eyeColorById(id) {
+  return EYE_COLORS.find((t) => t.id === id) || null;
+}
+
+// Player-chosen face shape for character creation. Honest limit: these KayKit
+// rigs ship no morph targets, so a real jaw/cheekbone reshape isn't possible.
+// Instead each option is a subtle non-uniform scale applied to the HEAD MESH
+// NODE only (never the skeleton/bones), so every animation keeps working
+// completely untouched. 'standard' is a no-op (stock proportions).
+export const FACE_SHAPES = [
+  { id: 'standard', label: 'Standard', sx: 1, sy: 1 },
+  { id: 'narrow', label: 'Narrow', sx: 0.94, sy: 1.04 },
+  { id: 'round', label: 'Round', sx: 1.06, sy: 0.97 },
+];
+
+export function faceShapeById(id) {
+  return FACE_SHAPES.find((t) => t.id === id) || FACE_SHAPES[0];
+}
+
+// Lays two small unlit discs over the head mesh's baked-eye position to stand
+// in for a real eye-colour retint (see EYE_COLORS comment above for why the
+// atlas-tile route doesn't work here). Positions are estimated from the head
+// mesh's own local geometry bounding box (the same box buildAnimatedHero
+// measures for the helmet headAnchor) rather than a fixed constant, since the
+// three playable rigs (Knight/Mage/Rogue_Hooded) are each a different height
+// and head size.
+//
+// Parented to the hero ROOT (`mesh`), not the head bone: the headMesh's own
+// geometry (and therefore this bounding box) is authored in the rig's overall
+// bind-pose model space, which is the same space the root's direct children
+// live in - NOT the head bone's own local space (the bone's local origin sits
+// at the neck joint, so reusing these same numbers as a bone-local offset
+// double-counts the neck-to-crown distance and floats the discs off the top
+// of the screen - caught via a projected-to-screen-space check during manual
+// verification). This is the same tradeoff the (disabled) procedural mage
+// hood took: it does not track head-only animation (idle bob), only the
+// whole rig's root motion, which reads fine at this game's camera distance.
+function addEyeDiscs(mesh, headMesh, hex) {
+  if (!headMesh) return;
+  headMesh.geometry.computeBoundingBox();
+  const bb = headMesh.geometry.boundingBox;
+  const w = bb.max.x - bb.min.x;
+  const h = bb.max.y - bb.min.y;
+  const d = bb.max.z - bb.min.z;
+  // Eyes sit a bit above the head's vertical middle (below the crown, above
+  // the chin) and toward the front face (the rig faces +Z). Pushed slightly
+  // PAST the geometry's own max-Z (rather than just short of it) because the
+  // face surface at eye height/width is not as far forward as the bounding
+  // box's overall max (that peak belongs to the nose/chin) - sitting exactly
+  // at or under that surface let the baked face z-fight/occlude the discs.
+  const eyeY = bb.max.y - h * 0.5;
+  const eyeZ = bb.max.z + d * 0.03;
+  const eyeX = w * 0.22;
+  const geo = new THREE.CircleGeometry(Math.max(0.014, w * 0.06), 10);
+  const mat = new THREE.MeshBasicMaterial({ color: hex });
+  for (const side of [-1, 1]) {
+    const disc = new THREE.Mesh(geo, mat);
+    disc.position.set(side * eyeX, eyeY, eyeZ);
+    disc.renderOrder = 2;
+    disc.frustumCulled = false;
+    mesh.add(disc);
+  }
+}
+
 // All three KayKit rigs share one texture atlas laid out as an 8-column palette
 // grid. The top-left tile (UV x:[0,0.125) y:[0.875,1)) is the skin swatch (head
 // + hands sample only that tile) and the tile immediately to its right (col 1,
@@ -605,11 +685,13 @@ const KNIGHT_COMBO_PATTERNS = {
 // above) so the same hero name always looks the same, for the local player
 // and for every peer who sees them in co-op. `opts` carries the character's
 // creation choices: { gender: 'male'|'female', skinTone: <SKIN_TONES id>,
-// hairColor: <HAIR_TONES id> }. Skin tone and hair color are the clearly
-// visible ones (repaint the head/hands and hair tile respectively); gender is
-// a subtle silhouette hint only (the base rigs have no gendered geometry).
-// hairColor defaults to null (no opts.hairColor / unrecognized id), which
-// keeps the rig's own baked hair untouched.
+// hairColor: <HAIR_TONES id>, eyeColor: <EYE_COLORS id>, faceShape: <FACE_SHAPES
+// id> }. Skin tone and hair color are the clearly visible ones (repaint the
+// head/hands and hair tile respectively); gender is a subtle silhouette hint
+// only (the base rigs have no gendered geometry). hairColor defaults to null
+// (no opts.hairColor / unrecognized id), which keeps the rig's own baked hair
+// untouched. eyeColor defaults to brown (EYE_COLORS[0]) rather than null since
+// every head has visible eyes; faceShape defaults to 'standard' (no scale).
 export function buildAnimatedHero(classId, name = '', opts = {}) {
   const data = loaded.get(classId);
   if (!data) return null;
@@ -617,6 +699,8 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
   const gender = opts.gender === 'female' ? 'female' : 'male';
   const skinTone = skinToneById(opts.skinTone);
   const hairTone = hairToneById(opts.hairColor);
+  const eyeTone = eyeColorById(opts.eyeColor) || EYE_COLORS[0];
+  const faceShape = faceShapeById(opts.faceShape);
 
   const mesh = skeletonClone(data.scene);
   mesh.scale.setScalar(data.scale);
@@ -764,6 +848,22 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
     };
   }
   const useAtlasTones = ATLAS_COSMETICS_CLASSES.has(classId);
+  // Face shape (TODO 97): scale the HEAD MESH NODE only, after headAnchor is
+  // measured (so the helmet-fit anchor above stays the real, unscaled head)
+  // and before the eye discs below (their bone-parented position is derived
+  // straight from the unscaled geometry, so scaling here doesn't move them
+  // relative to the head - see addEyeDiscs). Gated the same as skin/hair tone
+  // (ATLAS_COSMETICS_CLASSES) since the townsfolk-only Quaternius bodies don't
+  // share this rig's head node naming/layout.
+  if (headMesh && useAtlasTones && (faceShape.sx !== 1 || faceShape.sy !== 1)) {
+    headMesh.scale.x *= faceShape.sx;
+    headMesh.scale.y *= faceShape.sy;
+  }
+  // Eye colour (TODO 97): see addEyeDiscs above for why this is two small
+  // overlay discs rather than an atlas tile retint.
+  if (headMesh && useAtlasTones) {
+    addEyeDiscs(mesh, headMesh, eyeTone.hex);
+  }
   applyCosmetics(mesh, name, useAtlasTones && skinTone ? skinTone.hex : null, useAtlasTones && hairTone ? hairTone.hex : null);
 
   // fake blob shadow
