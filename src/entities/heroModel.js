@@ -11,6 +11,11 @@ const MODEL_FILES = {
 
 const TARGET_HEIGHT = 1.6; // world units
 
+// Reused by the arm-driven swing in setLocomotion (no per-frame allocations).
+const _swingQ = new THREE.Quaternion();
+const _AXIS_X = new THREE.Vector3(1, 0, 0);
+const _AXIS_Y = new THREE.Vector3(0, 1, 0);
+
 const loaded = new Map(); // classId -> { scene, animations, scale }
 
 export async function preloadHeroModels(onProgress) {
@@ -706,32 +711,46 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
         this.mesh.position.y += (0 - this.mesh.position.y) * Math.min(1, 10 * dt);
         this.mesh.rotation.z += (0 - this.mesh.rotation.z) * Math.min(1, 10 * dt);
       }
-      // Per-swing random root lean (set in playAttack): hold it while attacking,
-      // ease it back to neutral once the swing ends so it never fights the walk.
-      const targetTilt = attacking ? (this._swingTilt || 0) : 0;
-      this.mesh.rotation.x += (targetTilt - this.mesh.rotation.x) * Math.min(1, 12 * dt);
-      // Wide swing body sweep: the torso winds back then drives through the cut
-      // and recovers, so the sword tip travels a broad arc. Applied additively on
-      // top of the facing yaw (player.js sets rotation.y from visualAngle just
-      // before this runs, so re-basing it each frame is fine). Only for knight
-      // variant swings; other classes never set _swingSweepActive.
-      if (this._swingSweepActive) {
-        this._swingSweepT = (this._swingSweepT || 0) + dt;
-        const dur = 0.36;
-        const p = Math.min(1, this._swingSweepT / dur);
+      // ARM-driven swing (owner spec: a real human swing moves the ARM across
+      // the body and out for horizontal cuts, and raises it higher for the
+      // overhead - the whole knight must NOT rotate). Applied post-mixer as
+      // additive bone rotations (setLocomotion runs after mixer.update in
+      // player.js, so premultiplying here composes with this frame's clip
+      // pose). Only knight variant swings set _armSwing.
+      if (this._armSwing) {
+        const s = this._armSwing;
+        s.t += dt;
+        const p = Math.min(1, s.t / s.dur);
+        // envelope: wind back 22%, drive through 48%, recover 30%
         let off;
-        // Big theatrical arc: wind back ~-0.95 rad then drive through to ~+1.55
-        // rad (times mag) - the torso visibly carries the blade across a huge
-        // sweep instead of a small wiggle.
-        if (p < 0.22) off = -0.95 * (p / 0.22);                        // cock back hard
-        else if (p < 0.7) off = -0.95 + 2.5 * ((p - 0.22) / 0.48);     // drive all the way through
-        else off = 1.55 * (1 - (p - 0.7) / 0.3);                       // recover to 0
-        this._swingSweepOffset = off * this._swingSweepMag * this._swingSweepDir;
-        if (p >= 1) { this._swingSweepActive = false; this._swingSweepOffset = 0; }
-      } else if (this._swingSweepOffset) {
-        this._swingSweepOffset += (0 - this._swingSweepOffset) * Math.min(1, 14 * dt);
+        if (p < 0.22) off = -0.6 * (p / 0.22);
+        else if (p < 0.7) off = -0.6 + 1.6 * ((p - 0.22) / 0.48);
+        else off = 1.0 * (1 - (p - 0.7) / 0.3);
+        if (!this._armBones) {
+          this._armBones = { arm: null, chest: null };
+          this.mesh.traverse((o) => {
+            if (/^upperarm\.r$/i.test(o.name)) this._armBones.arm = o;
+            else if (/^chest$/i.test(o.name)) this._armBones.chest = o;
+          });
+        }
+        const { arm, chest } = this._armBones;
+        if (arm) {
+          if (s.kind === 'slice') {
+            // sweep the arm across the body then extended out to the far side
+            arm.quaternion.premultiply(_swingQ.setFromAxisAngle(_AXIS_Y, off * 0.95 * s.dir));
+          } else if (s.kind === 'chop') {
+            // raise the arm higher through the overhead
+            arm.quaternion.premultiply(_swingQ.setFromAxisAngle(_AXIS_X, -Math.abs(off) * 0.7));
+          } else { // stab: modest forward extension
+            arm.quaternion.premultiply(_swingQ.setFromAxisAngle(_AXIS_X, -Math.abs(off) * 0.35));
+          }
+        }
+        // a touch of chest twist sells the horizontal cut without turning the knight
+        if (chest && s.kind === 'slice') {
+          chest.quaternion.premultiply(_swingQ.setFromAxisAngle(_AXIS_Y, off * 0.3 * s.dir));
+        }
+        if (p >= 1) this._armSwing = null;
       }
-      if (this._swingSweepOffset) this.mesh.rotation.y += this._swingSweepOffset;
     },
     // `variant` picks one of the knight's combo clips (see KNIGHT_COMBO_PATTERNS)
     // for a varied swing; omit it (abilities, other classes) to play the
@@ -769,22 +788,13 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       a.setEffectiveTimeScale(variant ? 1.15 + Math.random() * 0.35 : 1.8);
       a.setEffectiveWeight(1);
       a.play();
-      // Tiny random root lean for the swing: a left/right/forward tilt that reads
-      // as the hero committing to that particular cut. Cleared as soon as the
-      // hero moves or idles (setLocomotion resets rotation.z; _swingTilt below
-      // eases rotation.x back). Only for the randomized (knight) swings.
       if (variant) {
-        this._swingTilt = (Math.random() - 0.5) * 0.26;
-        // Wide body sweep: the torso rotates through the cut so the blade visibly
-        // carves a HUGE arc (matching the wide hit arc in classes.js). Full-body
-        // sweep for the horizontal cleaves, still-substantial for the overhead
-        // chop and forward stab. Direction alternates between cleaves.
-        const mag = key === 'chop' ? 0.55 : key === 'stab' ? 0.4 : 1.0;
-        this._swingSweepDir = (key === 'slice_diagonal') ? -1
-          : (this._swingAlt = !this._swingAlt) ? 1 : -1;
-        this._swingSweepMag = mag;
-        this._swingSweepT = 0;
-        this._swingSweepActive = true;
+        // ARM-driven swing (see setLocomotion): the arm crosses the body and
+        // extends for horizontal cuts, raises higher for the overhead, extends
+        // forward for the stab. The knight's body does not rotate.
+        const kind = key === 'chop' ? 'chop' : key === 'stab' ? 'stab' : 'slice';
+        const dir = key === 'slice_diagonal' ? -1 : (this._swingAlt = !this._swingAlt) ? 1 : -1;
+        this._armSwing = { t: 0, dur: 0.34, kind, dir };
       }
     },
     // Whirlwind pose: freeze the attack clip near mid-swing, where the sword

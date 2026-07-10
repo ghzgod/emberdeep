@@ -34,6 +34,8 @@ export class TouchControls {
     this.touchInput = isTouchDevice();
     this.compact = isCompactLayout();
     this.enabled = this.touchInput;
+    // real-touch marker for CSS: joystick + ghost tutorial are touch-only
+    document.body.classList.toggle('touch-input', this.touchInput);
     this.move = { x: 0, z: 0 };
     this.joyActive = false;
     this.attacking = false;
@@ -66,6 +68,13 @@ export class TouchControls {
       canvas.addEventListener('pointermove', (e) => this.onMove(e));
       canvas.addEventListener('pointerup', (e) => this.onUp(e));
       canvas.addEventListener('pointercancel', (e) => this.onUp(e));
+      // failsafe: a blur mid-gesture must never leave attack/joystick latched
+      window.addEventListener('blur', () => {
+        this._joyId = null; this._aimId = null;
+        this.joyActive = false; this.attacking = false;
+        this.move.x = 0; this.move.z = 0;
+        if (this.joyBase) this.joyBase.style.display = 'none';
+      });
     }
 
     // any pointer anywhere wakes the button drawer back to full opacity
@@ -268,6 +277,9 @@ export class TouchControls {
   _reevaluate() {
     this.touchInput = isTouchDevice();
     this.enabled = this.touchInput;
+    // touch-input marks REAL touch capability: CSS uses it to hide the virtual
+    // joystick + its ghost tutorial on mouse machines, even in compact layout.
+    document.body.classList.toggle('touch-input', this.touchInput);
     const nowCompact = isCompactLayout();
     if (nowCompact === this.compact) return;
     this.compact = nowCompact;
