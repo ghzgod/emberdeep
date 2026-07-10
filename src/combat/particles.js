@@ -1,12 +1,22 @@
 import * as THREE from 'three';
 
 // Lightweight particle bursts + expanding rings, disposed when expired.
+// Visuals are small low-poly shards (tetrahedra/octahedra) rendered via one
+// InstancedMesh per burst/stream/ring-spike-set, so each call is still a
+// single draw call (same cost class as the old Points-based version) while
+// reading as stylized 3D motes instead of flat point sprites. All geometry is
+// module-level and shared - only materials (colour varies per call) and the
+// small per-call instance-matrix buffer are created per burst.
+const SHARD_GEO = new THREE.OctahedronGeometry(0.5, 0);
+const SPIKE_GEO = new THREE.TetrahedronGeometry(0.4, 0);
+const RING_GEO = new THREE.TorusGeometry(1, 0.09, 4, 12); // low-poly facets, not a smooth torus
+const _dummy = new THREE.Object3D();
+
 export class ParticleSystem {
   constructor(scene) {
     this.scene = scene;
     this.systems = [];
     this.rings = [];
-    this.ringGeo = new THREE.TorusGeometry(1, 0.05, 6, 32);
   }
 
   burst(x, y, z, count, color, opts = {}) {
@@ -15,6 +25,7 @@ export class ParticleSystem {
     const size = opts.size ?? 0.14;
     const positions = new Float32Array(count * 3);
     const velocities = [];
+    const rotSpeeds = [];
     for (let i = 0; i < count; i++) {
       positions[i * 3] = x;
       positions[i * 3 + 1] = y;
@@ -27,15 +38,27 @@ export class ParticleSystem {
         Math.abs(Math.cos(phi)) * s * (opts.up ?? 0.8),
         Math.sin(phi) * Math.sin(theta) * s
       ));
+      rotSpeeds.push(new THREE.Vector3(
+        (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12
+      ));
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const mat = new THREE.PointsMaterial({
-      color, size, transparent: true, opacity: 1, depthWrite: false,
+    const mat = new THREE.MeshStandardMaterial({
+      color, emissive: color, emissiveIntensity: 0.7, flatShading: true,
+      transparent: true, opacity: 1, depthWrite: false,
     });
-    const points = new THREE.Points(geo, mat);
-    this.scene.add(points);
-    this.systems.push({ points, velocities, life, maxLife: life });
+    const mesh = new THREE.InstancedMesh(SHARD_GEO, mat, count);
+    mesh.frustumCulled = false;
+    const scale = size / 0.5; // SHARD_GEO's base radius is 0.5
+    for (let i = 0; i < count; i++) {
+      _dummy.position.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+      _dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      _dummy.scale.setScalar(scale);
+      _dummy.updateMatrix();
+      mesh.setMatrixAt(i, _dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(mesh);
+    this.systems.push({ mesh, positions, velocities, rotSpeeds, scale, life, maxLife: life });
   }
 
   // Directional cone stream (the Dungeon Lord's fire breath): particles spawn
@@ -54,10 +77,11 @@ export class ParticleSystem {
     dirX /= dlen; dirZ /= dlen;
     const positions = new Float32Array(count * 3);
     const velocities = [];
-    const colors = new Float32Array(count * 3);
+    const rotSpeeds = [];
     const hot = new THREE.Color(0xfff2a8);
     const mid = new THREE.Color(0xff9a2a);
     const cool = new THREE.Color(0xff3a1a);
+    const colorArr = [];
     for (let i = 0; i < count; i++) {
       // stagger spawn along the cone's length so it reads as a continuous
       // stream rather than one puff, biased toward the origin (denser near
@@ -73,49 +97,94 @@ export class ParticleSystem {
       positions[i * 3 + 2] = z + pz * dist;
       const s = speed * (0.6 + Math.random() * 0.7);
       velocities.push(new THREE.Vector3(px * s, (Math.random() - 0.3) * 1.2, pz * s));
-      const c = Math.random() < 0.4 ? hot : Math.random() < 0.7 ? mid : cool;
-      colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+      rotSpeeds.push(new THREE.Vector3(
+        (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16
+      ));
+      colorArr.push(Math.random() < 0.4 ? hot : Math.random() < 0.7 ? mid : cool);
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const mat = new THREE.PointsMaterial({
-      size: opts.size ?? 0.32, transparent: true, opacity: 1, depthWrite: false,
-      vertexColors: true, blending: THREE.AdditiveBlending,
+    const size = opts.size ?? 0.32;
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, emissive: 0xff8a2a, emissiveIntensity: 1,
+      flatShading: true, transparent: true, opacity: 1, depthWrite: false,
+      blending: THREE.AdditiveBlending, vertexColors: true,
     });
-    const points = new THREE.Points(geo, mat);
-    this.scene.add(points);
-    this.systems.push({ points, velocities, life, maxLife: life, noGravity: true });
+    const mesh = new THREE.InstancedMesh(SPIKE_GEO, mat, count);
+    mesh.frustumCulled = false;
+    const scale = size / 0.4; // SPIKE_GEO's base radius is 0.4
+    for (let i = 0; i < count; i++) {
+      _dummy.position.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+      _dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      _dummy.scale.setScalar(scale);
+      _dummy.updateMatrix();
+      mesh.setMatrixAt(i, _dummy.matrix);
+      mesh.setColorAt(i, colorArr[i]);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.scene.add(mesh);
+    this.systems.push({ mesh, positions, velocities, rotSpeeds, scale, life, maxLife: life, noGravity: true });
   }
 
   ring(x, y, z, radius, color) {
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, depthWrite: false });
-    const mesh = new THREE.Mesh(this.ringGeo, mat);
+    const mat = new THREE.MeshStandardMaterial({
+      color, emissive: color, emissiveIntensity: 0.6, flatShading: true,
+      transparent: true, opacity: 0.85, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(RING_GEO, mat);
     mesh.rotation.x = Math.PI / 2;
     mesh.position.set(x, y, z);
     mesh.scale.setScalar(0.2);
     this.scene.add(mesh);
-    this.rings.push({ mesh, targetRadius: radius, life: 0.45, maxLife: 0.45 });
+
+    // A handful of crystal spikes riding the ring's rim, so it reads as a
+    // shattering crystalline shockwave rather than a plain faceted band.
+    const spikeCount = 10;
+    const spikeMat = new THREE.MeshStandardMaterial({
+      color, emissive: color, emissiveIntensity: 0.9, flatShading: true,
+      transparent: true, opacity: 0.9, depthWrite: false,
+    });
+    const spikes = new THREE.InstancedMesh(SPIKE_GEO, spikeMat, spikeCount);
+    spikes.frustumCulled = false;
+    for (let i = 0; i < spikeCount; i++) {
+      const a = (i / spikeCount) * Math.PI * 2;
+      _dummy.position.set(Math.cos(a), 0, Math.sin(a));
+      _dummy.rotation.set(Math.random() * Math.PI, a, Math.random() * Math.PI);
+      _dummy.scale.setScalar(0.3);
+      _dummy.updateMatrix();
+      spikes.setMatrixAt(i, _dummy.matrix);
+    }
+    spikes.instanceMatrix.needsUpdate = true;
+    spikes.rotation.x = Math.PI / 2;
+    spikes.position.set(x, y, z);
+    spikes.scale.setScalar(0.2);
+    this.scene.add(spikes);
+
+    this.rings.push({ mesh, spikes, spikeCount, targetRadius: radius, life: 0.45, maxLife: 0.45 });
   }
 
   update(dt) {
     for (let i = this.systems.length - 1; i >= 0; i--) {
       const s = this.systems[i];
       s.life -= dt;
-      const pos = s.points.geometry.attributes.position;
+      const pos = s.positions;
       for (let j = 0; j < s.velocities.length; j++) {
         const v = s.velocities[j];
         if (!s.noGravity) v.y -= 6 * dt; // fire breath rises/drifts instead of falling
-        pos.array[j * 3] += v.x * dt;
-        pos.array[j * 3 + 1] += v.y * dt;
-        pos.array[j * 3 + 2] += v.z * dt;
+        pos[j * 3] += v.x * dt;
+        pos[j * 3 + 1] += v.y * dt;
+        pos[j * 3 + 2] += v.z * dt;
+        const rv = s.rotSpeeds[j];
+        _dummy.position.set(pos[j * 3], pos[j * 3 + 1], pos[j * 3 + 2]);
+        _dummy.rotation.set(rv.x * s.life, rv.y * s.life, rv.z * s.life);
+        _dummy.scale.setScalar(s.scale);
+        _dummy.updateMatrix();
+        s.mesh.setMatrixAt(j, _dummy.matrix);
       }
-      pos.needsUpdate = true;
-      s.points.material.opacity = Math.max(0, s.life / s.maxLife);
+      s.mesh.instanceMatrix.needsUpdate = true;
+      s.mesh.material.opacity = Math.max(0, s.life / s.maxLife);
       if (s.life <= 0) {
-        this.scene.remove(s.points);
-        s.points.geometry.dispose();
-        s.points.material.dispose();
+        this.scene.remove(s.mesh);
+        s.mesh.material.dispose();
         this.systems.splice(i, 1);
       }
     }
@@ -123,11 +192,16 @@ export class ParticleSystem {
       const r = this.rings[i];
       r.life -= dt;
       const t = 1 - r.life / r.maxLife;
-      r.mesh.scale.setScalar(Math.max(0.01, r.targetRadius * t));
-      r.mesh.material.opacity = 0.8 * (1 - t);
+      const scale = Math.max(0.01, r.targetRadius * t);
+      r.mesh.scale.setScalar(scale);
+      r.mesh.material.opacity = 0.85 * (1 - t);
+      r.spikes.scale.setScalar(scale);
+      r.spikes.material.opacity = 0.9 * (1 - t);
       if (r.life <= 0) {
         this.scene.remove(r.mesh);
+        this.scene.remove(r.spikes);
         r.mesh.material.dispose();
+        r.spikes.material.dispose();
         this.rings.splice(i, 1);
       }
     }
@@ -135,13 +209,14 @@ export class ParticleSystem {
 
   clear() {
     for (const s of this.systems) {
-      this.scene.remove(s.points);
-      s.points.geometry.dispose();
-      s.points.material.dispose();
+      this.scene.remove(s.mesh);
+      s.mesh.material.dispose();
     }
     for (const r of this.rings) {
       this.scene.remove(r.mesh);
+      this.scene.remove(r.spikes);
       r.mesh.material.dispose();
+      r.spikes.material.dispose();
     }
     this.systems.length = 0;
     this.rings.length = 0;
