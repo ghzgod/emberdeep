@@ -691,6 +691,16 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
   animation: prompt-pulse 1.6s ease-in-out infinite;
   white-space: nowrap; z-index: 14;
 }
+/* Compact layouts: the corner cluster's topmost point (the highest ability
+   bubble, act-slot-0) sits well above the prompt's old 96px desktop offset -
+   its horizontally-centered pill is wide enough to reach under the cluster's
+   x-range, so at bottom:96 it visually collided with #touch-inv/the potion
+   bubble (TODO 704). Base compact geometry (390x844 portrait, 768x1024
+   tablet) puts act-slot-0's top edge at ~213px from the viewport bottom;
+   230px clears it with margin. The short-landscape variant below (touch-mode
+   + max-height:540px) uses the smaller 172px hotbar, whose act-slot-0 top
+   edge is ~186px, so 200px clears that layout instead. */
+body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster AND the first-run joystick ghost label */
 #interact-prompt .key-chip {
   display: inline-block; background: #241a30; border: 1px solid var(--panel-border);
   border-radius: 5px; padding: 1px 8px; margin-left: 8px; font-size: 12px; color: var(--gold);
@@ -1753,6 +1763,11 @@ body.touch-mode #chat-title { font-size: 11px; }
 @media (max-height: 540px) and (pointer: coarse), (max-height: 540px) and (max-width: 1000px) {
   /* short screen: smaller utility bubbles so the row stays clear of the minimap. */
   #touch-pause, #touch-inv, #touch-mic { width: 32px; height: 32px; font-size: 16px; }
+  /* shorter 172px hotbar here (see below) means a lower cluster top edge than
+     the base compact layout - 200px still clears it (see comment above the
+     base body.touch-mode #interact-prompt rule) without floating too high on
+     a screen only ~390-540px tall. */
+  body.touch-mode #interact-prompt { bottom: 200px; }
   #chat { bottom: 128px; width: min(44vw, 300px); }
   #chat-recent { max-height: 32vh; }
   #minimap { width: 84px; height: 84px; }

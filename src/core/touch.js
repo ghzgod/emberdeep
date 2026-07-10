@@ -42,6 +42,23 @@ export class TouchControls {
     this.move = { x: 0, z: 0 };
     this.joyActive = false;
     this.rotDir = 0; // legacy field read by game.js's camera-rotate check; always 0 now that rotation is twist-gesture only
+    // Two-finger twist rotation (TODO 706): tracks EVERY active canvas pointer
+    // (id -> {x,y}), purely for this gesture - joystick or not. Rotate buttons
+    // are gone (b3b3e73), so this is the ONLY way to turn the camera on touch;
+    // it must not depend on which pointer the joystick claimed. The previous
+    // implementation (game.js, native window touchstart/touchmove/touchend)
+    // gated rotation on "the joystick pointer isn't actively steering" - but
+    // the joystick's 42%-of-screen capture zone means a natural two-thumb
+    // twist very often has one thumb start inside it, and that thumb MUST
+    // move to twist at all, so it almost always registered as "steering" and
+    // killed the gesture before it began. Tracking pointers independently of
+    // joystick state here fixes that: any two canvas pointers can twist,
+    // including the joystick's, regardless of what the joystick is doing.
+    // twistPending is accumulated here and drained smoothly by game.js's
+    // updatePlaying camera block (same rate-clamped drain as before).
+    this._gesture = new Map();
+    this._twistPrev = null;
+    this.twistPending = 0;
     // NOTE: no idle fade for #touch-ui (TODO 687) - it used to dim the
     // inventory/settings/mic bubbles after ~4s idle while the ability
     // cluster/potion in #hotbar stayed fully visible, an inconsistent
@@ -72,12 +89,17 @@ export class TouchControls {
       canvas.addEventListener('pointermove', (e) => this.onMove(e));
       canvas.addEventListener('pointerup', (e) => this.onUp(e));
       canvas.addEventListener('pointercancel', (e) => this.onUp(e));
-      // failsafe: a blur mid-gesture must never leave the joystick latched
+      // failsafe: a blur mid-gesture must never leave the joystick OR the
+      // twist gesture latched (a stuck twistPending would keep nudging the
+      // camera after the tab regains focus).
       window.addEventListener('blur', () => {
         this._joyId = null;
         this.joyActive = false;
         this.move.x = 0; this.move.z = 0;
         if (this.joyBase) this.joyBase.style.display = 'none';
+        this._gesture.clear();
+        this._twistPrev = null;
+        this.twistPending = 0;
       });
     }
 
@@ -171,10 +193,15 @@ export class TouchControls {
 
   onDown(e) {
     if (e.pointerType === 'mouse' && !location.search.includes('touch')) return;
-    // Only the joystick half of the canvas does anything: a bare tap/hold
-    // anywhere else (including a hold-swipe) is offensively inert (TODO 684).
-    // Attacks fire only from .act-basic / ability buttons, wired separately
-    // in ui.js's wireActionButton.
+    // Track every canvas pointer for the twist gesture, independent of the
+    // joystick logic below - a twist can use the joystick's own finger plus
+    // a second one, or two fingers that never touch the joystick at all.
+    this._gesture.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    this._syncTwist();
+    // Only the joystick half of the canvas does anything else: a bare tap/
+    // hold anywhere else (including a hold-swipe) is offensively inert
+    // (TODO 684). Attacks fire only from .act-basic / ability buttons, wired
+    // separately in ui.js's wireActionButton.
     if (e.clientX < window.innerWidth * 0.42 && this._joyId === null) {
       this._joyId = e.pointerId;
       this.joyActive = true;
@@ -189,6 +216,11 @@ export class TouchControls {
   }
 
   onMove(e) {
+    const pt = this._gesture.get(e.pointerId);
+    if (pt) {
+      pt.x = e.clientX; pt.y = e.clientY;
+      this._syncTwist();
+    }
     if (e.pointerId === this._joyId) {
       const dx = e.clientX - this._joyOrigin.x;
       const dy = e.clientY - this._joyOrigin.y;
@@ -205,12 +237,42 @@ export class TouchControls {
   }
 
   onUp(e) {
+    this._gesture.delete(e.pointerId);
+    this._syncTwist();
     if (e.pointerId === this._joyId) {
       this._joyId = null;
       this.joyActive = false;
       this.move.x = 0; this.move.z = 0;
       this.joyBase.style.display = 'none';
     }
+  }
+
+  // Two-finger twist (TODO 706): when exactly two canvas pointers are active,
+  // sample the angle + distance of the segment between them and, once we have
+  // a previous sample, accumulate the swept angle into twistPending (drained
+  // smoothly by game.js's updatePlaying). Same math as the old game.js
+  // implementation - a clearly rotational motion must dominate any radial
+  // (pinch) change, and jitter / touch-order flips are ignored outright.
+  // Dropping to 0/1/3+ pointers resets the baseline so a finger lifting or a
+  // third finger landing can never produce a spurious jump.
+  _syncTwist() {
+    if (this._gesture.size !== 2) { this._twistPrev = null; return; }
+    const [a, b] = this._gesture.values();
+    const cur = {
+      ang: Math.atan2(b.y - a.y, b.x - a.x),
+      dist: Math.hypot(a.x - b.x, a.y - b.y),
+    };
+    if (this._twistPrev) {
+      let da = cur.ang - this._twistPrev.ang;
+      if (da > Math.PI) da -= Math.PI * 2;
+      if (da < -Math.PI) da += Math.PI * 2;
+      const arc = Math.abs(da) * cur.dist * 0.5;
+      const radial = Math.abs(cur.dist - this._twistPrev.dist);
+      if (!(Math.abs(da) < 0.004 || Math.abs(da) > 0.5 || arc < radial * 2)) {
+        this.twistPending += da;
+      }
+    }
+    this._twistPrev = cur;
   }
 
   // Re-run both checks. Input capability rarely flips, but the LAYOUT verdict
