@@ -1,6 +1,14 @@
 // Procedural dungeon: room-scatter + L-corridors on a tile grid.
 // Tile values:
 export const VOID = 0, FLOOR = 1, WALL = 2, DOOR = 3, PIT = 4, CHASM = 5, BRIDGE = 6, RUBBLE = 7;
+// Cosmetic-walkable floor height range (world units) for seeded daises/sunken
+// patches, and the town flagstone plaza height. These are the single source
+// of truth for both the seeded height field below and the raised-tile visual
+// offsets in meshbuilder.js (imported there), so the visible geometry and the
+// heightAt() sampler in game.js never disagree about how high a tile sits.
+export const DAIS_MIN = 0.15, DAIS_MAX = 0.35;
+export const SUNK_MIN = -0.25, SUNK_MAX = -0.1;
+export const TOWN_PLAZA_HEIGHT = 0.05;
 // CHASM = impassable dark abyss; BRIDGE = walkable plank over a chasm;
 // RUBBLE = a broken/crumbled wall (still blocks, rendered as debris).
 
@@ -289,10 +297,41 @@ export function generateDungeon(floor) {
     props.push({ x: t.x, y: t.y, dx: dir.dx, dy: dir.dy, r: Math.random() * Math.PI * 2, roll: Math.random() });
   }
 
+  // Height field: mostly flat (0), with a couple of seeded LOW plateaus/daises
+  // (raised, under a chest so it reads as "a dais holds the prize") and an
+  // occasional sunken patch elsewhere in the floor. Cosmetic-walkable only —
+  // XZ collision/pathing above is untouched. Uses the same (already-seeded
+  // per slot+floor via generateDungeonSeeded's Math.random swap) RNG as the
+  // rest of this function, so a revisited floor's bumps land in the same
+  // spots every time. Stored as a per-tile grid so heightAt() in game.js can
+  // do a cheap nearest-tile (or bilinear) lookup.
+  const heights = Array.from({ length: GRID }, () => new Array(GRID).fill(0));
+  const daisTiles = [], sunkTiles = [];
+  const stampPatch = (cx, cy, h, out) => {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (grid[y]?.[x] === FLOOR && heights[y][x] === 0) { heights[y][x] = h; out.push({ x, y, h }); }
+      }
+    }
+  };
+  if (chests.length) {
+    const c = chests[0];
+    stampPatch(c.x, c.y, rand(DAIS_MIN, DAIS_MAX), daisTiles);
+  }
+  if (rand(0, 1) < 0.6) {
+    const candidates = floorTiles.filter((t) =>
+      farFrom(t, spawn, 6) && farFrom(t, stairs, 6) && heights[t.y][t.x] === 0);
+    if (candidates.length) {
+      const p = candidates[randInt(0, candidates.length - 1)];
+      stampPatch(p.x, p.y, rand(SUNK_MIN, SUNK_MAX), sunkTiles);
+    }
+  }
+
   return { grid, size: GRID, rooms, spawn, stairs, torches, chests, doors, enemies, boss: null,
     scuffs, rubble, pits, props, chasmTiles, bridgeTiles, rubbleWalls, destructibleWalls,
     archetype, columns: decor.columns || [], pews: decor.pews || [], altar: decor.altar || null,
-    naveRoom: decor.naveRoom || null };
+    naveRoom: decor.naveRoom || null, heights, daisTiles, sunkTiles };
 }
 
 // ---------------- Architecture archetypes ----------------
@@ -642,12 +681,19 @@ export function generateTown() {
     { x: 8, y: 12, fx: 8, fy: 12.4 }, { x: 20, y: 12, fx: 20, fy: 12.4 },
   ];
 
+  // Height field: the cobbled plaza/lane sits TOWN_PLAZA_HEIGHT above the
+  // grass, exactly matching the flagstone box's rendered top surface in
+  // meshbuilder.js's buildDungeonMeshes, so heightAt() in game.js can share
+  // this one field with the dungeon path instead of a second code path.
+  const heights = Array.from({ length: n }, () => new Array(n).fill(0));
+  for (const c of cobbles) if (heights[c.y]?.[c.x] !== undefined) heights[c.y][c.x] = TOWN_PLAZA_HEIGHT;
+
   return {
     grid, size: n, rooms: [], spawn, stairs: null,
     torches, chests: [], doors: [], enemies: [],
     boss: null, town: true, portal, vendors,
     cobbles, tavern, trees, plants, well,
-    noticeBoard, crates, cart, hedges,
+    noticeBoard, crates, cart, hedges, heights,
   };
 }
 

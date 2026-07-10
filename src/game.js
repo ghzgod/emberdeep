@@ -2625,6 +2625,21 @@ export class Game {
     return row ? row[tx] : WALL;
   }
 
+  // Cosmetic floor height sampler: single source of truth for how high a
+  // walker's feet should sit at a given world (x, z). Nearest-tile lookup
+  // into dungeon.heights (seeded daises/sunken patches in dungeon.js, or the
+  // town flagstone plaza) -- entities ease their pos.y toward this over time
+  // (see Player.update / Enemy.update), which is what gives the actual smooth
+  // rise/fall as they cross a tile boundary; the sampler itself stays a cheap
+  // step lookup. Returns 0 (unraised) for boss floors / out-of-range tiles,
+  // which have no heights field.
+  heightAt(x, z) {
+    const h = this.dungeon?.heights;
+    if (!h) return 0;
+    const tx = Math.floor(x / TILE), ty = Math.floor(z / TILE);
+    return h[ty]?.[tx] ?? 0;
+  }
+
   isWalkable(x, z, radius = 0.3) {
     for (const [dx, dz] of [[-radius, -radius], [radius, -radius], [-radius, radius], [radius, radius]]) {
       const t = this.tileAt(x + dx, z + dz);
@@ -2795,7 +2810,7 @@ export class Game {
     g.visible = active;
     if (!active) return;
     const p = this.player;
-    g.position.set(p.pos.x, 0, p.pos.z);
+    g.position.set(p.pos.x, p.pos.y, p.pos.z);
     const d = this._aimIndicatorDir;
     g.rotation.y = -Math.atan2(d.z, d.x); // three-space yaw for a +x-facing arrow
     // gentle pulse so it reads as "aiming, not fired yet"
