@@ -11,7 +11,10 @@ const W = 16, H = 12;
 
 // solid furniture tiles (collision): bar row, two tables, the hearth
 const BAR_TILES = [[3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1], [9, 1], [10, 1]];
-const TABLE_TILES = [[3, 4], [8, 4], [3, 8], [8, 8]];
+// x=8 sits directly on the spawn(8,9)->exit(8,10)->bar walking lane, so the
+// two right-side tables are mirrored to x=12 (16-wide room, center 7.5) —
+// clear of the entrance lane, symmetric with the x=3 tables on the other side.
+const TABLE_TILES = [[3, 4], [12, 4], [3, 8], [12, 8]];
 const HEARTH_TILES = [[14, 6]];
 
 export function generateTavernInterior() {
@@ -80,8 +83,13 @@ export function buildTavernInterior() {
       new THREE.BoxGeometry(horizontal ? w : panelT, wainH, horizontal ? panelT : d), wainMat);
     // seat the panel just proud of the wall's inner face, toward room center
     const dir = horizontal ? Math.sign((H * TILE) / 2 - z) : Math.sign((W * TILE) / 2 - x);
+    // Standoff uses the wall's THICKNESS along its short axis (d for
+    // horizontal walls, w for vertical ones). The old code used d/2 for BOTH,
+    // which for the 24-long west/east walls shoved their wainscot panels 12
+    // units into the room - the two full-length "planks splitting the bar
+    // left from right" the user kept reporting (TODO 693).
     if (horizontal) wain.position.set(x, wainH / 2, z + dir * (d / 2 - panelT / 2 + WALL_GAP));
-    else wain.position.set(x + dir * (d / 2 - panelT / 2 + WALL_GAP), wainH / 2, z);
+    else wain.position.set(x + dir * (w / 2 - panelT / 2 + WALL_GAP), wainH / 2, z);
     group.add(wain);
   };
   mkWall(W * TILE, TILE, (W * TILE) / 2, TILE / 2, true);
@@ -152,7 +160,9 @@ export function buildTavernInterior() {
   const leafH = wallH - 0.3, leafW = gapWidth / 2 - 0.1;
   const leafPivot = new THREE.Group();
   leafPivot.position.set(gapCenterX - gapWidth / 2, 0, gapZ - 0.14);
-  leafPivot.rotation.y = -1.3;
+  // folded back against the inner wall (was -1.3, which swung the leaf out
+  // into the entrance walkway - the "glitchy plank by the entrance" report)
+  leafPivot.rotation.y = -2.95;
   const leaf = new THREE.Mesh(new THREE.BoxGeometry(leafW, leafH, 0.08), darkWood);
   leaf.position.set(leafW / 2, leafH / 2, 0);
   const leafHandle = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8),
@@ -177,9 +187,9 @@ export function buildTavernInterior() {
     group.add(mug);
   }
 
-  // ---- Barlow the barkeep: a jolly, ruddy, big-bearded innkeeper, built to
-  // READ from the overhead camera — he faces the customer (+z) and his head
-  // tips up so the face catches the top-down view (the old one faced the wall). ----
+  // ---- Magda the barkeep: a warm, ruddy innkeeper, built to READ from the
+  // overhead camera — she faces the customer (+z) and her head tips up so the
+  // face catches the top-down view (the old one faced the wall). ----
   const keeper = new THREE.Group();
   const shirtMat = new THREE.MeshStandardMaterial({ color: 0x9a5a38, roughness: 0.85 });
   const ruddyMat = new THREE.MeshStandardMaterial({ color: 0xe6a476, roughness: 0.78 }); // warm skin
@@ -234,7 +244,7 @@ export function buildTavernInterior() {
   heldMug.position.set(0.6, 1.08, 0.36);
   keeper.add(kBody, kBelly, kApron, kApronBib, head, kArmL, kArmR, heldMug);
   const keeperPos = tileToWorld(6.5, 0.55);
-  // Duckboard platform behind the bar: lifts Barlow 0.24 so his head and
+  // Duckboard platform behind the bar: lifts Magda 0.24 so her head and
   // shoulders clear the 1.1-high bar top from the game's overhead camera
   // (user report: "can't even see the bartender... shorter than the counter").
   const duckboard = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.24, 0.9), darkWood);
@@ -244,14 +254,14 @@ export function buildTavernInterior() {
   keeper.rotation.y = 0; // face the customer side (+z), not the back wall
   group.add(keeper);
 
-  // --- Modeled human Barlow (preferred) ---
+  // --- Modeled human Magda (preferred) ---
   // Replace the box barkeep's visuals with the KayKit unhooded-Rogue "villager"
-  // body (Barlow's voice is male, am_liam) - kept distinct from Torvald and the
+  // body (Magda's voice is female, af_kore) - kept distinct from Torvald and the
   // Tipsy Regular, who use other townsfolk-only bodies. The `keeper` Group stays the transform
   // anchor (position + the +z facing), so only the look changes. If the GLB
   // isn't loaded, buildNpcModel returns null and the box barkeep above stays
-  // visible as the fallback. He keeps his held mug in hand.
-  const barlow = buildNpcModel('villager', 'Barlow', { gender: 'male', skinTone: 'tan' });
+  // visible as the fallback. She keeps her held mug in hand.
+  const barlow = buildNpcModel('villager', 'Magda', { gender: 'female', skinTone: 'tan' });
   if (barlow) {
     for (let i = keeper.children.length - 1; i >= 0; i--) {
       const c = keeper.children[i];
@@ -260,13 +270,13 @@ export function buildTavernInterior() {
     }
     keeper.add(barlow.mesh);
     // Idle mixer ticked via smokePuffs each frame; with no explicit target the
-    // driver defaults to the nearest-hero glance, so Barlow's head follows a
+    // driver defaults to the nearest-hero glance, so Magda's head follows a
     // customer who walks up to the bar.
     pushNpcAnimDriver(smokePuffs, barlow, null);
   }
 
   // ---- back-bar: three stocked shelves with bracket supports, plus jugs,
-  // stacked tankards, kegs and casks so the wall behind Barlow reads as a
+  // stacked tankards, kegs and casks so the wall behind Magda reads as a
   // working, well-supplied bar. ----
   const glassMat = (c, o = 0.85) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.15, metalness: 0.1, transparent: true, opacity: o });
   const corkMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 1 });
@@ -274,7 +284,7 @@ export function buildTavernInterior() {
   const brassMat = new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.55, roughness: 0.45 });
   const potteryMat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
   // Shelves ride just proud of the north wall's inner face (the wall box spans
-  // z 0..2), so the bottles sit ON the wall behind Barlow rather than buried
+  // z 0..2), so the bottles sit ON the wall behind Magda rather than buried
   // inside the wall as they were before.
   const shelfZ = 2.04;
   const shelfW = 8 * TILE;
@@ -361,7 +371,7 @@ export function buildTavernInterior() {
   }
 
   // ---- kegs and casks in the narrow strip behind the bar, kept to the ends
-  // so they never overlap Barlow (who stands at bar center). ----
+  // so they never overlap Magda (who stands at bar center). ----
   const mkKeg = (x, z, r, len, horizontal, tint) => {
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 14), new THREE.MeshStandardMaterial({ map: woodTex, color: tint, roughness: 0.9 }));
@@ -408,9 +418,9 @@ export function buildTavernInterior() {
     group.add(l);
   };
   warmLight(0xffb464, 26, 14, (W * TILE) / 2, 2.1, (H * TILE) / 2);          // under the chandelier
-  // Raised + slid off Barlow's axis + dimmed: at (keeper x, 1.9) this light
+  // Raised + slid off Magda's axis + dimmed: at (keeper x, 1.9) this light
   // sat exactly at his head and blew him out into a white blob.
-  warmLight(0xffc884, 12, 9, barCenter.x - TILE, 2.5, shelfZ + 0.45);        // behind the bar (lights shelves, grazes Barlow)
+  warmLight(0xffc884, 12, 9, barCenter.x - TILE, 2.5, shelfZ + 0.45);        // behind the bar (lights shelves, grazes Magda)
   warmLight(0xffa860, 16, 8, 3.5 * TILE, 1.9, 6 * TILE);                     // near the entrance
 
   // ---- glowing back-bar panel so the bottles silhouette and read ----
@@ -528,12 +538,12 @@ export function buildTavernInterior() {
   // sober regular speaks with af_sarah (female), the tipsy one with bm_daniel
   // (male). Each is a distinct townsfolk-only body (see MODEL_FILES/
   // ATLAS_COSMETICS_CLASSES in heroModel.js) so neither patron doubles up
-  // with Maribel/Torvald/Zoltan/Barlow or each other. Each gets a modeled
+  // with Maribel/Torvald/Zoltan/Magda or each other. Each gets a modeled
   // GLB/glTF body when it's loaded, and keeps its box build as the fallback
   // so a patron is never invisible.
   const patronDefs = [
     { tile: [3, 4], angle: 0.9, robe: 0x5a4a6a, hair: 0x3a2a1a, name: 'patron', cls: 'drifter', gender: 'female', skin: 'light', npcName: 'Tavern Patron' },
-    { tile: [8, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk', cls: 'cleric', gender: 'male', skin: 'fair', npcName: 'Tipsy Regular' },
+    { tile: [12, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk', cls: 'cleric', gender: 'male', skin: 'fair', npcName: 'Tipsy Regular' },
   ];
   for (const def of patronDefs) {
     const w = tileToWorld(def.tile[0], def.tile[1]);
