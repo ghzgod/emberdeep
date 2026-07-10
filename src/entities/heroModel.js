@@ -7,11 +7,31 @@ const MODEL_FILES = {
   knight: 'models/Knight.glb',
   mage: 'models/Mage.glb',
   ranger: 'models/Rogue_Hooded.glb',
-  // Townsfolk-only bodies (same KayKit pack/rig, never playable): vendors and
-  // patrons draw from these so an NPC can never look like the player's hero.
+  // Townsfolk-only bodies (never playable): vendors, barkeep and patrons draw
+  // from these so an NPC can never look like the player's hero AND so the six
+  // townsfolk don't all collapse onto the same one or two silhouettes. First
+  // two are the original KayKit Adventurers pack bodies (same rig/atlas as the
+  // hero classes above); the four Town* entries are a separate CC0 pack
+  // (Quaternius "RPG Characters") with their own rig and baked-in outfit
+  // textures - see the ATLAS_COSMETICS_CLASSES gate below for why they skip
+  // the skin/hair tint step.
   barbarian: 'models/Barbarian.glb',
   villager: 'models/Rogue.glb',
+  cleric: 'models/TownCleric.gltf',
+  monk: 'models/TownMonk.gltf',
+  scout: 'models/TownScout.gltf',
+  drifter: 'models/TownDrifter.gltf',
 };
+
+// Only the original KayKit rigs share the 8x8 palette-atlas layout that
+// tintAtlasTile (applySkinTone/applyHairColor below) assumes. The Quaternius
+// Town* bodies bake their look into ordinary per-part textures with a
+// different layout, so running the atlas tinter on them would recolor an
+// arbitrary square of cloth/skin instead of the intended tile - skip the tone
+// tint for those classes and let their own baked look stand (they already
+// ship distinct skin tones/outfits per class, which is the whole point of
+// using them).
+const ATLAS_COSMETICS_CLASSES = new Set(['knight', 'mage', 'ranger', 'barbarian', 'villager']);
 
 const TARGET_HEIGHT = 1.6; // world units
 
@@ -656,6 +676,10 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
     ranger: ['2H_Crossbow'],
     barbarian: [], // townsfolk keep empty hands - every baked weapon hidden
     villager: [],
+    cleric: [],
+    monk: [],
+    scout: [],
+    drifter: [],
   };
   const keepHeld = new Set(HELD_LOADOUT[classId] || []);
   const HELD_PATTERN = /Sword|Shield|Wand|Staff|Crossbow|Bow|Knife|Axe|Hammer|Mace|Dagger|Spear|Throwable/i;
@@ -739,7 +763,8 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       r: Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2,
     };
   }
-  applyCosmetics(mesh, name, skinTone ? skinTone.hex : null, hairTone ? hairTone.hex : null);
+  const useAtlasTones = ATLAS_COSMETICS_CLASSES.has(classId);
+  applyCosmetics(mesh, name, useAtlasTones && skinTone ? skinTone.hex : null, useAtlasTones && hairTone ? hairTone.hex : null);
 
   // fake blob shadow
   const shadow = new THREE.Mesh(

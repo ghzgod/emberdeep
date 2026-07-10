@@ -191,12 +191,13 @@ export function buildTavernInterior() {
   group.add(keeper);
 
   // --- Modeled human Barlow (preferred) ---
-  // Replace the box barkeep's visuals with a burly KayKit knight-body model
-  // (Barlow's voice is male, am_liam). The `keeper` Group stays the transform
+  // Replace the box barkeep's visuals with the KayKit unhooded-Rogue "villager"
+  // body (Barlow's voice is male, am_liam) - kept distinct from Torvald and the
+  // Tipsy Regular, who use other townsfolk-only bodies. The `keeper` Group stays the transform
   // anchor (position + the +z facing), so only the look changes. If the GLB
   // isn't loaded, buildNpcModel returns null and the box barkeep above stays
   // visible as the fallback. He keeps his held mug in hand.
-  const barlow = buildNpcModel('barbarian', 'Barlow', { gender: 'male', skinTone: 'tan' });
+  const barlow = buildNpcModel('villager', 'Barlow', { gender: 'male', skinTone: 'tan' });
   if (barlow) {
     for (let i = keeper.children.length - 1; i >= 0; i--) {
       const c = keeper.children[i];
@@ -469,14 +470,16 @@ export function buildTavernInterior() {
   }
 
   // ---- patrons: regulars with faces and drinks ----
-  // Body/gender per patron matches its chat voice (see game.js patronChat):
-  // the sober regular speaks with af_sarah (female) -> mage body; the tipsy
-  // one speaks with bm_daniel (male) -> ranger body. Each gets a modeled
-  // KayKit adventurer when the GLB is loaded, and keeps its box build as the
-  // fallback so a patron is never invisible.
+  // Gender per patron matches its chat voice (see game.js patronChat): the
+  // sober regular speaks with af_sarah (female), the tipsy one with bm_daniel
+  // (male). Each is a distinct townsfolk-only body (see MODEL_FILES/
+  // ATLAS_COSMETICS_CLASSES in heroModel.js) so neither patron doubles up
+  // with Maribel/Torvald/Zoltan/Barlow or each other. Each gets a modeled
+  // GLB/glTF body when it's loaded, and keeps its box build as the fallback
+  // so a patron is never invisible.
   const patronDefs = [
-    { tile: [3, 4], angle: 0.9, robe: 0x5a4a6a, hair: 0x3a2a1a, name: 'patron', cls: 'villager', gender: 'female', skin: 'light', npcName: 'Tavern Patron' },
-    { tile: [8, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk', cls: 'barbarian', gender: 'male', skin: 'fair', npcName: 'Tipsy Regular' },
+    { tile: [3, 4], angle: 0.9, robe: 0x5a4a6a, hair: 0x3a2a1a, name: 'patron', cls: 'drifter', gender: 'female', skin: 'light', npcName: 'Tavern Patron' },
+    { tile: [8, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk', cls: 'cleric', gender: 'male', skin: 'fair', npcName: 'Tipsy Regular' },
   ];
   for (const def of patronDefs) {
     const w = tileToWorld(def.tile[0], def.tile[1]);
