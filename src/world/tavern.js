@@ -1,7 +1,40 @@
 import * as THREE from 'three';
 import { FLOOR, WALL } from './dungeon.js';
-import { TILE, tileToWorld, buildNpcModel, pushNpcAnimDriver } from './meshbuilder.js';
+import { TILE, tileToWorld, buildNpcModel } from './meshbuilder.js';
 import { makeWoodTexture, makePlankTexture, makeHearthStoneTexture, makeTavernSignTexture } from './textures.js';
+
+// ---- shared "where's the nearest player" lookup for the tavern's own NPC
+// drivers (Magda's amble, patrons' body-turn) — mirrors meshbuilder.js's
+// internal nearestHeroTarget (same headAnchor/townNpc marker convention) but
+// lives here since tavern.js owns its own smokePuffs driver entries and
+// can't reach into meshbuilder's private cache. Re-scanned at most 2x/sec.
+const _heroCache = { root: null, heroes: [], nextScanAt: 0 };
+const _hcWp = new THREE.Vector3(), _hcWp2 = new THREE.Vector3();
+function findHeroes(anyMesh) {
+  let root = anyMesh;
+  while (root.parent) root = root.parent;
+  const now = performance.now();
+  if (root !== _heroCache.root || now >= _heroCache.nextScanAt || _heroCache.heroes.some((h) => !h.parent)) {
+    _heroCache.root = root;
+    _heroCache.nextScanAt = now + 500;
+    _heroCache.heroes = [];
+    root.traverse((o) => { if (o.userData.headAnchor && !o.userData.townNpc) _heroCache.heroes.push(o); });
+  }
+  return _heroCache.heroes;
+}
+function nearestHero(mesh, range = 6) {
+  const heroes = findHeroes(mesh);
+  if (!heroes.length) return null;
+  mesh.getWorldPosition(_hcWp);
+  let best = null, bestD = range;
+  for (const h of heroes) {
+    h.getWorldPosition(_hcWp2);
+    const d = Math.hypot(_hcWp2.x - _hcWp.x, _hcWp2.z - _hcWp.z);
+    if (d < bestD) { bestD = d; best = { x: _hcWp2.x, z: _hcWp2.z, d }; }
+  }
+  return best;
+}
+function wrapAngle(a) { return ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; }
 
 // "The Sleeping Golem" — the tavern interior. Warm, safe, and populated.
 // 16 x 12 tiles (enlarged from 12x9 - the owner found the room cramped and
@@ -61,7 +94,11 @@ export function buildTavernInterior() {
 
   // perimeter walls with a south door gap. Plaster above, a dark wooden wainscot
   // rail below so the room reads as timber-and-plaster, not bare stucco.
-  const wallH = 2.6;
+  // +0.7 from the original 2.6: the back-bar shelves (see shelfYs below) were
+  // raised by the same amount to clear Magda's head, so the wall is raised
+  // to match and keep the same clearance the shelves/trophy always had
+  // against its top edge.
+  const wallH = 3.3;
   const wainH = 1.0;
   const mkWall = (w, d, x, z, horizontal) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), plasterMat);
@@ -171,6 +208,22 @@ export function buildTavernInterior() {
   leafPivot.add(leaf, leafHandle);
   group.add(leafPivot);
 
+  // ---- amber threshold glow just outside the gap: from inside, the exit
+  // was a plain dark opening with nothing lit beyond it — a black hole (user
+  // report). A soft amber floor-glow + a warm point light sit just past the
+  // wall's outer face so stepping toward the door reads as leaving into
+  // lamplit night air, not a void. Purely visual - the walkable gap itself
+  // (its collision width) is untouched.
+  const outerZ = H * TILE - TILE / 2 + TILE / 2 + 0.35; // just past the wall's outer face
+  const thresholdGlow = new THREE.Mesh(new THREE.PlaneGeometry(gapWidth + 1.6, 2.4),
+    new THREE.MeshBasicMaterial({ color: 0xffb35a, transparent: true, opacity: 0.32, side: THREE.DoubleSide }));
+  thresholdGlow.rotation.x = -Math.PI / 2;
+  thresholdGlow.position.set(gapCenterX, 0.03, outerZ);
+  group.add(thresholdGlow);
+  const thresholdLight = new THREE.PointLight(0xffb060, 15, 8, 2);
+  thresholdLight.position.set(gapCenterX, 1.6, outerZ);
+  group.add(thresholdLight);
+
   // ---- the bar (on BAR_TILES row) ----
   const barCenter = tileToWorld(6.5, 1);
   const bar = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 1.05, 1.2), boardMat);
@@ -247,7 +300,10 @@ export function buildTavernInterior() {
   // Duckboard platform behind the bar: lifts Magda 0.24 so her head and
   // shoulders clear the 1.1-high bar top from the game's overhead camera
   // (user report: "can't even see the bartender... shorter than the counter").
-  const duckboard = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.24, 0.9), darkWood);
+  // Widened from the original 2.2 (a single stand-still spot) to run almost
+  // the full bar so she has an actual lane to pace along (see her amble
+  // driver below) without floating off the edge of her own platform.
+  const duckboard = new THREE.Mesh(new THREE.BoxGeometry(9, 0.24, 0.9), darkWood);
   duckboard.position.set(keeperPos.x + TILE / 2, 0.12, keeperPos.z);
   group.add(duckboard);
   keeper.position.set(keeperPos.x + TILE / 2, 0.24, keeperPos.z);
@@ -269,10 +325,103 @@ export function buildTavernInterior() {
       else { keeper.remove(c); c.geometry?.dispose?.(); }
     }
     keeper.add(barlow.mesh);
-    // Idle mixer ticked via smokePuffs each frame; with no explicit target the
-    // driver defaults to the nearest-hero glance, so Magda's head follows a
-    // customer who walks up to the bar.
-    pushNpcAnimDriver(smokePuffs, barlow, null);
+
+    // ---- Magda's amble: paces the duckboard lane behind the bar, pausing
+    // at random spots, and every 30-60s walks out around the bar's left end
+    // to visit the [3,4] table before returning. Waypoints are hand-picked
+    // against the room's real geometry: the pace lane is kept clear of the
+    // serving cask/kegs behind the bar (x~10.4 and x~19.1/19.9), the "round
+    // the end" point sits past the bar's actual left edge (x=9), and the
+    // table-visit spot stands 1.6 units off the table center - outside the
+    // stool ring (radius 1.25) so she never clips the table, its stools, or
+    // the patron already seated there. Mirrors game.js's vendor-amble style
+    // (roam a tether, stop and turn to face a nearby player) entirely inside
+    // this file's own smokePuffs driver list, since game.js is off-limits.
+    const barZ = keeperPos.z;
+    const paceLeftX = barCenter.x + TILE / 2 - 3.2;   // 11.8 — clear of the cask at ~10.4
+    const paceRightX = barCenter.x + TILE / 2 + 3.0;  // 18.0 — clear of the kegs at ~19.1/19.9
+    const roundX = barCenter.x + TILE / 2 - 6.3;      // past the bar's real left edge (x=9)
+    const visitTable = tileToWorld(3, 4);
+    const path = [
+      { x: roundX, z: barZ, y: 0.24 },            // walk to the bar's end, still on the duckboard
+      { x: roundX, z: barZ + 1.6, y: 0 },          // step off the platform onto open floor
+      { x: roundX, z: visitTable.z, y: 0 },        // down the open floor to the table's row
+      { x: visitTable.x + 1.6, z: visitTable.z, y: 0 }, // stand beside the table
+    ];
+    const randPace = () => ({ x: paceLeftX + Math.random() * (paceRightX - paceLeftX), z: barZ });
+    const SPEED = 0.6; // slow amble, world units/sec — matches the vendor amble's feel
+    const st = {
+      mode: 'bar', wp: 0, waitT: 1 + Math.random() * 2,
+      paceTarget: randPace(),
+      nextVisitAt: performance.now() + (30 + Math.random() * 30) * 1000,
+    };
+    const magdaDriver = {
+      kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1, _phase: 0,
+      get phase() { return this._phase; },
+      set phase(v) {
+        const dt = Math.min(0.1, Math.max(0, v - this._phase));
+        this._phase = v;
+        barlow.tick(dt);
+        const hero = nearestHero(keeper, 6);
+        if (hero) barlow.lookAt(hero.x, hero.z); else barlow.lookAt(null);
+        // Attentive: stop ambling and turn the whole body to face a nearby
+        // player, exactly like the vendor amble does (task e's body-turn).
+        if (hero && hero.d < 2.6) {
+          const faceYaw = Math.atan2(hero.x - keeper.position.x, hero.z - keeper.position.z);
+          keeper.rotation.y += wrapAngle(faceYaw - keeper.rotation.y) * Math.min(1, dt * 4);
+          return;
+        }
+        const now = performance.now();
+        if (st.mode === 'bar') {
+          if (now >= st.nextVisitAt) { st.mode = 'toTable'; st.wp = 0; st.nextVisitAt = Infinity; }
+          else {
+            const dx = st.paceTarget.x - keeper.position.x, dz = st.paceTarget.z - keeper.position.z;
+            const dist = Math.hypot(dx, dz);
+            if (dist < 0.05) {
+              st.waitT -= dt;
+              if (st.waitT <= 0) { st.paceTarget = randPace(); st.waitT = 2 + Math.random() * 2; }
+            } else {
+              const step = Math.min(dist, SPEED * dt);
+              const ang = Math.atan2(dx, dz);
+              keeper.position.x += Math.sin(ang) * step;
+              keeper.position.z += Math.cos(ang) * step;
+              keeper.rotation.y = ang;
+            }
+            keeper.position.y = 0.24;
+          }
+        } else if (st.mode === 'toTable' || st.mode === 'toBar') {
+          const idx = st.mode === 'toTable' ? st.wp : path.length - 1 - st.wp;
+          const target = path[idx];
+          const dx = target.x - keeper.position.x, dz = target.z - keeper.position.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist < 0.08) {
+            keeper.position.x = target.x; keeper.position.z = target.z; keeper.position.y = target.y;
+            st.wp++;
+            if (st.wp >= path.length) {
+              if (st.mode === 'toTable') { st.mode = 'atTable'; st.waitT = 3 + Math.random() * 2; }
+              else {
+                st.mode = 'bar'; st.paceTarget = randPace(); st.waitT = 2 + Math.random() * 2;
+                st.nextVisitAt = now + (30 + Math.random() * 30) * 1000;
+              }
+            }
+          } else {
+            const step = Math.min(dist, SPEED * dt);
+            const ang = Math.atan2(dx, dz);
+            keeper.position.x += Math.sin(ang) * step;
+            keeper.position.z += Math.cos(ang) * step;
+            keeper.rotation.y = ang;
+            // ease across the small duckboard-height step rather than popping
+            keeper.position.y += (target.y - keeper.position.y) * Math.min(1, dt * 2);
+          }
+        } else if (st.mode === 'atTable') {
+          const faceYaw = Math.atan2(visitTable.x - keeper.position.x, visitTable.z - keeper.position.z);
+          keeper.rotation.y += wrapAngle(faceYaw - keeper.rotation.y) * Math.min(1, dt * 4);
+          st.waitT -= dt;
+          if (st.waitT <= 0) { st.mode = 'toBar'; st.wp = 0; }
+        }
+      },
+    };
+    smokePuffs.push(magdaDriver);
   }
 
   // ---- back-bar: three stocked shelves with bracket supports, plus jugs,
@@ -288,7 +437,12 @@ export function buildTavernInterior() {
   // inside the wall as they were before.
   const shelfZ = 2.04;
   const shelfW = 8 * TILE;
-  const shelfYs = [1.32, 1.74, 2.16];
+  // Raised 0.7 units from the original [1.32, 1.74, 2.16] (same spacing, so
+  // stock items keep their clearance from the shelf above): Magda's modeled
+  // body + the duckboard boost put her head at ~1.84, which the bottom two
+  // rows used to slice straight through from the overhead camera (user
+  // report). All three boards now clear y=2.0.
+  const shelfYs = [2.02, 2.44, 2.86];
   for (const sy of shelfYs) {
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(shelfW, 0.07, 0.28), boardMat);
     shelf.position.set(barCenter.x + TILE / 2, sy, shelfZ);
@@ -340,16 +494,16 @@ export function buildTavernInterior() {
   // lower shelf: mostly jugs and stacked tankards (the mugs the tavern serves)
   for (let i = 0; i < 12; i++) {
     const x = barCenter.x - 5.2 + i * 0.95;
-    if (i % 3 === 0) placeJug(x, 1.4, false);
-    else placeJug(x, 1.4, true);
+    if (i % 3 === 0) placeJug(x, shelfYs[0] + 0.08, false);
+    else placeJug(x, shelfYs[0] + 0.08, true);
   }
   // middle + top shelves: bottles, flasks, wine
   const kinds = ['wine', 'tall', 'flask'];
-  for (let i = 0; i < 11; i++) placeBottle(barCenter.x - 4.7 + i * 0.95, 1.83, kinds[i % 3]);
+  for (let i = 0; i < 11; i++) placeBottle(barCenter.x - 4.7 + i * 0.95, shelfYs[1] + 0.09, kinds[i % 3]);
   for (let i = 0; i < 9; i++) {
     const x = barCenter.x - 4.2 + i * 1.05;
-    if (i % 4 === 2) placeJug(x, 2.24, false);
-    else placeBottle(x, 2.25, kinds[(i + 1) % 3]);
+    if (i % 4 === 2) placeJug(x, shelfYs[2] + 0.08, false);
+    else placeBottle(x, shelfYs[2] + 0.09, kinds[(i + 1) % 3]);
   }
   // filled wine glasses tucked among the top-shelf bottles
   for (let i = 0; i < 4; i++) {
@@ -359,7 +513,7 @@ export function buildTavernInterior() {
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.08, 5), glassMat(0xdddddd, 0.35)); stem.position.y = -0.085;
     const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.008, 8), glassMat(0xdddddd, 0.35)); foot.position.y = -0.13;
     glass.add(bowl, wine, stem, foot);
-    glass.position.set(barCenter.x - 3.5 + i * 2.0, 2.36, shelfZ + 0.02);
+    glass.position.set(barCenter.x - 3.5 + i * 2.0, shelfYs[2] + 0.2, shelfZ + 0.02);
     group.add(glass);
   }
   // a stack of clean pewter tankards on the bar top, ready to pour
@@ -394,22 +548,11 @@ export function buildTavernInterior() {
   // upright kegs lined along the right end behind the bar
   mkKeg(barCenter.x + 4.1, backStripZ, 0.28, 0.66, false, 0xd8c8b0);
   mkKeg(barCenter.x + 4.9, backStripZ, 0.28, 0.66, false, 0xf0e4d0);
-  // iron chandelier with flickering candles over the room
-  const chand = new THREE.Group();
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.03, 6, 16), new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.5, roughness: 0.6 }));
-  ring.rotation.x = Math.PI / 2; chand.add(ring);
-  const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.4, 4), new THREE.MeshStandardMaterial({ color: 0x2a2a30 }));
-  chain.position.y = 0.2; chand.add(chain);
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.12, 6), new THREE.MeshStandardMaterial({ color: 0xe8e0c8 }));
-    candle.position.set(Math.cos(a) * 0.5, 0.08, Math.sin(a) * 0.5); chand.add(candle);
-    const flame = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), new THREE.MeshBasicMaterial({ color: 0xffc45e }));
-    flame.position.set(Math.cos(a) * 0.5, 0.18, Math.sin(a) * 0.5); chand.add(flame);
-    smokePuffs.push({ mesh: flame, baseY: 0.18, phase: i * 1.3, speed: 3.5, kind: 'fire' });
-  }
-  chand.position.set((W * TILE) / 2, 2.3, (H * TILE) / 2);
-  group.add(chand);
+  // Iron candle-ring chandelier REMOVED (user report): the room has no
+  // ceiling, so anything hung mid-air over open floor visually lands ON the
+  // floor from the game's top-down camera — the chandelier at y=2.3 read as
+  // a metal ring lying on the boards. The room is already lit by the wall
+  // lanterns, the hearth, and the warm fill lights below, so nothing is lost.
 
   // ---- warm interior lighting: the room should glow, not sit in shadow ----
   const warmLight = (color, intensity, dist, x, y, z) => {
@@ -417,19 +560,23 @@ export function buildTavernInterior() {
     l.position.set(x, y, z);
     group.add(l);
   };
-  warmLight(0xffb464, 26, 14, (W * TILE) / 2, 2.1, (H * TILE) / 2);          // under the chandelier
+  warmLight(0xffb464, 26, 14, (W * TILE) / 2, 2.1, (H * TILE) / 2);          // central room fill (was under the chandelier)
   // Raised + slid off Magda's axis + dimmed: at (keeper x, 1.9) this light
   // sat exactly at his head and blew him out into a white blob.
-  warmLight(0xffc884, 12, 9, barCenter.x - TILE, 2.5, shelfZ + 0.45);        // behind the bar (lights shelves, grazes Magda)
+  warmLight(0xffc884, 12, 9, barCenter.x - TILE, shelfYs[1] + 0.2, shelfZ + 0.45); // behind the bar (lights shelves, grazes Magda)
   warmLight(0xffa860, 16, 8, 3.5 * TILE, 1.9, 6 * TILE);                     // near the entrance
 
   // ---- glowing back-bar panel so the bottles silhouette and read ----
+  // Raised by the same +0.7 as the shelves below it (see shelfYs above) so
+  // it keeps the exact backdrop coverage and wall-top clearance it always had.
   const backPanel = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 1.7, 0.08),
     new THREE.MeshStandardMaterial({ map: boardTex.clone(), color: 0x8a6038, roughness: 0.7, emissive: 0x3a1c0a, emissiveIntensity: 0.45 }));
   backPanel.material.map.repeat.set(4, 1);
-  backPanel.position.set(barCenter.x + TILE / 2, 1.7, shelfZ - 0.07);
+  backPanel.position.set(barCenter.x + TILE / 2, 2.4, shelfZ - 0.07);
   group.add(backPanel);
-  // a carved stone golem head mounted over the bar — the tavern's namesake
+  // a carved stone golem head mounted over the bar — the tavern's namesake.
+  // Raised with the shelves below it (same +0.7 offset) so it stays clear
+  // above the now-taller stocked shelf run instead of sinking into it.
   const trophy = new THREE.Group();
   const gHead = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.52, 0.42), new THREE.MeshStandardMaterial({ color: 0x6b6660, roughness: 1 }));
   const gBrow = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.1, 0.12), new THREE.MeshStandardMaterial({ color: 0x565049, roughness: 1 }));
@@ -438,7 +585,7 @@ export function buildTavernInterior() {
   const gEyeR = gEyeL.clone(); gEyeR.position.x = 0.13;
   const gJaw = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.36), new THREE.MeshStandardMaterial({ color: 0x565049, roughness: 1 })); gJaw.position.set(0, -0.24, 0.02);
   trophy.add(gHead, gBrow, gEyeL, gEyeR, gJaw);
-  trophy.position.set(barCenter.x + TILE / 2, 2.5, shelfZ - 0.18);
+  trophy.position.set(barCenter.x + TILE / 2, 3.2, shelfZ - 0.18);
   group.add(trophy);
 
   // ---- wall lanterns: little iron-and-glass lamps with a warm glowing pane,
@@ -479,17 +626,23 @@ export function buildTavernInterior() {
   const sack = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 7), new THREE.MeshStandardMaterial({ color: 0xb8a074, roughness: 1 }));
   sack.scale.set(0.9, 1.2, 0.9); sack.position.set(cornerX + 0.7, 0.3, cornerZ + 0.85); group.add(sack);
 
-  // ---- hanging carved tavern sign over the entrance, gently swinging ----
-  const sign = new THREE.Group();
-  const signBar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 1.1), ironMat); signBar.position.y = 0.42; group.add(signBar);
-  const chL = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.34, 4), ironMat); chL.position.set(0, 0.24, -0.45);
-  const chR = chL.clone(); chR.position.z = 0.45;
-  const board = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.44, 0.92),
+  // ---- wall-mounted tavern sign: previously hung on chains in open air
+  // over the entrance floor (there's no ceiling to hang it from), so it read
+  // as a carved board lying flat on the floor from the game's top-down
+  // camera (user report). Mounted flush to the entry wall's interior face on
+  // two iron brackets instead, beside the door, the way a real inn hangs its
+  // house sign inside the taproom.
+  const signWallZ = (H * TILE - TILE) - 0.06; // just proud of the entry wall's inner face
+  const signX = 4.5 * TILE;
+  const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.44, 0.06),
     new THREE.MeshStandardMaterial({ map: makeTavernSignTexture(), roughness: 0.9 }));
-  board.position.y = -0.02;
-  sign.add(signBar, chL, chR, board);
-  sign.position.set((W * TILE) / 2, 2.05, TILE * 8.2);
-  group.add(sign);
+  signBoard.position.set(signX, 1.85, signWallZ);
+  group.add(signBoard);
+  for (const bx of [-0.34, 0.34]) {
+    const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.14), ironMat);
+    bracket.position.set(signX + bx, 1.85, signWallZ + 0.1);
+    group.add(bracket);
+  }
 
   // ---- tables (on TABLE_TILES) with stools, mugs, candles ----
   const patronMeshes = [];
@@ -585,7 +738,29 @@ export function buildTavernInterior() {
       }
       pnpc.mesh.position.y = -0.18; // undo the stool-perch lift so feet reach the floor
       patron.add(pnpc.mesh);
-      pushNpcAnimDriver(smokePuffs, pnpc, null);
+
+      // Body turn (task e): when a player is close, smoothly swivel the
+      // whole seated group (as if turning on the stool) to face them, on
+      // top of the existing head-glance; ease back to the table-facing
+      // "seat" yaw once they step away. seatYaw is captured now, before
+      // anything mutates patron.rotation.y.
+      const seatYaw = patron.rotation.y;
+      const patronDriver = {
+        kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1, _phase: 0,
+        get phase() { return this._phase; },
+        set phase(v) {
+          const dt = Math.min(0.1, Math.max(0, v - this._phase));
+          this._phase = v;
+          pnpc.tick(dt);
+          const hero = nearestHero(pnpc.mesh, 6);
+          if (hero) pnpc.lookAt(hero.x, hero.z); else pnpc.lookAt(null);
+          const targetYaw = (hero && hero.d < 2.5)
+            ? Math.atan2(hero.x - patron.position.x, hero.z - patron.position.z)
+            : seatYaw;
+          patron.rotation.y += wrapAngle(targetYaw - patron.rotation.y) * Math.min(1, dt * 4);
+        },
+      };
+      smokePuffs.push(patronDriver);
     }
 
     group.add(patron);
