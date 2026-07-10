@@ -1,6 +1,8 @@
-import { CLASSES } from '../entities/classes.js';
-import { SKIN_TONES, GENDERS } from '../entities/heroModel.js';
+import * as THREE from 'three';
+import { CLASSES, buildHeroMesh } from '../entities/classes.js';
+import { SKIN_TONES, GENDERS, buildAnimatedHero } from '../entities/heroModel.js';
 import { SKILLS } from '../entities/skills.js';
+import { svgIcon, ICONS, CLASS_ICONS } from './icons.js';
 import { RARITIES, statLabel, sellValue, buyPrice } from '../entities/loot.js';
 import { makeItemIcon } from '../entities/itemIcon.js';
 import { SaveManager } from '../core/save.js';
@@ -82,6 +84,11 @@ export class UI {
     for (const [k, el] of Object.entries(this.screens)) {
       el.classList.toggle('visible', k === name);
     }
+    // The character-creation 3D preview only lives while its screen is up:
+    // spun up on entry, renderer/scene torn down the moment any other screen
+    // (or none) takes over, so no hidden WebGL context keeps burning frames.
+    if (name === 'charselect') this.startCharPreview();
+    else if (this._csPrev) this.stopCharPreview();
   }
   hideAll() { this.show('__none__'); }
   showHud(visible) { this.hud.classList.toggle('hidden', !visible); }
@@ -432,7 +439,7 @@ export class UI {
         <h3>${cls.name}</h3>
         <div class="class-role">${cls.role}</div>
         <div class="class-desc">${cls.desc}</div>
-        <ul>${cls.abilities.map((a) => `<li><b>${a.icon} ${a.name}</b> — ${a.desc}</li>`).join('')}</ul>
+        <ul>${cls.abilities.map((a) => `<li><b>${svgIcon(a.icon)} ${a.name}</b> — ${a.desc}</li>`).join('')}</ul>
       `;
       card.onclick = () => {
         audio.play('ui_click', { volume: 0.7 });
@@ -450,6 +457,10 @@ export class UI {
         csName.classList.remove('input-error');
         const v = csName.value.trim().slice(0, 14);
         if (v) localStorage.setItem('emberdeep-name-v1', v);
+        // the name seeds the hero's outfit cosmetics - refresh the preview
+        // (debounced so mid-word typing doesn't rebuild every keystroke)
+        clearTimeout(this._csNameT);
+        this._csNameT = setTimeout(() => this.refreshCharPreview(), 350);
       });
     }
     this.buildAppearancePickers();
@@ -482,6 +493,7 @@ export class UI {
           audio.play('ui_click', { volume: 0.6 });
           genderWrap.querySelectorAll('.cs-gender-btn').forEach((b) => b.classList.remove('selected'));
           btn.classList.add('selected');
+          this.refreshCharPreview();
         };
         genderWrap.appendChild(btn);
       }
@@ -504,6 +516,7 @@ export class UI {
           audio.play('ui_click', { volume: 0.6 });
           skinWrap.querySelectorAll('.cs-skin-sw').forEach((b) => b.classList.remove('selected'));
           sw.classList.add('selected');
+          this.refreshCharPreview();
         };
         skinWrap.appendChild(sw);
       }
@@ -521,11 +534,12 @@ export class UI {
     detail.style.setProperty('--card-color', cls.uiColor);
     detail.innerHTML = `
       <div class="class-desc">${cls.desc}</div>
-      <ul>${cls.abilities.map((a) => `<li><b>${a.icon} ${a.name}</b> — ${a.desc}</li>`).join('')}</ul>
+      <ul>${cls.abilities.map((a) => `<li><b>${svgIcon(a.icon)} ${a.name}</b> — ${a.desc}</li>`).join('')}</ul>
     `;
     const btn = $('btn-charselect-confirm');
     btn.disabled = false;
     btn.textContent = `Begin as ${cls.name}`;
+    this.refreshCharPreview();
   }
 
   resetClassSelect() {
@@ -535,6 +549,116 @@ export class UI {
     const btn = $('btn-charselect-confirm');
     btn.disabled = true;
     btn.textContent = 'Choose a hero';
+    this.refreshCharPreview();
+  }
+
+  // ---------- character-creation live 3D preview ----------
+  // A small dedicated WebGL canvas on the charselect screen showing the
+  // currently-selected class hero with the chosen gender + skin tone, slowly
+  // rotating on a turntable with the idle animation playing. Rebuilt live on
+  // every class/gender/skin/name change; fully disposed on leaving the screen.
+  startCharPreview() {
+    if (this._csPrev) { this.refreshCharPreview(); return; }
+    const canvas = $('cs-preview-canvas');
+    if (!canvas) return;
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    } catch { return; } // no WebGL for the preview: the screen still works without it
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const w = canvas.clientWidth || 190, h = canvas.clientHeight || 210;
+    renderer.setSize(w, h, false);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(34, w / h, 0.1, 30);
+    camera.position.set(0, 1.35, 3.4);
+    camera.lookAt(0, 0.85, 0);
+    // warm key + cool violet rim on a soft hemisphere, matching the game's
+    // torchlit gold-on-dark-purple mood
+    scene.add(new THREE.HemisphereLight(0xcdc4ea, 0x2a2033, 1.15));
+    const key = new THREE.DirectionalLight(0xffe2b0, 1.7);
+    key.position.set(2.2, 3.5, 2.6);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0x8a6cff, 0.8);
+    rim.position.set(-2.5, 2, -2);
+    scene.add(rim);
+    const turntable = new THREE.Group();
+    scene.add(turntable);
+    const P = this._csPrev = {
+      renderer, scene, camera, turntable, canvas,
+      lastT: performance.now(), hero: null, raf: 0, w, h,
+    };
+    this.refreshCharPreview();
+    const loop = () => {
+      if (this._csPrev !== P) return;
+      P.raf = requestAnimationFrame(loop);
+      // track CSS size changes (orientation flip, media-query resize)
+      const cw = P.canvas.clientWidth, ch = P.canvas.clientHeight;
+      if (cw && ch && (cw !== P.w || ch !== P.h)) {
+        P.w = cw; P.h = ch;
+        P.renderer.setSize(cw, ch, false);
+        P.camera.aspect = cw / ch;
+        P.camera.updateProjectionMatrix();
+      }
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - P.lastT) / 1000);
+      P.lastT = now;
+      P.turntable.rotation.y += dt * 0.7;
+      if (P.hero) {
+        if (P.hero.anim) P.hero.anim.setLocomotion(0, dt, false);
+        if (P.hero.anim) P.hero.anim.mixer.update(dt);
+        if (P.hero.gait) P.hero.gait(dt, 0, false);
+      }
+      P.renderer.render(P.scene, P.camera);
+    };
+    loop();
+  }
+
+  // Tear down just the hero (per-preview cloned materials and the tinted skin
+  // CanvasTexture). Geometry is SHARED with the preloaded game models
+  // (skeletonClone reuses it), so it is never disposed here.
+  _disposePreviewHero() {
+    const P = this._csPrev;
+    if (!P || !P.hero) return;
+    P.turntable.remove(P.hero.mesh);
+    P.hero.mesh.traverse((o) => {
+      if (o.isMesh && o.material) {
+        if (o.material.map && o.material.map.isCanvasTexture) o.material.map.dispose();
+        o.material.dispose();
+      }
+    });
+    P.hero = null;
+  }
+
+  refreshCharPreview() {
+    const P = this._csPrev;
+    if (!P) return;
+    this._disposePreviewHero();
+    const clsId = this.selectedClass || 'knight';
+    const name = ($('cs-name')?.value || '').trim() || 'Hero';
+    const gender = localStorage.getItem('emberdeep-gender-v1') === 'female' ? 'female' : 'male';
+    const skinTone = localStorage.getItem('emberdeep-skin-v1') || 'light';
+    // Same builder + same creation options the real Player uses, so what spins
+    // here is exactly what spawns. Primitive fallback only if the GLB failed.
+    const anim = buildAnimatedHero(clsId, name, { gender, skinTone });
+    let mesh, gait = null;
+    if (anim) {
+      mesh = anim.mesh;
+    } else {
+      mesh = buildHeroMesh(CLASSES[clsId], name);
+      gait = mesh.userData.updateGait;
+    }
+    P.turntable.add(mesh);
+    P.hero = { mesh, anim, gait };
+  }
+
+  stopCharPreview() {
+    const P = this._csPrev;
+    if (!P) return;
+    cancelAnimationFrame(P.raf);
+    this._disposePreviewHero();
+    P.renderer.dispose();
+    P.renderer.forceContextLoss?.();
+    this._csPrev = null;
   }
 
   // ---------- save slots ----------
@@ -555,7 +679,6 @@ export class UI {
       wrap.appendChild(e);
       return;
     }
-    const icons = { knight: '🛡️', mage: '🔮', ranger: '🏹' };
     // One-click resume of the most-recently-played hero: the game you just
     // refreshed out of. Both Single Player and Multiplayer land on this screen,
     // so this covers "pick a mode, then Resume" for either. continueGame drops
@@ -576,7 +699,7 @@ export class UI {
       const ago = timeAgo(slot.updatedAt);
       const cls = CLASSES[p.classId];
       row.innerHTML = `
-        <span class="save-icon">${icons[p.classId] || '⚔️'}</span>
+        <span class="save-icon">${svgIcon(CLASS_ICONS[p.classId] || 'swords')}</span>
         <span class="save-main">
           <div class="save-name">${cls ? cls.name : p.classId} — Level ${p.level}</div>
           <div class="save-sub">Floor ${slot.data.floor || 1} · ${p.gold}g · ${ago}</div>
@@ -652,7 +775,7 @@ export class UI {
       const row = document.createElement('div');
       row.className = `skill-row ${rank >= sk.max ? 'maxed' : ''}`;
       row.innerHTML = `
-        <span class="skill-icon">${sk.icon}</span>
+        <span class="skill-icon">${svgIcon(sk.id) || sk.icon}</span>
         <span class="skill-main">
           <div class="skill-name">${sk.name} <span class="skill-rank">${rank}/${sk.max}</span></div>
           <div class="skill-desc">${sk.per} per rank</div>
@@ -724,12 +847,12 @@ export class UI {
   renderShop(vendor) {
     const p = this.game.player;
     const FLAVOR = {
-      potions: { portrait: '⚗️', tag: 'Remedies & tonics — brewed this morning' },
-      gear: { portrait: '⚒️', tag: 'Honest steel, honestly priced' },
-      mystery: { portrait: '🔮', tag: 'Fate, bottled. No refunds.' },
+      potions: { portrait: 'flask', tag: 'Remedies & tonics — brewed this morning' },
+      gear: { portrait: 'anvil', tag: 'Honest steel, honestly priced' },
+      mystery: { portrait: 'orb', tag: 'Fate, bottled. No refunds.' },
     };
     const fl = FLAVOR[vendor.type] || FLAVOR.gear;
-    $('shop-portrait').textContent = fl.portrait;
+    $('shop-portrait').innerHTML = svgIcon(fl.portrait);
     $('shop-title').textContent = vendor.name;
     $('shop-tagline').textContent = fl.tag;
     $('shop-gold').innerHTML = `<span class="coin-stack"><span class="coin"></span><span class="coin c2"></span></span> <b>${p.gold}</b>`;
@@ -1039,11 +1162,11 @@ export class UI {
       const { voice } = await import('../net/voice.js');
       try {
         await voice.testMic((stage) => {
-          micTestBtn.textContent = stage === 'record' ? '● Recording… (speak)' : stage === 'play' ? '▶ Playing back…' : '🎤 Test mic';
+          micTestBtn.textContent = stage === 'record' ? '● Recording… (speak)' : stage === 'play' ? '▶ Playing back…' : 'Test mic (hear yourself)';
         });
       } catch {
         await this.confirmModal({ title: 'No microphone', message: 'Microphone unavailable or permission denied.', notice: true });
-        micTestBtn.textContent = '🎤 Test mic';
+        micTestBtn.textContent = 'Test mic (hear yourself)';
       }
       micTestBtn.disabled = false;
     };
@@ -1319,11 +1442,15 @@ export class UI {
 
   wireActionBar() {
     const g = this.game;
+    // Flat-stroke SVG glyphs for the tray buttons (single source: icons.js),
+    // replacing the old emoji labels.
+    const AB_ICONS = { 'ab-inv': 'bag', 'ab-quests': 'scroll', 'ab-skills': 'star', 'ab-mic': 'mic', 'ab-pause': 'gear' };
+    for (const [id, name] of Object.entries(AB_ICONS)) { const b = $(id); if (b) b.innerHTML = svgIcon(name); }
     // Action-bar button tooltips: drop the keyboard-key footnote on touch
     // devices (no keyboard there) and keep the plain action label instead.
     if (isTouchDevice()) {
       const t = { 'ab-inv': 'Inventory', 'ab-quests': 'Quest Log', 'ab-skills': 'Mastery',
-        'ab-potion': 'Drink Potion', 'ab-mic': 'Push-to-talk', 'ab-pause': 'Menu' };
+        'ab-mic': 'Push-to-talk', 'ab-pause': 'Menu' };
       for (const [id, label] of Object.entries(t)) { const b = $(id); if (b) b.title = label; }
     }
     $('interact-prompt').onclick = () => g.doInteract();
@@ -1335,14 +1462,13 @@ export class UI {
     const bar = $('action-bar');
     if (window.innerWidth < 1100) bar.classList.add('collapsed');
     const syncToggle = () => {
-      $('ab-toggle').textContent = bar.classList.contains('collapsed') ? '☰' : '✕';
+      $('ab-toggle').innerHTML = svgIcon(bar.classList.contains('collapsed') ? 'menu' : 'close');
     };
     syncToggle();
     $('ab-toggle').onclick = () => { bar.classList.toggle('collapsed'); syncToggle(); };
     $('ab-inv').onclick = () => g.toggleInventory();
     $('ab-quests').onclick = () => { if (g.state === 'playing') g.toggleQuestLog(); };
     $('ab-skills').onclick = () => { if (g.state === 'playing') g.toggleSkills(); };
-    $('ab-potion').onclick = () => { if (g.state === 'playing' && !$('ab-potion').classList.contains('disabled')) g.player?.drinkPotion(g); };
     $('ab-pause').onclick = () => g.togglePause(true);
   }
 
@@ -1362,7 +1488,7 @@ export class UI {
 
   // ---------- hotbar ----------
   // Slots render through player.abilityOrder (slot -> ability index) so a
-  // re-slotted ability shows its own icon/name/cooldown in its new spot.
+  // re-slotted ability shows its own icon/cooldown in its new spot.
   buildHotbar(player) {
     const bar = $('hotbar');
     bar.innerHTML = '';
@@ -1375,30 +1501,33 @@ export class UI {
     // session) render the abilities as a Wild Rift-style cluster of circular
     // buttons in the bottom-right corner: one big BASIC-ATTACK button at the
     // thumb pivot and the four abilities fanned in an arc up-and-to-the-left.
-    // Wide desktop keeps the flat row. Uses the same isCompactLayout() check
-    // that drives body.touch-mode (see core/touch.js) so the JS layout choice
-    // and the CSS never disagree; input (tap vs click) works either way since
-    // the cluster buttons are plain pointer handlers.
+    // Wide desktop gets the SAME circular buttons laid out as a flat
+    // bottom-center row (no square boxes, no name labels - the hotkey number
+    // sits in the corner and the name lives in the hover tooltip). Uses the
+    // same isCompactLayout() check that drives body.touch-mode (see
+    // core/touch.js) so the JS layout choice and the CSS never disagree.
     const compact = isCompactLayout();
     document.body.classList.toggle('touch-mode', compact);
+    bar.classList.toggle('desktop-row', !compact);
     if (compact) {
       this.buildActionCluster(player, order);
       return;
     }
+    // Desktop row: the cluster's circular buttons (gold cooldown ring,
+    // parchment cooldown seconds, blood-red no-resource rim) in a centered
+    // row, plus the potion bubble at the end. updateActionCluster drives all
+    // of them, same as the touch cluster.
+    this.cluster = [];
     order.forEach((abIndex, i) => {
       const ab = player.classDef.abilities[abIndex];
-      const slot = document.createElement('div');
-      slot.className = 'hotbar-slot ready';
-      slot.innerHTML = `
-        <span class="key">${i + 1}</span>
-        <span class="ab-icon">${ab.icon}</span>
-        <div class="cd-sweep"></div>
-        <span class="ab-name">${ab.name}</span>
-      `;
-      slot.title = `${ab.name} (${ab.cost} ${player.classDef.resource.name}): ${ab.desc}`;
-      bar.appendChild(slot);
-      this.hotbarSlots.push(slot);
+      const b = this._makeActionButton(i, i + 1, svgIcon(ab.icon), `act-ability act-slot-${i}`);
+      b.iconKey = ab.icon;
+      b.el.title = `${ab.name} (${ab.cost} ${player.classDef.resource.name}): ${ab.desc}`;
+      bar.appendChild(b.el);
+      this.cluster.push(b);
+      this.hotbarSlots.push(b.el);
     });
+    this._buildPotionBubble(bar);
     this.wireHotbarInput(player);
   }
 
@@ -1439,15 +1568,16 @@ export class UI {
     this.cluster = [];
     // vitals arcs first so the buttons paint above them
     this._buildTouchVitals(bar);
-    // big basic-attack at the corner pivot (slot -1); sword glyph
-    const basic = this._makeActionButton(-1, '', '⚔️', 'act-basic');
+    // big basic-attack at the corner pivot (slot -1); crossed-swords glyph
+    const basic = this._makeActionButton(-1, '', svgIcon('swords'), 'act-basic');
     bar.appendChild(basic.el);
     this.wireActionButton(basic, player);
     this.cluster.push(basic);
     // four abilities fanned in the arc, slot 0..3
     order.forEach((abIndex, i) => {
       const ab = player.classDef.abilities[abIndex];
-      const b = this._makeActionButton(i, i + 1, ab.icon, `act-ability act-slot-${i}`);
+      const b = this._makeActionButton(i, i + 1, svgIcon(ab.icon), `act-ability act-slot-${i}`);
+      b.iconKey = ab.icon;
       bar.appendChild(b.el);
       this.wireActionButton(b, player);
       this.cluster.push(b);
@@ -1496,20 +1626,39 @@ export class UI {
     const xp = build('tv-xp', 147, 2.5);     // thin gold XP arc, innermost
     const res = build('tv-res', 153.5, 5);   // deep blue-purple resource
     const hp = build('tv-hp', 161.5, 8);     // blood-red health, outermost
-    // parchment current/max readouts just outside the health arc: health on
-    // top, the resource line tucked right under it (same anchor, one line down)
-    const [tx, ty] = pt(177, -138);
-    const mkText = (cls, dy) => {
+    // Current/max readouts CURVE ALONG their own bands via textPath: the
+    // health numbers ride the health arc, the resource numbers ride the
+    // resource arc. Each invisible text arc runs the reverse direction
+    // (A1 -> A0, sweep 1 = clockwise across the top-left) so the glyphs sit
+    // upright instead of upside down, centered mid-arc via startOffset 50%.
+    // Baseline radii sit a touch inside each band so the small glyphs fill
+    // the band instead of spilling onto the ability circles inside it.
+    const defs = document.createElementNS(NS, 'defs');
+    svg.appendChild(defs);
+    const textArc = (id, r) => {
+      const [x0, y0] = pt(r, A1), [x1, y1] = pt(r, A0);
+      const p = document.createElementNS(NS, 'path');
+      p.setAttribute('id', id);
+      p.setAttribute('d', `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`);
+      p.setAttribute('fill', 'none');
+      defs.appendChild(p);
+    };
+    textArc('tv-txt-hp-arc', 159.5);
+    textArc('tv-txt-res-arc', 149);
+    const mkArcText = (cls, id) => {
       const t = document.createElementNS(NS, 'text');
       t.setAttribute('class', cls);
-      t.setAttribute('x', tx.toFixed(1));
-      t.setAttribute('y', (ty + dy).toFixed(1));
       t.setAttribute('text-anchor', 'middle');
+      const tp = document.createElementNS(NS, 'textPath');
+      tp.setAttribute('href', `#${id}`);
+      tp.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', `#${id}`); // older Safari
+      tp.setAttribute('startOffset', '50%');
+      t.appendChild(tp);
       svg.appendChild(t);
-      return t;
+      return tp;
     };
-    const text = mkText('tv-hp-text', 0);
-    const resText = mkText('tv-res-text', 12);
+    const text = mkArcText('tv-hp-text', 'tv-txt-hp-arc');
+    const resText = mkArcText('tv-res-text', 'tv-txt-res-arc');
     bar.appendChild(svg);
     this.vitals = {
       hp, res, xp, text, resText,
@@ -1657,7 +1806,7 @@ export class UI {
       b.el.classList.toggle('ready', !onCd && canAfford);
       b.el.classList.toggle('no-resource', !onCd && !canAfford);
       b.cdEl.textContent = onCd ? Math.ceil(cd).toString() : '';
-      if (b.iconEl.textContent !== ab.icon) b.iconEl.textContent = ab.icon;
+      if (b.iconKey !== ab.icon) { b.iconKey = ab.icon; b.iconEl.innerHTML = svgIcon(ab.icon); }
     }
   }
 
@@ -1669,7 +1818,7 @@ export class UI {
     const LONG_PRESS_MS = 450, DRAG_PX = 6;
     const clearHighlights = () => this.hotbarSlots.forEach((s) => s.classList.remove('drop-target'));
     const slotAt = (x, y) => {
-      const el = document.elementFromPoint(x, y)?.closest('.hotbar-slot');
+      const el = document.elementFromPoint(x, y)?.closest('#hotbar .act-ability');
       return el ? this.hotbarSlots.indexOf(el) : -1;
     };
     this.hotbarSlots.forEach((slot, i) => {
@@ -1727,9 +1876,9 @@ export class UI {
   }
 
   flashNoResource(slot) {
-    // cluster stores the basic-attack at index 0 (slot -1), so ability slot i
-    // sits at cluster[i + 1].
-    const el = this.cluster ? this.cluster[slot + 1]?.el : this.hotbarSlots[slot];
+    // both layouts store buttons with their slot number (the touch cluster
+    // also carries the basic attack at slot -1), so look the slot up directly
+    const el = this.cluster?.find((b) => b.slot === slot)?.el;
     if (!el) return;
     el.classList.add('no-resource');
     setTimeout(() => el.classList.remove('no-resource'), 300);
@@ -1749,7 +1898,8 @@ export class UI {
     const pts = player.skillPoints();
     $('hud-level').textContent = pts > 0 ? `Lv ${player.level} ✦${pts}` : `Lv ${player.level}`;
     $('hud-gold').innerHTML = `${player.gold} <span class="coin-stack"><span class="coin"></span><span class="coin c2"></span></span>`;
-    $('hud-potions').textContent = `${player.potions} 🧪`;
+    const potHud = `${player.potions} ${svgIcon('flask')}`;
+    if (this._hudPotionsHtml !== potHud) { this._hudPotionsHtml = potHud; $('hud-potions').innerHTML = potHud; }
     // potion buttons stay visible always; grayed out (and inert) when there's
     // no potion to drink or drinking one would do nothing, so the slot never
     // vanishes -- the player always knows where it is, just not usable yet.
@@ -1759,7 +1909,6 @@ export class UI {
       const pc = String(player.potions);
       if (this.potionBtn.countEl.textContent !== pc) this.potionBtn.countEl.textContent = pc;
     }
-    $('ab-potion')?.classList.toggle('disabled', !canDrink);
     // multiplayer: show how many heroes share the room (works in both orientations)
     const playersEl = $('hud-players');
     const count = this.game.roomPlayerCount();
@@ -1784,10 +1933,10 @@ export class UI {
       const parts = [];
       if (left > 0) parts.push(`${left} to slay`);
       if (eliteLeft) parts.push('elite alive');
-      clearEl.textContent = parts.length ? `🔒 ${parts.join(' · ')} to open the stairs` : '🔒 clear the floor';
+      clearEl.innerHTML = `${svgIcon('lock')} ${parts.length ? `${parts.join(' · ')} to open the stairs` : 'clear the floor'}`;
       clearEl.className = 'sealed';
     } else {
-      clearEl.textContent = '🔓 Stairs open, descend when ready';
+      clearEl.innerHTML = `${svgIcon('unlock')} Stairs open, descend when ready`;
       clearEl.className = 'open';
     }
     $('hud-quest').textContent = this.game.currentObjectiveText();
@@ -1802,34 +1951,15 @@ export class UI {
     if (lockLeft > 0) {
       const s = Math.ceil(lockLeft / 1000);
       cl.classList.remove('hidden');
-      cl.innerHTML = `⛔ CHEATING DETECTED<div class="cl-sub">Frozen — ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}</div>`;
+      cl.innerHTML = `${svgIcon('ban')} CHEATING DETECTED<div class="cl-sub">Frozen — ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}</div>`;
     } else if (!cl.classList.contains('hidden')) {
       cl.classList.add('hidden');
     }
 
-    if (this.cluster) { this.updateActionCluster(player); }
-    else {
-    const abilityOrder = player.abilityOrder || [0, 1, 2, 3];
-    abilityOrder.forEach((abIndex, i) => {
-      const ab = player.classDef.abilities[abIndex];
-      const slot = this.hotbarSlots[i];
-      if (!ab || !slot) return;
-      const cd = player.abilityCds[abIndex];
-      const max = player.abilityCdMax?.[abIndex] || ab.cd;
-      const sweep = slot.querySelector('.cd-sweep');
-      const onCd = cd > 0;
-      // radial clock wheel: dark wedge = remaining cooldown, driven by the
-      // ACTUAL cooldown duration so it empties exactly when the ability is usable
-      const frac = onCd ? Math.max(0, Math.min(1, cd / max)) : 0;
-      sweep.style.setProperty('--cd-ang', `${frac * 360}deg`);
-      const canAfford = player.resource >= ab.cost;
-      slot.classList.toggle('cooling', onCd);
-      slot.classList.toggle('ready', !onCd && canAfford);
-      // off cooldown but not enough resource → stays visibly gated, so a
-      // full-colour button is never secretly uncastable
-      slot.classList.toggle('no-resource', !onCd && !canAfford);
-    });
-    }
+    // Both layouts (touch corner cluster AND the desktop bottom-center row)
+    // are built from the same circular buttons and stored in this.cluster, so
+    // one updater drives cooldown rings, seconds and resource gating for both.
+    if (this.cluster) this.updateActionCluster(player);
 
     const bossWrap = $('boss-bar-wrap');
     if (boss && !boss.dead) {
@@ -2152,7 +2282,7 @@ export class UI {
       row.appendChild(db);
       db.onclick = () => this.confirmDestroy([...this.destroySel]);
     }
-    db.textContent = `🗑 Destroy ${this.destroySel.size} items`;
+    db.innerHTML = `${svgIcon('trash')} Destroy ${this.destroySel.size} items`;
     db.style.display = this.destroySel.size >= 2 ? '' : 'none';
   }
 
@@ -2186,7 +2316,7 @@ export class UI {
     const cls = this.game.player.classId;
     if (item.forClass) {
       const ok = item.forClass === cls;
-      return `<div style="font-size:11px;margin-top:2px;color:${ok ? '#7ce87c' : '#e86a6a'}">${ok ? '★ Your class' : '⛔ ' + this.className(item.forClass) + ' only'}</div>`;
+      return `<div style="font-size:11px;margin-top:2px;color:${ok ? '#7ce87c' : '#e86a6a'}">${ok ? '★ Your class' : svgIcon('ban') + ' ' + this.className(item.forClass) + ' only'}</div>`;
     }
     if (item.affinity) {
       const ok = item.affinity === cls;

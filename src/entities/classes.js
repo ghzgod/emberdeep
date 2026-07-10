@@ -50,9 +50,11 @@ export const CLASSES = {
     // AoE (whirlwind) sits LAST, since slot 4 is the "ultimate" slot every class
     // reserves for its area ability, and the cdr4 gear stat only reduces
     // whatever ability currently occupies slot 4.
+    // `icon` is a key into src/ui/icons.js (flat-stroke SVG set); the UI
+    // renderers inject the SVG markup - no emoji strings here any more.
     abilities: [
       {
-        id: 'charge', name: 'Charge', icon: '🛡️', cd: 5, cost: 25,
+        id: 'charge', name: 'Charge', icon: 'charge', cd: 5, cost: 25,
         desc: 'Dash forward, damaging and knocking back everything in your path.',
         exec(game, p) {
           audio.play('charge');
@@ -60,7 +62,7 @@ export const CLASSES = {
         },
       },
       {
-        id: 'shield_block', name: 'Iron Bulwark', icon: '🔰', cd: 10, cost: 20,
+        id: 'shield_block', name: 'Iron Bulwark', icon: 'shield_block', cd: 10, cost: 20,
         desc: 'Raise your shield: 70% less damage taken for 3 seconds.',
         exec(game, p) {
           audio.play('shield_block');
@@ -69,7 +71,7 @@ export const CLASSES = {
         },
       },
       {
-        id: 'war_cry', name: 'War Cry', icon: '📣', cd: 14, cost: 35,
+        id: 'war_cry', name: 'War Cry', icon: 'war_cry', cd: 14, cost: 35,
         desc: '+50% damage for 6 seconds and nearby enemies stagger in fear.',
         exec(game, p) {
           audio.play('war_cry', { pos: p.pos, gender: p.gender });
@@ -80,7 +82,7 @@ export const CLASSES = {
         },
       },
       {
-        id: 'whirlwind', name: 'Whirlwind', icon: '🌀', cd: 8, cost: 35,
+        id: 'whirlwind', name: 'Whirlwind', icon: 'whirlwind', cd: 8, cost: 35,
         desc: 'Spin for 3 seconds, gliding as if on ice and shredding all nearby enemies.',
         exec(game, p) {
           audio.play('whirlwind');
@@ -110,7 +112,7 @@ export const CLASSES = {
     basic: { kind: 'bolt', speed: 17, cooldown: 0.42, basicCost: 10, color: 0xc08aff, sound: 'magic_bolt', hitSound: 'magic_bolt' },
     abilities: [
       {
-        id: 'fireball', name: 'Fireball', icon: '🔥', cd: 4, cost: 25,
+        id: 'fireball', name: 'Fireball', icon: 'fireball', cd: 4, cost: 25,
         desc: 'Hurl a blazing orb that explodes and sets enemies on fire.',
         exec(game, p) {
           audio.play('fireball_cast');
@@ -123,7 +125,7 @@ export const CLASSES = {
         },
       },
       {
-        id: 'frost_nova', name: 'Frost Nova', icon: '❄️', cd: 8, cost: 35,
+        id: 'frost_nova', name: 'Frost Nova', icon: 'frost_nova', cd: 8, cost: 35,
         desc: 'Icy shockwave: damages and drastically slows everything around you.',
         exec(game, p) {
           audio.play('frost_nova');
@@ -134,7 +136,7 @@ export const CLASSES = {
         },
       },
       {
-        id: 'blink', name: 'Blink', icon: '✨', cd: 6, cost: 20,
+        id: 'blink', name: 'Blink', icon: 'blink', cd: 6, cost: 20,
         desc: 'Teleport a short distance in the direction you face.',
         exec(game, p) {
           audio.play('blink');
@@ -144,7 +146,7 @@ export const CLASSES = {
         },
       },
       {
-        id: 'arcane_storm', name: 'Arcane Storm', icon: '🌩️', cd: 14, cost: 55,
+        id: 'arcane_storm', name: 'Arcane Storm', icon: 'arcane_storm', cd: 14, cost: 55,
         desc: 'Call down a crackling storm around you for 4 seconds.',
         exec(game, p) {
           audio.play('arcane_storm');
@@ -169,7 +171,7 @@ export const CLASSES = {
     basic: { kind: 'bolt', speed: 24, cooldown: 0.34, basicCost: 8, color: 0xd8c890, sound: 'bow_shot', hitSound: 'arrow_hit', arrow: true },
     abilities: [
       {
-        id: 'multishot', name: 'Multishot', icon: '🏹', cd: 5, cost: 25,
+        id: 'multishot', name: 'Multishot', icon: 'multishot', cd: 5, cost: 25,
         desc: 'Loose a fan of five arrows.',
         exec(game, p) {
           audio.play('multishot');
@@ -184,7 +186,7 @@ export const CLASSES = {
         },
       },
       {
-        id: 'dodge_roll', name: 'Dodge Roll', icon: '💨', cd: 4, cost: 15,
+        id: 'dodge_roll', name: 'Dodge Roll', icon: 'dodge_roll', cd: 4, cost: 15,
         desc: 'Roll quickly in your movement direction, evading all damage.',
         exec(game, p) {
           audio.play('dodge_roll');
@@ -192,7 +194,7 @@ export const CLASSES = {
         },
       },
       {
-        id: 'poison_trap', name: 'Poison Trap', icon: '☠️', cd: 8, cost: 30,
+        id: 'poison_trap', name: 'Poison Trap', icon: 'poison_trap', cd: 8, cost: 30,
         desc: 'Plant a trap that bursts into lingering poison when an enemy nears.',
         exec(game, p) {
           audio.play('trap_place');
@@ -203,7 +205,7 @@ export const CLASSES = {
         },
       },
       {
-        id: 'rain_arrows', name: 'Rain of Arrows', icon: '🌧️', cd: 13, cost: 50,
+        id: 'rain_arrows', name: 'Rain of Arrows', icon: 'rain_arrows', cd: 13, cost: 50,
         desc: 'After a beat, arrows hammer the area around you.',
         exec(game, p) {
           audio.play('rain_arrows');
