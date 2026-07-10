@@ -1852,7 +1852,9 @@ export class UI {
       const tp = document.createElementNS(NS, 'textPath');
       tp.setAttribute('href', `#${id}`);
       tp.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', `#${id}`); // older Safari
-      tp.setAttribute('startOffset', '50%');
+      // 76%: sits the numbers along the arc's lower-left TAIL, past the last
+      // ability bubble - at 50% (mid-arc) they crossed the upper bubbles' rings.
+      tp.setAttribute('startOffset', '76%');
       t.appendChild(tp);
       svg.appendChild(t);
       return tp;

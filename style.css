@@ -522,12 +522,12 @@ body:not(.touch-input) #joy-ghost { display: none !important; }
    ability circles inside it. */
 #touch-vitals .tv-hp-text {
   fill: var(--parchment); font-family: Georgia, 'Times New Roman', serif;
-  font-size: 9.5px; letter-spacing: 0.5px;
+  font-size: 11.5px; letter-spacing: 0.5px;
   paint-order: stroke; stroke: rgba(0,0,0,0.85); stroke-width: 2px;
 }
 #touch-vitals .tv-res-text {
   fill: #aab2e6; font-family: Georgia, 'Times New Roman', serif;
-  font-size: 8.5px; letter-spacing: 0.5px;
+  font-size: 10.5px; letter-spacing: 0.5px;
   paint-order: stroke; stroke: rgba(0,0,0,0.85); stroke-width: 1.8px;
 }
 /* Touch mode: vitals live on the cluster arcs, so the top-left bars retire.
@@ -1454,7 +1454,7 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
    purple-dark disc, soft purple rim and shadow as .act-btn, so the row and
    the ability arc read as one family. ALWAYS rendered - no drawer, no toggle,
    no open/closed state. */
-#touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr {
+#touch-pause, #touch-inv, #touch-mic {
   position: absolute; pointer-events: auto; width: 48px; height: 48px;
   border-radius: 50%; border: 1px solid rgba(126,102,158,0.5);
   background: radial-gradient(circle at 50% 38%, rgba(38,30,54,0.94), var(--panel));
@@ -1462,27 +1462,16 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
   font-size: 24px; color: var(--parchment); padding: 0;
   display: flex; align-items: center; justify-content: center; line-height: 1;
 }
-#touch-rotl:active, #touch-rotr:active { border-color: var(--gold); color: var(--gold); }
 #touch-mic:active { border-color: #7ce87c; background: rgba(40, 80, 40, 0.85); transform: scale(1.08); }
 /* red potion flask icon (the cluster/row potion bubble): sized to fill most
    of its round button. */
 .potion-icon { width: 26px; height: 26px; }
-/* Flat-stroke drawer glyphs (backpack / mic / gear / rotate) inherit the
-   button's currentColor, so the existing :active gold/green states still tint
-   them without any per-icon color rules. */
+/* Flat-stroke drawer glyphs inherit the button's currentColor, so the
+   existing :active gold/green states still tint them without any per-icon
+   color rules. Unused by the colorful icons.js glyphs (which size via
+   .ui-ic's 1em rule) but kept for any plain stroke icon dropped into a
+   .util-icon slot. */
 .drawer-icon { width: 22px; height: 22px; display: block; }
-
-/* Hold-progress ring on the rotate bubbles: same SVG-stroke technique as the
-   ability cooldown rings, but it FILLS while held (~1s) instead of draining.
-   touch.js drives stroke-dashoffset from 282.74 (empty) down to 0 (full) over
-   the hold duration; reaching 0 is what starts the actual camera rotation. */
-.hold-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); pointer-events: none; }
-.hold-ring-fg {
-  fill: none; stroke: var(--gold); stroke-width: 6; stroke-linecap: round;
-  transition: stroke-dashoffset 0.05s linear;
-}
-#touch-rotl.holding, #touch-rotr.holding { border-color: rgba(232,192,90,0.8); }
-#touch-rotl.rotating, #touch-rotr.rotating { border-color: var(--gold); box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 10px rgba(232,192,90,0.4); }
 
 /* Desktop default positions (declared BEFORE the coarse media query so the
    mobile overrides below win on touch devices). */
@@ -1490,21 +1479,18 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
 #touch-mic { right: 14px; bottom: 300px; }
 #touch-mic.hidden { display: none !important; }
 #touch-pause { right: 14px; bottom: 232px; }
-/* rotate-camera glyphs run larger than the other utilities: the curved-arrow
-   characters read small at a normal size, and they must be legible as a
-   rotate affordance. Centred by the shared flex rule above. */
-#touch-rotl { left: 14px; bottom: 96px; font-size: 34px; }
-#touch-rotr { left: 82px; bottom: 96px; font-size: 34px; }
 
 /* Mobile layout: left thumb moves, abilities live under the right thumb.
-   Utilities are a smaller INNER ARC of circular bubbles (rotate-left,
-   rotate-right, mic, settings) concentric with the ability arc but at a
+   Utilities are a smaller INNER ARC of FOUR equal, larger circular bubbles
+   (potion, inventory, mic, settings) concentric with the ability arc but at a
    smaller radius, sitting in the ring of space between the big basic-attack
    button and the four ability bubbles - never a separate row that can run
    into the ability arc or the vitals bars hugging its outside. Always
-   visible - no drawer to open first. The potion bubble itself lives IN the
-   ability arc (buildActionCluster's _buildPotionBubble), right next to the
-   last ability, not in this inner arc.
+   visible - no drawer to open first. Screen rotation is the two-finger twist
+   gesture only (game.js) - there is no rotate button anymore, which is what
+   freed up room to move the potion bubble out of the ability arc and into
+   this inner arc, and to spread the four abilities evenly across the arc
+   they used to share with it.
    Gated on body.touch-mode (set by core/touch.js's isTouchDevice() check, the
    same check buildHotbar() uses to pick the wheel) rather than the
    @media (pointer: coarse) query directly, so the JS layout pick and the CSS
@@ -1523,36 +1509,42 @@ body.touch-mode {
   }
   .act-basic { width: 76px; height: 76px; right: 16px; bottom: 16px; z-index: 2; }
   .act-ability { width: 58px; height: 58px; }
-  /* arc: slot 0 just above the basic, sweeping up-and-left to slot 3 */
-  .act-slot-0 { right: 49px;  bottom: 138px; }
-  .act-slot-1 { right: 100px; bottom: 114px; }
-  .act-slot-2 { right: 133px; bottom: 68px; }
-  .act-slot-3 { right: 140px; bottom: 13px; }
-  .act-potion { width: 48px; height: 48px; right: 125px; bottom: 152px; z-index: 3; }
+  /* arc: 4 abilities EVENLY spaced (radius 115.6 from the basic button's
+     pivot, -90deg to -190deg) now that the potion no longer shares this arc -
+     slot 0 just above the basic, sweeping up-and-left to slot 3. */
+  .act-slot-0 { right: 25px;  bottom: 141px; }
+  .act-slot-1 { right: 88px;  bottom: 122px; }
+  .act-slot-2 { right: 131px; bottom: 71px; }
+  .act-slot-3 { right: 139px; bottom: 5px; }
+  /* Potion moved OUT of the ability arc into the inner utility arc below (the
+     old rotate-button spot), styled identically to #touch-inv/mic/pause: same
+     36px size, same radius-62.3 arc, topmost position (nearest slot 0).
+     act-potion lives INSIDE #hotbar, so unlike the three #touch-ui buttons
+     below its right/bottom are relative to the 210x210 #hotbar box itself,
+     not the viewport - box-relative values here are box value == viewport
+     value minus #hotbar's own 14px right/bottom offset. */
+  .act-potion { width: 36px; height: 36px; right: 20px; bottom: 96px; z-index: 3; }
+  .act-potion .potion-icon { width: 20px; height: 20px; }
 
-  /* Utility inner arc: rotate-left/rotate-right/mic/settings, each a small
-     22px bubble on a radius-61 arc CONCENTRIC with the ability arc (radius
-     ~115) around the same pivot (the basic button's center), swept through
-     the same top -> left quarter but nested in the annulus between the
-     basic button's edge and the ability bubbles' inner edge. #touch-pause/
-     rotl/rotr/mic live outside #hotbar (in #touch-ui, viewport-anchored)
-     since they must stay visible/usable in town too, where the ability arc
-     itself fades out - so these are plain viewport right/bottom values.
-     Positions were solved empirically (a bounding-box search against the
-     REAL rendered act-basic/act-slot-0..3 rects, not hand trig - the square
-     ability bubbles' corners poke closer to the pivot than a naive
-     circle-packing estimate accounts for) with a 2.5px safety buffer against
-     the basic button, every ability bubble, and each other; 22px is the
-     largest size that clears all of them at once at this cluster scale, a
-     bit under the ~60-70% ballpark of a 58px ability bubble. */
-  #touch-rotl, #touch-rotr, #touch-mic, #touch-pause {
-    width: 22px; height: 22px; font-size: 12px; left: auto;
+  /* Utility inner arc: potion/inventory/mic/settings, FOUR EQUAL 36px bubbles
+     (up from the old 22px rotate-era size - the largest that clears the basic
+     button, every ability bubble and each other with a real safety margin,
+     bbox-verified against the actual rendered rects) on a radius-62.3 arc
+     CONCENTRIC with the ability arc (radius 115.6) around the same pivot (the
+     basic button's center), nested in the annulus between the basic button's
+     edge and the ability bubbles' inner edge - checked at 390x844, 844x390
+     and 1024x768 (see verify screenshots). #touch-pause/inv/mic live outside
+     #hotbar (in #touch-ui, viewport-anchored) since they must stay
+     visible/usable in town too, where the ability arc itself fades out - so
+     these are plain viewport right/bottom values (box value + #hotbar's own
+     14px offset); .act-potion above is inside #hotbar (excluded from the
+     in-town fade via :not(.act-potion) below) but sized/positioned to match. */
+  #touch-inv, #touch-mic, #touch-pause {
+    width: 36px; height: 36px; font-size: 18px; left: auto;
   }
-  #touch-rotl  { right: 57px;  bottom: 118px; } /* nearest the top, by slot-0 */
-  #touch-rotr  { right: 89px;  bottom: 109px; }
-  #touch-mic   { right: 112px; bottom: 84px; }
-  #touch-pause { right: 118px; bottom: 51px; }  /* nearest the left, by slot-3 */
-  #touch-inv { display: none; } /* inventory lives in Settings */
+  #touch-inv   { right: 81px;  bottom: 104px; } /* next to potion, old rotate-right spot */
+  #touch-mic   { right: 110px; bottom: 66px; }
+  #touch-pause { right: 104px; bottom: 19px; }  /* kept nearest the left/bottom, as before */
 }
 
 /* First-time 3-step contextual tutorial (Embervale, first touch visit only):
@@ -1625,15 +1617,15 @@ body.touch-mode {
   76% { transform: translateY(-36px) scale(0.95); opacity: 0; }
   100% { transform: translateY(0) scale(0.85); opacity: 0; }
 }
-/* Step 1: over the left-thumb move zone, clear of the rotate buttons. */
+/* Step 1: over the left-thumb move zone. */
 #touch-tut-move { left: 14vw; bottom: 22vh; }
 /* Step 2: over the right-side aim/attack zone, roughly mirroring step 1. */
 #touch-tut-attack { right: 16vw; bottom: 30vh; }
 /* Step 3: over the ability wheel's arc, above the wheel's inset pivot. */
 #touch-tut-ability { right: 14vw; bottom: 34vh; }
-/* Compact layout: lift the MP chat clear of the bottom-left rotate buttons
-   (which sit at bottom:96) and compact it so it stays out of the way. Keyed
-   on body.touch-mode (viewport-driven, see core/touch.js) so a narrow desktop
+/* Compact layout: lift the MP chat clear of the action cluster and compact it
+   so it stays out of the way. Keyed on body.touch-mode (viewport-driven, see
+   core/touch.js) so a narrow desktop
    window gets the same collision-free chat as a phone. */
 body.touch-mode #chat { bottom: 164px; width: min(66vw, 300px); padding: 5px 7px 6px; }
 body.touch-mode #chat-recent { max-height: 20vh; }
@@ -1701,9 +1693,7 @@ body.touch-mode #chat-title { font-size: 11px; }
 /* Landscape phones: shorter screen — shrink the stack and minimap so nothing collides. */
 @media (max-height: 540px) and (pointer: coarse), (max-height: 540px) and (max-width: 1000px) {
   /* short screen: smaller utility bubbles so the row stays clear of the minimap. */
-  #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr { width: 40px; height: 40px; font-size: 19px; }
-  #touch-inv .drawer-icon, #touch-mic .drawer-icon, #touch-pause .drawer-icon, #touch-rotl .drawer-icon, #touch-rotr .drawer-icon { width: 19px; height: 19px; }
-  #touch-rotl, #touch-rotr { font-size: 20px; }
+  #touch-pause, #touch-inv, #touch-mic { width: 32px; height: 32px; font-size: 16px; }
   #chat { bottom: 128px; width: min(44vw, 300px); }
   #chat-recent { max-height: 32vh; }
   #minimap { width: 84px; height: 84px; }
@@ -1734,25 +1724,28 @@ body.touch-mode #chat-title { font-size: 11px; }
   body.touch-mode #hotbar { right: 26px; bottom: 22px; width: 172px; height: 172px; }
   body.touch-mode .act-basic { width: 64px; height: 64px; right: 12px; bottom: 12px; }
   body.touch-mode .act-ability { width: 48px; height: 48px; }
-  body.touch-mode .act-slot-0 { right: 42px;  bottom: 112px; }
-  body.touch-mode .act-slot-1 { right: 84px;  bottom: 92px; }
-  body.touch-mode .act-slot-2 { right: 110px; bottom: 54px; }
-  body.touch-mode .act-slot-3 { right: 116px; bottom: 10px; }
-  body.touch-mode .act-potion { width: 40px; height: 40px; right: 116px; bottom: 134px; }
-  body.touch-mode .act-potion .potion-icon { width: 19px; height: 19px; }
+  /* 4 abilities evenly spaced (radius 95.6, same -90..-190 sweep as the base
+     layout, scaled to this breakpoint's smaller 172px hotbar). */
+  body.touch-mode .act-slot-0 { right: 20px;  bottom: 116px; }
+  body.touch-mode .act-slot-1 { right: 73px;  bottom: 100px; }
+  body.touch-mode .act-slot-2 { right: 108px; bottom: 58px; }
+  body.touch-mode .act-slot-3 { right: 114px; bottom: 3px; }
+  /* Potion joins the inner utility arc below (old rotate-button spot); box-
+     relative (see base-layout comment above for why). */
+  body.touch-mode .act-potion { width: 28px; height: 28px; right: 17px; bottom: 80px; }
+  body.touch-mode .act-potion .potion-icon { width: 15px; height: 15px; }
   /* Utility inner arc, short-screen geometry: same concentric-arc idea as the
-     base layout, solved the same way (bounding-box search against the real
+     base layout, solved the same way (bbox-verified against the real
      rendered act-basic/act-slot-0..3 rects at this breakpoint's smaller
-     172px hotbar), 19px bubbles on a radius-51.5 arc with a 2px safety
-     buffer against the basic button, every ability bubble, and each other. */
-  body.touch-mode #touch-rotl, body.touch-mode #touch-rotr,
-  body.touch-mode #touch-mic, body.touch-mode #touch-pause {
-    width: 19px; height: 19px; font-size: 10px;
+     172px hotbar), 28px bubbles (up from the old 19px rotate-era size) on a
+     radius-51.8 arc with a real safety margin against the basic button, every
+     ability bubble, and each other. */
+  body.touch-mode #touch-inv, body.touch-mode #touch-mic, body.touch-mode #touch-pause {
+    width: 28px; height: 28px; font-size: 14px;
   }
-  body.touch-mode #touch-rotl  { right: 61px;  bottom: 108px; }
-  body.touch-mode #touch-rotr  { right: 88px;  bottom: 100px; }
-  body.touch-mode #touch-mic   { right: 107px; bottom: 79px; }
-  body.touch-mode #touch-pause { right: 112px; bottom: 51px; }
+  body.touch-mode #touch-inv   { right: 82px; bottom: 97px; }
+  body.touch-mode #touch-mic   { right: 104px; bottom: 63px; }
+  body.touch-mode #touch-pause { right: 99px; bottom: 24px; }
   body.touch-mode .act-basic .act-icon { font-size: 26px; }
   body.touch-mode .act-icon { font-size: 20px; }
 }
@@ -1762,8 +1755,8 @@ body.touch-mode #chat-title { font-size: 11px; }
 .touch-mode #hotbar .act-btn { pointer-events: auto; }
 /* The FIGHTING buttons (basic attack + 4 abilities) are a dungeon combat tool:
    fade them out in town, and while an interact/descend prompt is up so they
-   never sit under that prompt. The potion + utility row (settings, rotate)
-   stay visible and usable in town too - per the brief, "town shows the same
+   never sit under that prompt. The potion + utility row (settings, inventory,
+   mic) stay visible and usable in town too - per the brief, "town shows the same
    rows, abilities hidden, utilities visible" - so they are excluded from this
    fade via :not(.act-potion). */
 .touch-mode.in-town #hotbar > .act-btn:not(.act-potion),
@@ -1785,20 +1778,25 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
   .class-card .class-role { font-size: 10px; letter-spacing: 1px; }
   .class-card .class-desc, .class-card ul { display: none; }
   #class-detail { max-width: 88vw; font-size: 12px; max-height: 30vh; overflow-y: auto; }
-  /* narrower bars (values unchanged) so they never reach the right column */
-  #hud-topleft { width: 40vw; max-width: 180px; }
-  #hud-topleft .bar-wrap { height: 18px; }
-  #hud-topleft .bar-wrap.small { height: 13px; }
-  #hud-topleft .bar-text { font-size: 10px; }
-  #hud-stats { font-size: 12px; gap: 8px; }
-  #hud-topright { max-width: 52vw; align-items: flex-end; }
+  /* Phone HUD legibility: Lv/gold/potions (top-left) and the floor title/
+     objective/quest line (top-right) read too small on phones - scale their
+     type up ~1.3-1.5x over the old sizes. Widths grow to match (44vw/190 and
+     42vw resp.) but stay capped with a safety gap between the two blocks and
+     the minimap, bbox-checked at 390x844, 844x390 and 1024x768 (all three hit
+     this query, the last two via pointer:coarse touch emulation). */
+  #hud-topleft { width: 44vw; max-width: 190px; }
+  #hud-topleft .bar-wrap { height: 21px; }
+  #hud-topleft .bar-wrap.small { height: 16px; }
+  #hud-topleft .bar-text { font-size: 13px; }
+  #hud-stats { font-size: 19px; gap: 12px; }
+  #hud-topright { max-width: 46vw; align-items: flex-end; }
   #hud-topright > div {
-    max-width: 52vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;
+    max-width: 42vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;
   }
   #minimap { width: 110px; height: 110px; }
-  #hud-floor { font-size: 15px; }
-  #hud-quest { font-size: 10px; }
-  #hud-clear { font-size: 11px; }
+  #hud-floor { font-size: 26px; }
+  #hud-quest { font-size: 15px; opacity: 0.85; }
+  #hud-clear { font-size: 17px; opacity: 1; }
   /* boss-bar-wrap is world-anchored (JS-positioned each frame) so no per-layout
      top offset is needed; just keep the width capped for small screens. */
   #boss-bar-wrap { width: min(84vw, 300px); }
