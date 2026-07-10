@@ -803,7 +803,13 @@ export class Game {
         if (roam.idle <= 0) {
           const a = Math.random() * Math.PI * 2;
           const rad = 0.3 + Math.random() * (TETHER - 0.3);
-          roam.target.set(home.x + Math.cos(a) * rad, home.y, Math.min(home.z + Math.sin(a) * rad, keeperSideZ));
+          // clamp inside the rebuilt booth shell: side panels at local x +/-1.2,
+          // back wall at z=-0.9, counter at z=+0.3 (keeperSideZ handles that
+          // side) - so the amble never walks the keeper through the booth.
+          roam.target.set(
+            Math.max(-0.95, Math.min(0.95, home.x + Math.cos(a) * rad)),
+            home.y,
+            Math.max(-0.68, Math.min(home.z + Math.sin(a) * rad, keeperSideZ)));
           roam.idle = 1.5 + Math.random() * 2.5;
         }
       } else {

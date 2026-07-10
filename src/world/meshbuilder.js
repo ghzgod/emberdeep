@@ -1298,32 +1298,66 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
     for (const v of dungeon.vendors) {
       const w = tileToWorld(v.x, v.y);
       const stall = new THREE.Group();
-      const counter = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.8, 0.6), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.8 }));
-      counter.position.y = 0.4;
-      const poleL = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6), new THREE.MeshStandardMaterial({ color: 0x5a4028 }));
-      poleL.position.set(-0.75, 1.1, -0.25);
-      const poleR = poleL.clone(); poleR.position.x = 0.75;
+      // --- Booth architecture, built from the ground up (TODO 678): a real
+      // market booth, not a bench with a roof. Player faces +z. Solid counter
+      // across the front, low side panels, a back wall with a goods shelf,
+      // four corner posts and a sloped STRIPED awning whose underside sits at
+      // ~2.4 - a full 0.8 above the 1.6-unit keeper, so nothing ever chops
+      // through their head. The old modeled stand swap is gone: its deep
+      // frame is what kept clipping the keeper. ---
       const canopyColor = v.type === 'potions' ? 0xb03a4a : v.type === 'mystery' ? 0x6a2a9a : 0x3a5ab0;
-      const canopy = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.08, 1.0), new THREE.MeshStandardMaterial({ color: canopyColor, roughness: 0.7 }));
-      canopy.position.set(0, 2.2, -0.1);
-      // stall structure lives in its own subgroup so the modeled CC0 market
-      // stand can swap in for JUST the architecture (counter/poles/canopy),
-      // leaving keeper, lantern, wares and side props exactly where they are.
-      // The stand's roof-tile canopy is tinted to the vendor's color so the
-      // three shops stay tellable apart at a glance.
+      const woodMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 });
+      const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x5a4028, roughness: 0.9 });
       const structure = new THREE.Group();
-      structure.add(counter, poleL, poleR, canopy);
-      stall.add(structure);
-      swapInModel(stall, structure, ['stall'], ([tpl]) => {
-        if (!tpl) return null;
-        // 2.25 left only ~1.6 units of headroom under the canopy: exactly the
-        // hero's own height with no clearance, so a player walking up to the
-        // counter could clip the underside of the roof. 2.6 keeps the canopy
-        // clearly overhead.
-        const node = buildModelMesh(tpl, 2.6, { RoofTiles_Red: canopyColor });
-        node.position.set(0, 0, -0.15);
-        return node;
+      // front counter + lighter overhanging countertop
+      const counter = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.8, 0.5), woodMat);
+      counter.position.set(0, 0.4, 0.55);
+      const counterTop = new THREE.Mesh(new THREE.BoxGeometry(2.56, 0.06, 0.62),
+        new THREE.MeshStandardMaterial({ color: 0x8a6a44, roughness: 0.8 }));
+      counterTop.position.set(0, 0.83, 0.55);
+      // low side panels enclose the booth so it reads as a shop, not a table
+      const sideGeo = new THREE.BoxGeometry(0.08, 0.9, 1.5);
+      const sideL = new THREE.Mesh(sideGeo, woodMat); sideL.position.set(-1.2, 0.45, -0.1);
+      const sideR = new THREE.Mesh(sideGeo, woodMat); sideR.position.set(1.2, 0.45, -0.1);
+      // back wall + shelf of goods behind the keeper
+      const backWall = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.7, 0.08), woodMat);
+      backWall.position.set(0, 0.85, -0.9);
+      const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.05, 0.3), darkWoodMat);
+      shelf.position.set(0, 1.25, -0.78);
+      const shelfGoods = new THREE.Group();
+      for (let i = 0; i < 4; i++) {
+        const gb = new THREE.Mesh(new THREE.BoxGeometry(0.22 + (i % 2) * 0.08, 0.18 + (i % 3) * 0.05, 0.2),
+          new THREE.MeshStandardMaterial({ color: [0x7a5a3a, 0x4a5a6a, 0x6a4a5a, 0x5a6a4a][i], roughness: 0.9 }));
+        gb.position.set(-0.8 + i * 0.55, 1.37, -0.78);
+        shelfGoods.add(gb);
+      }
+      // four corner posts carry the awning
+      const postGeo = new THREE.CylinderGeometry(0.06, 0.07, 2.5, 8);
+      const posts = [[-1.2, 0.72], [1.2, 0.72], [-1.2, -0.88], [1.2, -0.88]].map(([px, pz]) => {
+        const post = new THREE.Mesh(postGeo, darkWoodMat);
+        post.position.set(px, 1.25, pz);
+        return post;
       });
+      // striped canvas awning, sloped down toward the player, with a hanging
+      // front valance - the classic market-booth read. Stripes come from a
+      // tiny generated canvas (vendor color + off-white) so the three shops
+      // stay tellable apart at a glance.
+      const stripes = document.createElement('canvas');
+      stripes.width = 128; stripes.height = 16;
+      const sctx = stripes.getContext('2d');
+      const cHex = '#' + canopyColor.toString(16).padStart(6, '0');
+      for (let i = 0; i < 8; i++) { sctx.fillStyle = i % 2 ? '#e8e0cc' : cHex; sctx.fillRect(i * 16, 0, 16, 16); }
+      const stripeTex = new THREE.CanvasTexture(stripes);
+      stripeTex.wrapS = stripeTex.wrapT = THREE.RepeatWrapping;
+      stripeTex.repeat.set(2, 1);
+      const awningMat = new THREE.MeshStandardMaterial({ map: stripeTex, roughness: 0.85, side: THREE.DoubleSide });
+      const awning = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.05, 2.1), awningMat);
+      awning.position.set(0, 2.62, -0.05);
+      awning.rotation.x = 0.17; // slopes from ~2.8 at the back to ~2.45 at the front
+      const valance = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.2, 0.04), awningMat);
+      valance.position.set(0, 2.35, 0.95);
+      structure.add(counter, counterTop, sideL, sideR, backWall, shelf, shelfGoods, ...posts, awning, valance);
+      stall.add(structure);
 
       // --- shopkeeper: readable face + real character per vendor, built to
       // read from the overhead camera (big eyes, head tipped up, hands on the
@@ -1452,23 +1486,20 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
         pushNpcAnimDriver(smokePuffs, npc, null);
       }
 
-      // Pushed back from -0.62: the modeled CC0 stall's frame runs much
-      // deeper (front-to-back) than the old procedural counter did, and at
-      // -0.62 the keeper stood mid-frame with the stall's own corner/roof
-      // struts passing straight through their body. -1.25 clears the whole
-      // strut band and plants the keeper at the back of the stand, still
-      // under the canopy, with the counter and wares between them and the
-      // player.
-      keeper.position.z = -1.25;
+      // Keeper stands in the booth's open middle - behind the counter (front
+      // face at z=+0.3), in front of the back wall (z=-0.9), under the awning
+      // whose underside is ~2.5 here. Nothing intersects them at any angle.
+      keeper.position.z = -0.35;
       stall.add(keeper);
 
-      // hanging lantern on the stall front — lights the keeper's face at night
+      // hanging lantern under the awning's front edge — lights the keeper's
+      // face at night without the fixture clipping the counter or canopy
       const lantern = new THREE.Group();
       const lanternBody = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.2, 0.14),
         new THREE.MeshStandardMaterial({ color: 0x2a2018, emissive: 0xffb44a, emissiveIntensity: 0.7 }));
       const lanternLight = new THREE.PointLight(0xffbf7a, 11, 5, 2);
       lantern.add(lanternBody, lanternLight);
-      lantern.position.set(0.72, 1.85, 0.4);
+      lantern.position.set(0.95, 2.1, 0.8);
       stall.add(lantern);
       // vendor lantern glows at night: fade its emissive + its little light
       townGlows.push({ mesh: lanternBody, kind: 'emissive', nightEmissive: 0.9 });
@@ -1514,27 +1545,30 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
           ware.add(card);
         }
       }
+      // the counter moved forward to z=+0.55 with a 0.86-high top - carry the
+      // ware group onto it
+      ware.position.set(0, 0.06, 0.55);
       stall.add(ware);
 
       // crates/barrels beside the stall for extra detail; each swaps to its
       // modeled CC0 version once the GLB loads (same spot, visual only)
       const crate = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 }));
-      crate.position.set(-1.05, 0.2, 0.35);
+      crate.position.set(-1.55, 0.2, 0.5);
       crate.rotation.y = 0.3;
       const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.5, 10), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 }));
-      barrel.position.set(1.05, 0.25, 0.35);
+      barrel.position.set(1.55, 0.25, 0.5);
       stall.add(crate, barrel);
       swapInModel(stall, crate, ['crate'], ([tpl]) => {
         if (!tpl) return null;
         const node = buildModelMesh(tpl, 0.44);
-        node.position.set(-1.05, 0, 0.35);
+        node.position.set(-1.55, 0, 0.5);
         node.rotation.y = 0.3;
         return node;
       });
       swapInModel(stall, barrel, ['barrel'], ([tpl]) => {
         if (!tpl) return null;
         const node = buildModelMesh(tpl, 0.56);
-        node.position.set(1.05, 0, 0.35);
+        node.position.set(1.55, 0, 0.5);
         return node;
       });
 
@@ -1549,7 +1583,7 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
         anvilHorn.position.set(-0.26, 0.34, 0);
         anvilHorn.rotation.z = Math.PI / 2;
         anvil.add(anvilBody, anvilBase, anvilHorn);
-        anvil.position.set(-1.05, 0, -0.4);
+        anvil.position.set(-1.55, 0, -0.2);
         stall.add(anvil);
       }
 
