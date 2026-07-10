@@ -93,6 +93,27 @@ const MUSIC = {
 
 const AUDIBLE_RANGE = 26; // world units; beyond this SFX are silent
 
+// Per-enemy-type attack voice: every type gets its OWN swing/cast identity
+// instead of witch/warlock parroting the imp's shoot clip and melee types
+// lunging silently. `clip` entries reuse an existing manifest sound at a
+// FIXED per-type pitch (the deathScream pitch-shift approach, but a stable
+// signature per type rather than a random step); `synth` entries are short
+// procedural one-shots (see _attackSynth) built from the same noise and
+// oscillator helpers the ghost moans use, so no new assets are fetched.
+// The golem is intentionally absent: its slam (golem_slam, played directly
+// by enemies.js at windup + impact) is already a unique identity. Bosses and
+// the dragon likewise keep their own sounds in their own code paths.
+const ENEMY_ATTACK_SOUNDS = {
+  skeleton: { clip: 'sword_swing', rate: 0.82, volume: 0.85 }, // slow bony sword swipe
+  spider:   { synth: 'hiss' },                                  // chitinous lunge hiss
+  imp:      { clip: 'imp_shoot', rate: 1.0 },                   // its original fireball spit
+  ghost:    { synth: 'chill' },                                  // icy exhaled swipe
+  ghoul:    { synth: 'bite' },                                   // wet snapping bite
+  witch:    { clip: 'magic_bolt', rate: 1.35, volume: 0.85 },   // sharp crackling hex
+  warlock:  { clip: 'fireball_cast', rate: 0.68, volume: 0.9 }, // low shadow surge
+  demon:    { synth: 'claw' },                                   // heavy claw whoosh
+};
+
 // Ghost ambient one-shots (see ghostMoan() below) -- an assortment so wraiths
 // don't repeat the same clip every time.
 const GHOST_MOAN_VARIANTS = ['moan', 'wail', 'keen', 'rattle'];
@@ -515,6 +536,67 @@ export class AudioEngine {
     src.connect(g);
     g.connect(this.sfxGain);
     src.start();
+  }
+
+  // Per-type enemy attack sound (see ENEMY_ATTACK_SOUNDS above). Types with a
+  // `clip` play the sampled sound at their fixed signature pitch; types with
+  // a `synth` get a short procedural one-shot. opts: { pos, volume }, same
+  // distance attenuation as play().
+  enemyAttack(typeId, opts = {}) {
+    const def = ENEMY_ATTACK_SOUNDS[typeId];
+    if (!def || !this.ctx || this.ctx.state !== 'running') return;
+    if (def.clip) {
+      this.play(def.clip, { ...opts, rate: def.rate ?? 1, volume: (def.volume ?? 1) * (opts.volume ?? 1) });
+      return;
+    }
+    let vol = opts.volume ?? 1;
+    if (opts.pos) {
+      const dx = opts.pos.x - this.listener.x;
+      const dz = opts.pos.z - this.listener.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > AUDIBLE_RANGE) return;
+      vol *= Math.max(0, 1 - dist / AUDIBLE_RANGE) ** 1.5;
+    }
+    if (vol <= 0.01) return;
+    this._attackSynth(def.synth, vol);
+  }
+
+  // Short procedural attack one-shots for enemy types that have no fitting
+  // sampled clip: a bandpass-swept noise burst (reusing the shared _noise
+  // buffer, like the ghost rattle) with an optional pitched tone underneath.
+  _attackSynth(kind, vol) {
+    const P = {
+      hiss:  { f0: 3400, f1: 1500, q: 2.5, dur: 0.18, gain: 0.30 },
+      bite:  { f0: 700, f1: 240, q: 3.5, dur: 0.13, gain: 0.34, tone: { type: 'square', tf0: 170, tf1: 90, tg: 0.10 } },
+      chill: { f0: 1500, f1: 480, q: 1.1, dur: 0.34, gain: 0.22, tone: { type: 'sine', tf0: 540, tf1: 240, tg: 0.07 } },
+      claw:  { f0: 1000, f1: 260, q: 0.9, dur: 0.24, gain: 0.42, tone: { type: 'sawtooth', tf0: 120, tf1: 65, tg: 0.08 } },
+    }[kind];
+    if (!P) return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._noise();
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'bandpass'; f.Q.value = P.q;
+    f.frequency.setValueAtTime(P.f0, t);
+    f.frequency.exponentialRampToValueAtTime(P.f1, t + P.dur);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(P.gain * vol, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + P.dur);
+    src.connect(f); f.connect(g); g.connect(this.sfxGain);
+    src.start(t, Math.random() * 2, P.dur + 0.05);
+    if (P.tone) {
+      const o = this.ctx.createOscillator();
+      o.type = P.tone.type;
+      o.frequency.setValueAtTime(P.tone.tf0, t);
+      o.frequency.exponentialRampToValueAtTime(P.tone.tf1, t + P.dur);
+      const og = this.ctx.createGain();
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(P.tone.tg * vol, t + 0.02);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + P.dur);
+      o.connect(og); og.connect(this.sfxGain);
+      o.start(t); o.stop(t + P.dur + 0.1);
+    }
   }
 
   // ---------- Ghost ambience one-shots (procedural, no assets) ----------

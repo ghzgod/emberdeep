@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { audio } from '../core/audio.js';
 import { learner } from '../ai/learner.js';
 import { attachEnemyModel, bossModelKey, typeModelKey } from './enemyModel.js';
+import { RARITIES } from './loot.js';
 
 // Distance-tiered animation throttle (mirrors world-of-claudecraft's approach):
 // enemies close to the camera update their mixer every frame, mid-range ones
@@ -49,7 +50,7 @@ export const ENEMY_TYPES = {
     name: 'Imp',
     base: { hp: 28, damage: 11, speed: 4.1, xp: 12, gold: [3, 8] },
     perFloor: { hp: 11, damage: 3.1, xp: 3.5 },
-    attack: { kind: 'ranged', range: 9, keepDistance: 6, cooldown: 1.6, windup: 0.45, projSpeed: 11 },
+    attack: { kind: 'ranged', range: 9, keepDistance: 6, cooldown: 1.6, windup: 0.45, projSpeed: 11, proj: { color: 0xff7a3a, trail: 0xff5a2a, size: 0.2 } },
     aggroRange: 12, radius: 0.35,
     sounds: { hurt: 'imp_hurt', death: 'imp_death', shoot: 'imp_shoot' },
     color: 0xc85a3a,
@@ -85,7 +86,7 @@ export const ENEMY_TYPES = {
     name: 'Witch',
     base: { hp: 28, damage: 11, speed: 4.2, xp: 13, gold: [3, 9] },
     perFloor: { hp: 9, damage: 3.0, xp: 3.5 },
-    attack: { kind: 'ranged', range: 8.5, keepDistance: 6, cooldown: 1.5, windup: 0.4, projSpeed: 12 },
+    attack: { kind: 'ranged', range: 8.5, keepDistance: 6, cooldown: 1.5, windup: 0.4, projSpeed: 12, proj: { color: 0x8ae04a, trail: 0x3aa02a, size: 0.22 } },
     aggroRange: 12, radius: 0.36,
     sounds: { hurt: 'imp_hurt', death: 'imp_death', shoot: 'imp_shoot' },
     color: 0x2a4a3a,
@@ -94,7 +95,7 @@ export const ENEMY_TYPES = {
     name: 'Warlock',
     base: { hp: 34, damage: 12, speed: 3.6, xp: 15, gold: [4, 10] },
     perFloor: { hp: 11, damage: 3.4, xp: 4 },
-    attack: { kind: 'ranged', range: 9, keepDistance: 6.5, cooldown: 1.7, windup: 0.5, projSpeed: 11 },
+    attack: { kind: 'ranged', range: 9, keepDistance: 6.5, cooldown: 1.7, windup: 0.5, projSpeed: 11, proj: { color: 0x9a4aff, trail: 0x4a1a7a, size: 0.26 } },
     aggroRange: 12, radius: 0.38,
     sounds: { hurt: 'imp_hurt', death: 'imp_death', shoot: 'imp_shoot' },
     color: 0x4a3a6a,
@@ -162,6 +163,7 @@ export class Enemy {
     this.def = ENEMY_TYPES[typeId];
     this.miniboss = !!opts.miniboss;
     this.elite = !!opts.elite;
+    this.floor = floor; // kept for the character-power scaling par budget below
 
     const f = floor - 1;
     let hp = this.def.base.hp + this.def.perFloor.hp * f;
@@ -244,6 +246,45 @@ export class Enemy {
     if (crown) crown.material = new THREE.MeshBasicMaterial({ color: 0xffe680 });
   }
 
+  // ---- Character-power scaling for crowned enemies ----
+  // Elites, minibosses and (mildly) act bosses scale with the CHARACTER, not
+  // just the floor: a power score built from hero level, worn gear (item
+  // level x rarity multiplier, the same weighting loot.js's wornScore uses)
+  // and mastery points spent is compared against a rough at-par power budget
+  // for this floor. Any surplus raises this enemy's HP and, at a gentler
+  // slope (same convention as game.applyMpScaling), its damage, so a geared
+  // or overleveled hero still finds crowned mobs dangerous. Hard-capped so
+  // they stay killable: elites/minibosses top out at 2.5x HP / 1.9x damage
+  // over their current tuned values, bosses (which keep their own act
+  // scaling) at a mild 1.5x HP / 1.3x damage. Runs exactly once, on the
+  // first update tick (the earliest moment a player ref exists), never
+  // mid-fight; the state guard skips host-migration promotions, which arrive
+  // already fighting with HP carried over from the previous host's (already
+  // scaled) enemy. Normal mobs are untouched.
+  _applyPowerScaling(game) {
+    this._powerScaled = true;
+    if (!this.elite && !this.miniboss && !this.isBoss) return;
+    if (this.state !== 'idle') return; // promoted mid-fight mirror: keep carried stats
+    const p = game.player;
+    if (!p || !p.level) return;
+    let gearScore = 0;
+    for (const item of Object.values(p.equipped || {})) {
+      if (item) gearScore += (item.ilvl || 1) * (RARITIES[item.rarity]?.mult || 1);
+    }
+    const spent = typeof p.spentSkillPoints === 'function' ? p.spentSkillPoints() : 0;
+    const score = p.level * 2 + gearScore / 4.8 + spent * 1.5;
+    const par = 5 * Math.max(1, this.floor || 1); // at-par hero power for this floor
+    const surplus = Math.max(0, score / par - 1);
+    const hpMult = this.isBoss
+      ? Math.min(1.5, 1 + surplus * 0.25)
+      : Math.min(2.5, 1 + surplus * 0.5);
+    if (hpMult <= 1.001) return;
+    this.maxHp = Math.round(this.maxHp * hpMult);
+    this.hp = Math.round(this.hp * hpMult);
+    this.damage *= 1 + (hpMult - 1) * 0.6;
+    this.powerMult = hpMult; // exposed for debugging/balance verification
+  }
+
   get moveSpeed() {
     let s = this.speed;
     for (const st of this.statuses) if (st.slow) s *= st.slow.mult;
@@ -307,8 +348,11 @@ export class Enemy {
         localTop = (box.max.y - this.mesh.position.y) / (this.mesh.scale.x || 1);
       }
       // width ~ the creature's shoulder width, thin, floating a bit above the
-      // crown (and above the miniboss crown ring, which sits at +0.18)
-      const w = Math.max(0.55, Math.min(1.7, this.visualRadius * 1.8)) / scl;
+      // crown (and above the miniboss crown ring, which sits at +0.18).
+      // Sized from the GAMEPLAY radius, not visualRadius: a modeled rig's
+      // measured footprint includes bind-pose wingspans (demon) and splayed
+      // legs, which made those bars enormous instead of shoulder-width.
+      const w = Math.max(0.55, Math.min(1.35, this.radius * 2.2)) / scl;
       bar.sprite.scale.set(w, w * (HPBAR_H / HPBAR_W), 1);
       bar.sprite.position.set(0, localTop + 0.34 / scl, 0);
     }
@@ -335,6 +379,20 @@ export class Enemy {
     if (!fp) return this.radius;
     const meshScale = this.miniboss ? 1.5 : this.elite ? 1.3 : 1;
     return Math.max(this.radius, fp * meshScale);
+  }
+
+  // Effective melee reach. The tuned attack range (ENEMY_TYPES) assumed the
+  // old box meshes; a wide modeled rig (the demon's bind-pose wingspan, the
+  // giant's bulk) can measure a visual footprint whose player stand-off
+  // distance (visualRadius + PLAYER_BODY_RADIUS, enforced below in update)
+  // exceeds that range, so the mob could NEVER satisfy the range check: it
+  // would shove against the hero forever without ever swinging. Widen reach
+  // to always clear the stand-off by a margin, so every melee type can
+  // trigger its attack from the closest distance it is allowed to stand.
+  get attackReach() {
+    const atk = this.def.attack;
+    if (atk.kind === 'ranged') return atk.range;
+    return Math.max(atk.range, this.visualRadius + PLAYER_BODY_RADIUS + 0.25);
   }
 
   addStatus(status, game) {
@@ -386,9 +444,12 @@ export class Enemy {
   update(dt, game) {
     if (this.dead) return;
     const player = game.player;
+    // one-time crowned-enemy buff against the character's power (see method)
+    if (!this._powerScaled) this._applyPowerScaling(game);
 
     this.attackCd = Math.max(0, this.attackCd - dt);
     this.hitFlash = Math.max(0, this.hitFlash - dt);
+    this._queueT = Math.max(0, (this._queueT || 0) - dt); // doorway queue hysteresis (see separation loop)
     // real movement since last frame -> gait drive (0..1 of top speed)
     const pxz = this._lastPos || (this._lastPos = { x: this.pos.x, z: this.pos.z });
     const moved = Math.hypot(this.pos.x - pxz.x, this.pos.z - pxz.z);
@@ -495,13 +556,23 @@ export class Enemy {
         if (target.dead) { this.state = 'idle'; break; }
         const inRange = atk.kind === 'ranged'
           ? distToPlayer < atk.range && game.hasLineOfSight(this.pos, tPos)
-          : distToPlayer < atk.range;
-        // never wind up on a target sheltering in the portal safe zone
-        if (inRange && this.attackCd <= 0 && !game.inSafeZone(tPos)) {
-          this.state = 'windup';
-          this.stateTimer = atk.windup;
-          if (atk.kind === 'slam') audio.play(this.def.sounds.special, { pos: this.pos, volume: 0.6 });
-          this.mesh.userData?.anim?.playAttack();
+          : distToPlayer < this.attackReach;
+        // Stop-and-attack: once within attack range, HOLD position and fight
+        // from here (wind up when the cooldown allows, stand fast between
+        // swings) instead of continuing to walk into the target. Approach
+        // resumes automatically the moment the target leaves the range,
+        // since inRange is re-evaluated every frame. Ranged types hold only
+        // at or beyond their preferred keepDistance; closer than that they
+        // fall through to the movement logic below, which backs them off.
+        // Never wind up on a target sheltering in the portal safe zone.
+        if (inRange && !game.inSafeZone(tPos)
+          && (atk.kind !== 'ranged' || distToPlayer >= atk.keepDistance)) {
+          if (this.attackCd <= 0) {
+            this.state = 'windup';
+            this.stateTimer = atk.windup;
+            if (atk.kind === 'slam') audio.play(this.def.sounds.special, { pos: this.pos, volume: 0.6 });
+            this.mesh.userData?.anim?.playAttack();
+          }
           break;
         }
         // ---- tactical approach: flank to the target's side/rear, dodge their
@@ -551,7 +622,9 @@ export class Enemy {
         const len = Math.hypot(dirX, dirZ) || 1;
         dirX /= len; dirZ /= len;
         const spd = this.moveSpeed;
-        const step = spd * dt;
+        // while queued behind a packmate in a doorway (separation loop below)
+        // creep instead of shoving, so the line files through without jitter
+        const step = spd * dt * (this._queueT > 0 ? 0.25 : 1);
         const okAt = (x, z) => game.isWalkable(x, z, this.radius) && !game.inSafeZone({ x, z }, this.radius);
         // walls block movement; the portal safe zone also repels enemies
         let moved = false;
@@ -597,7 +670,16 @@ export class Enemy {
     // hit-circle) rather than the raw gameplay radius, so two real creature
     // meshes keep a visible gap instead of clipping through each other the
     // way their smaller hit-circles alone would allow.
+    // Doorway/corridor queueing: when the mob I overlap is AHEAD of me on the
+    // way to my target (a packmate already filling the doorway), a full push
+    // straight back just gets cancelled by next frame's chase step, so the
+    // pair jitters at the threshold forever and neither enters. Instead:
+    // barely push (enough to stop interpenetration creep) and start a short
+    // queue timer that damps my own chase speed (see the chase case above),
+    // so I fall in line behind and follow the leader through single-file.
+    // Side-by-side crowding keeps the old full sideways resolve.
     const myVisR = this.visualRadius;
+    const distMeToTarget = Math.hypot(tPos.x - this.pos.x, tPos.z - this.pos.z);
     for (const other of game.enemies) {
       if (other === this || other.dead) continue;
       const dx = this.pos.x - other.pos.x;
@@ -605,7 +687,13 @@ export class Enemy {
       const d = Math.hypot(dx, dz);
       const minD = myVisR + (other.visualRadius ?? other.radius);
       if (d > 0.001 && d < minD) {
-        const push = (minD - d) * 0.5;
+        const otherToTarget = Math.hypot(tPos.x - other.pos.x, tPos.z - other.pos.z);
+        // "ahead of me": nearer my target AND roughly in my direction to it
+        const toT = distMeToTarget || 1;
+        const frontal = otherToTarget < distMeToTarget
+          && ((-dx * (tPos.x - this.pos.x) - dz * (tPos.z - this.pos.z)) / (d * toT)) > 0.4;
+        if (frontal) this._queueT = 0.25;
+        const push = (minD - d) * (frontal ? 0.12 : 0.5);
         const nx = this.pos.x + (dx / d) * push;
         const nz = this.pos.z + (dz / d) * push;
         if (game.isWalkable(nx, nz, this.radius)) { this.pos.x = nx; this.pos.z = nz; }
@@ -634,10 +722,49 @@ export class Enemy {
       }
     }
 
+    // Safe-zone HARD barrier: the portal ring must be inviolable. The chase
+    // steering above already refuses to STEP into it (okAt), but knockback,
+    // enemy-separation pushes and the player stand-off nudge only check
+    // walls, so a bulky body could still be shoved across the line. Clamp:
+    // any enemy found inside the ring is projected straight back to its edge
+    // every frame, after all movement has resolved, so no combination of
+    // forces can carry one through.
+    const sz = game.safeZone;
+    if (sz) {
+      const dxs = this.pos.x - sz.x, dzs = this.pos.z - sz.z;
+      const dsz = Math.hypot(dxs, dzs);
+      const minSafe = sz.r + this.radius;
+      if (dsz < minSafe) {
+        if (dsz > 0.001) {
+          this.pos.x = sz.x + (dxs / dsz) * minSafe;
+          this.pos.z = sz.z + (dzs / dsz) * minSafe;
+        } else {
+          this.pos.x = sz.x + minSafe; // degenerate dead-center case
+        }
+      }
+    }
+
     // mesh sync
     this.mesh.position.copy(this.pos);
     if (!target.dead && this.state !== 'idle') {
-      this.mesh.rotation.y = Math.atan2(tPos.x - this.pos.x, tPos.z - this.pos.z);
+      // Face actual TRAVEL while covering ground in chase (a flanking spider
+      // strides where it goes instead of gliding sideways with its body
+      // locked on the hero); face the hero when close, attacking, or barely
+      // moving. Ranged types keep hero-facing while they circle-strafe (a
+      // caster should track its target, and robed casters glide anyway).
+      // Smoothed shortest-path turn so switching between the two aims never
+      // pops the body around in one frame.
+      const mvx = this.pos.x - pxz.x, mvz = this.pos.z - pxz.z;
+      const mv = Math.hypot(mvx, mvz);
+      const travelFacing = this.state === 'chase' && atk.kind !== 'ranged'
+        && mv > topSpeed * 0.35 && distToPlayer > this.attackReach + 0.4;
+      const want = travelFacing
+        ? Math.atan2(mvx, mvz)
+        : Math.atan2(tPos.x - this.pos.x, tPos.z - this.pos.z);
+      let dyaw = want - this.mesh.rotation.y;
+      while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+      while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+      this.mesh.rotation.y += dyaw * Math.min(1, 14 * dt);
     }
     // windup telegraph: lean/scale
     const scaleBase = this.miniboss ? 1.5 : 1;
@@ -662,14 +789,21 @@ export class Enemy {
     target = target || game.getNearestTarget(this.pos);
     const tPos = target.pos;
     if (atk.kind === 'melee') {
-      if (distToTarget < atk.range + 0.4) game.hitTarget(target, this.damage);
+      // per-type swing voice (see audio.ENEMY_ATTACK_SOUNDS): every melee
+      // type sounds like itself, not a silent generic lunge
+      audio.enemyAttack(this.typeId, { pos: this.pos });
+      if (distToTarget < this.attackReach + 0.4) game.hitTarget(target, this.damage);
     } else if (atk.kind === 'slam') {
       game.shake(0.3);
-      game.particles.ring(this.pos.x, 0.3, this.pos.z, atk.aoe, 0xaaa8a0);
+      // the slam's hit circle must cover the closest distance a wide modeled
+      // body is allowed to stand at (see attackReach), or it whiffs forever
+      const aoe = Math.max(atk.aoe, this.attackReach + 0.3);
+      game.particles.ring(this.pos.x, 0.3, this.pos.z, aoe, 0xaaa8a0);
       audio.play('golem_slam', { pos: this.pos });
-      game.aoeHitPlayers(this.pos.x, this.pos.z, atk.aoe, this.damage);
+      game.aoeHitPlayers(this.pos.x, this.pos.z, aoe, this.damage);
     } else if (atk.kind === 'ranged') {
-      audio.play(this.def.sounds.shoot, { pos: this.pos });
+      // per-type cast voice: witch/warlock no longer parrot the imp's shoot clip
+      audio.enemyAttack(this.typeId, { pos: this.pos });
       // Lead the shot toward where the learner thinks the (local) player will be.
       let tx = tPos.x, tz = tPos.z;
       if (target.local) {
@@ -678,10 +812,13 @@ export class Enemy {
       }
       const dx = tx - this.pos.x, dz = tz - this.pos.z;
       const len = Math.hypot(dx, dz) || 1;
+      // per-type projectile identity: imp keeps its small red fireball, the
+      // witch throws a green hex bolt, the warlock a fat violet shadow orb
+      const proj = atk.proj || { color: 0xff7a3a, trail: 0xff5a2a, size: 0.2 };
       game.spawnProjectile({
         x: this.pos.x, z: this.pos.z, dir: { x: dx / len, z: dz / len },
         speed: atk.projSpeed, radius: 0.3, damage: this.damage,
-        friendly: false, color: 0xff7a3a, size: 0.2, trail: 0xff5a2a,
+        friendly: false, color: proj.color, size: proj.size, trail: proj.trail,
       });
     }
   }
