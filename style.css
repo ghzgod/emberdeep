@@ -816,8 +816,8 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
    scrollbar ever kicks in on short screens, instead of just scrolling. */
 #paperdoll { position: relative; width: 100%; max-width: 480px; height: 380px; margin: 0 auto 10px; flex-shrink: 0; }
 #inv-preview {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: 210px; height: 300px; overflow: hidden;
+  position: absolute; left: 50%; top: 84px; transform: translateX(-50%);
+  width: 210px; height: 290px; overflow: hidden;
   border: 1px solid var(--panel-border); border-radius: 12px;
   background: radial-gradient(circle at 50% 30%, #241d31, #100b18);
   box-shadow: inset 0 0 18px rgba(0,0,0,0.6), 0 4px 14px rgba(0,0,0,0.5), 0 0 14px rgba(232,192,90,0.08);
@@ -830,22 +830,16 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
   row-gap: 12px;
 }
 .equip-row .inv-slot { pointer-events: auto; }
+/* Helmet crowns the preview; the remaining six slots run three down each
+   side, so NOTHING ever covers the turntable hero (the old layout parked
+   chest/legs right on top of it). */
 .equip-row .inv-slot[data-slot="helmet"]  { grid-column: 2; grid-row: 1; }
-.equip-row .inv-slot[data-slot="weapon"]  { grid-column: 1; grid-row: 2; }
-.equip-row .inv-slot[data-slot="chest"]   { grid-column: 2; grid-row: 2; }
-.equip-row .inv-slot[data-slot="offhand"] { grid-column: 3; grid-row: 2; }
-.equip-row .inv-slot[data-slot="legs"]    { grid-column: 2; grid-row: 3; }
+.equip-row .inv-slot[data-slot="chest"]   { grid-column: 1; grid-row: 2; }
+.equip-row .inv-slot[data-slot="legs"]    { grid-column: 1; grid-row: 3; }
 .equip-row .inv-slot[data-slot="hands"]   { grid-column: 1; grid-row: 4; }
+.equip-row .inv-slot[data-slot="weapon"]  { grid-column: 3; grid-row: 2; }
+.equip-row .inv-slot[data-slot="offhand"] { grid-column: 3; grid-row: 3; }
 .equip-row .inv-slot[data-slot="trinket"] { grid-column: 3; grid-row: 4; }
-/* The three center-column slots (helmet/chest/legs) sit directly over the
-   turntable hero, so unlike the side slots they get a translucent backing
-   instead of the bag grid's solid panel fill - the hero reads through
-   around and behind the icon instead of being fully blotted out. */
-.equip-row .inv-slot[data-slot="helmet"],
-.equip-row .inv-slot[data-slot="chest"],
-.equip-row .inv-slot[data-slot="legs"] {
-  background: rgba(18, 14, 22, 0.4); backdrop-filter: blur(1px);
-}
 /* Offhand has no slot type in loot.js today (GEAR_SLOTS is weapon/helmet/
    chest/legs/hands/trinket) — shown locked so the anatomy reads complete
    without implying a system that doesn't exist yet. */
@@ -1833,14 +1827,14 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
   .inv-slot.equip .inv-item-icon { width: 74%; height: 74%; }
   .inv-slot.equip .slot-label { bottom: -17px; font-size: 12px; opacity: 0.72; }
   #paperdoll { height: 300px; max-width: 380px; }
-  #inv-preview { width: 160px; height: 220px; }
+  #inv-preview { width: 160px; height: 220px; top: 70px; }
 }
 /* Short landscape phones: the doll + stats + bag grid must all fit without
    the footer hint scrolling off, so shrink the turntable and go one stats
    column instead of stacking two half-width columns even narrower. */
 @media (max-height: 520px) and (pointer: coarse), (max-height: 460px) {
   #paperdoll { height: 220px; max-width: 320px; margin-bottom: 4px; }
-  #inv-preview { width: 120px; height: 160px; }
+  #inv-preview { width: 120px; height: 160px; top: 52px; }
   #inv-stats { grid-template-columns: 1fr 1fr; max-width: 340px; font-size: 11px; margin-bottom: 8px; }
   /* 4 equip-row grid tracks at the 58px compact size (+ gaps) need ~268px of
      min-content height, which overflows this 220px-tall doll and pushed the
