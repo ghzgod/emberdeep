@@ -73,6 +73,18 @@ function drawTrinket(x, t, rnd) {
   const gs = 6 + rnd() * 3; // faceted gem
   x.beginPath(); x.moveTo(32, 36 - 14 - gs); x.lineTo(32 - gs, 36 - 14); x.lineTo(32, 36 - 14 + gs * 0.6); x.lineTo(32 + gs, 36 - 14); x.closePath(); x.fill(); x.stroke();
 }
+// Offhand: a small shield-book hybrid silhouette (covers knight shields as
+// well as mage tomes / ranger quivers/talismans that also live in this slot).
+function drawOffhand(x, t, rnd) {
+  x.fillStyle = metal(x, 30, 30, 18, t);
+  x.strokeStyle = shift(t.base, -70); x.lineWidth = 2;
+  x.beginPath(); x.moveTo(30, 10); x.lineTo(44, 15); x.lineTo(44, 30); x.quadraticCurveTo(44, 42, 30, 50); x.quadraticCurveTo(16, 42, 16, 30); x.lineTo(16, 15); x.closePath();
+  x.fill(); x.stroke();
+  // small book plate overlay
+  x.fillStyle = t.edge; x.fillRect(23, 24, 14, 16);
+  x.strokeStyle = shift(t.base, -50); x.lineWidth = 1; x.beginPath(); x.moveTo(30, 24); x.lineTo(30, 40); x.stroke();
+  x.fillStyle = t.gem; x.beginPath(); x.arc(30, 32, 2.6 + rnd() * 1.6, 0, 7); x.fill();
+}
 function drawWeapon(x, t, rnd, forClass) {
   x.strokeStyle = shift(t.base, -70); x.lineWidth = 2;
   if (forClass === 'mage') {
@@ -119,6 +131,7 @@ export function makeItemIcon(item, size = 64) {
     case 'hands': drawHands(x, t, rnd); break;
     case 'trinket': drawTrinket(x, t, rnd); break;
     case 'weapon': drawWeapon(x, t, rnd, item.forClass); break;
+    case 'offhand': drawOffhand(x, t, rnd); break;
     default: drawTrinket(x, t, rnd);
   }
   const url = canvas.toDataURL();

@@ -78,6 +78,34 @@ const CLASS_WEAPONS = {
   ranger: { icon: '🏹', names: ['Bow', 'Longbow', 'Recurve', 'Shortbow', 'Warbow'] },
 };
 
+// Offhand flavour per class, for the ~55% of offhands that roll class-LOCKED
+// (same forClass mechanism as weapons — see generateGear). The other ~45%
+// roll as a universal offhand (lantern/charm/relic) that anyone can carry,
+// using the same affinity mechanic as armour/trinkets (half value off-class).
+const CLASS_OFFHANDS = {
+  knight: { icon: '🛡️', names: ['Shield', 'Bulwark', 'Aegis', 'Bannershield', 'Wardplate'] },
+  mage:   { icon: '📖', names: ['Tome', 'Grimoire', 'Codex', 'Orb', 'Focus Stone'] },
+  ranger: { icon: '🏹', names: ['Quiver', 'Talisman', 'Trophy', 'Fetish', 'Charm'] },
+};
+const UNIVERSAL_OFFHANDS = { icon: '🏮', names: ['Lantern', 'Charm', 'Relic', 'Emblem', 'Idol'] };
+// Class-locked roll chance for a generated offhand (rest are universal/affinity).
+const OFFHAND_CLASS_LOCK_CHANCE = 0.55;
+
+// Passive special abilities an offhand can grant — exactly one per item,
+// rolled at generation (see SLOT_DEFS.offhand.stats below). Each maps to a
+// single gear stat key that Player.recompute folds into a dedicated derived
+// field; the actual effect is applied where cheap (player.js takeDamage for
+// on-hit reactions, game.js killEnemy for on-kill, loot.js pickup for gold
+// find) rather than inventing a whole new buff system.
+export const OFFHAND_PROCS = {
+  blockChance: (power) => Math.round(4 + power * 1.4),   // % chance to block a hit (partial mitigation)
+  thorns:      (power) => Math.round(3 + power * 1.6),   // reflect damage burst around the wearer on hit
+  procRegen:   (power) => Math.round(3 + power * 1.1),   // extra flat resource regen/sec
+  goldFind:    (power) => Math.round(6 + power * 2.2),   // % bonus gold from pickups
+  killHeal:    (power) => Math.round(2 + power * 1.3),   // % max HP healed on kill
+};
+const OFFHAND_PROC_KEYS = Object.keys(OFFHAND_PROCS);
+
 // Six wearable slots. Weapons are class-LOCKED (a mage can't hold a sword).
 // Armour pieces + trinkets are shareable across classes but carry an
 // "affinity": the class they're tuned for. See CLASS_AFFINITY below.
@@ -123,6 +151,17 @@ const SLOT_DEFS = {
       return { regen: Math.round(1 + power * 0.4) };
     },
   },
+  // Offhand: grants exactly one passive proc (see OFFHAND_PROCS above), shown
+  // on the item card like any other stat. Names/icon come from CLASS_OFFHANDS
+  // or UNIVERSAL_OFFHANDS in generateGear depending on the class-lock roll.
+  offhand: {
+    icon: '🏮',
+    prefixes: ['Worn', 'Sturdy', 'Warded', 'Enchanted', 'Fabled'],
+    stats: (power) => {
+      const key = OFFHAND_PROC_KEYS[Math.floor(Math.random() * OFFHAND_PROC_KEYS.length)];
+      return { [key]: OFFHAND_PROCS[key](power) };
+    },
+  },
 };
 
 // The stat that best serves each class — an affinity item rolls its bonus
@@ -152,7 +191,7 @@ export function rollRarity(bonus = 0) {
 }
 
 // ---------------- Smart loot influence ----------------
-const GEAR_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket'];
+const GEAR_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket', 'offhand'];
 // Elite kills shift the rarity roll up (rollRarity bonus is subtracted from
 // the d100), roughly a tier's worth. Legendary rules are untouched: rollRarity
 // can never produce legendary, elite or not.
@@ -189,6 +228,12 @@ function pickDropSlot(equipped) {
 export function generateGear(floor, forcedRarity = null, classId = 'knight', ctx = null) {
   const slot = pickDropSlot(ctx?.equipped);
   const isWeapon = slot === 'weapon';
+  // Offhands roll class-locked (shield/tome/quiver, same forClass mechanism
+  // as weapons) most of the time; the rest are universal lanterns/charms
+  // that use the ordinary affinity mechanic like armour/trinkets.
+  const isOffhand = slot === 'offhand';
+  const offhandLocked = isOffhand && Math.random() < OFFHAND_CLASS_LOCK_CHANCE;
+  const isClassLocked = isWeapon || offhandLocked;
   const rarity = forcedRarity || rollRarity(floor + (ctx?.elite ? ELITE_RARITY_BONUS : 0));
 
   // All-slots-filled upgrade bias: once every slot is worn, aim the item level
@@ -200,10 +245,14 @@ export function generateGear(floor, forcedRarity = null, classId = 'knight', ctx
     const worn = ctx.equipped[slot];
     ilvl = Math.min(floor + 2, Math.max(floor, (worn.ilvl || floor) + 1));
   }
-  // weapons take their names/icon from the finder's class (and are class-locked)
+  // weapons take their names/icon from the finder's class (and are class-locked);
+  // a class-locked offhand does the same from CLASS_OFFHANDS, a universal
+  // offhand from UNIVERSAL_OFFHANDS.
   const def = isWeapon
     ? { ...SLOT_DEFS.weapon, ...(CLASS_WEAPONS[classId] || CLASS_WEAPONS.knight) }
-    : SLOT_DEFS[slot];
+    : isOffhand
+      ? { ...SLOT_DEFS.offhand, ...(offhandLocked ? (CLASS_OFFHANDS[classId] || CLASS_OFFHANDS.knight) : UNIVERSAL_OFFHANDS) }
+      : SLOT_DEFS[slot];
   const power = (Math.sqrt(ilvl) * 1.7 + Math.random()) * RARITIES[rarity].mult;
 
   const stats = def.stats(power);
@@ -211,8 +260,9 @@ export function generateGear(floor, forcedRarity = null, classId = 'knight', ctx
   // Shared gear is attuned to a class — usually the finder's, sometimes
   // another's (so off-class loot exists to trade/inspect). Its bonus stats
   // come from that class's affinity pool, and off-class wearers get half
-  // value in Player.recompute.
-  const affinity = isWeapon ? null
+  // value in Player.recompute. Class-locked items (weapon, or a class-locked
+  // offhand) skip affinity entirely — forClass already gates who can wear them.
+  const affinity = isClassLocked ? null
     : (Math.random() < 0.6 ? classId : CLASS_LIST[Math.floor(Math.random() * CLASS_LIST.length)]);
 
   // rare/epic get bonus secondary stats, flavoured by the affinity
@@ -238,8 +288,9 @@ export function generateGear(floor, forcedRarity = null, classId = 'knight', ctx
   if (rarity === 'epic') name += ` ${SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)]}`;
 
   const value = Math.round((14 + ilvl * 6) * RARITIES[rarity].mult);
-  // weapons carry the class that can wield them; shared gear carries affinity
-  const forClass = isWeapon ? classId : null;
+  // weapons and class-locked offhands carry the class that can wield them;
+  // everything else (including universal offhands) carries affinity instead.
+  const forClass = isClassLocked ? classId : null;
   return { id: nextItemId++, slot, rarity, name, icon: def.icon, ilvl, stats, value, forClass, affinity };
 }
 
@@ -263,6 +314,11 @@ export function statLabel(stat, val) {
     case 'speed': return `+${val}% move speed`;
     case 'regen': return `+${val} resource regen`;
     case 'cdr4': return `-${val}% ultimate cooldown`;
+    case 'blockChance': return `${val}% chance to block`;
+    case 'thorns': return `+${val} thorns (reflect on hit)`;
+    case 'procRegen': return `+${val} bonus resource regen`;
+    case 'goldFind': return `+${val}% gold find`;
+    case 'killHeal': return `heal ${val}% max HP on kill`;
     default: return `+${val} ${stat}`;
   }
 }
@@ -408,7 +464,8 @@ export class LootSystem {
   pickup(d, game) {
     const p = game.player;
     if (d.kind === 'gold') {
-      const amount = Math.round(d.amount * (1 + 0.06 * p.skillRank('greed')));
+      // Greed mastery + an offhand's goldFind proc stack additively.
+      const amount = Math.round(d.amount * (1 + 0.06 * p.skillRank('greed') + (p.goldFindPct || 0) / 100));
       p.gold += amount;
       audio.play('coin_pickup', { volume: 0.7, throttleMs: 60 });
       game.ui.floaters.spawn(p.pos, `+${amount}g`, 'gold');

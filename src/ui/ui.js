@@ -2158,7 +2158,7 @@ export class UI {
     wrap.innerHTML = '';
     const eq = rp.loadout || {};
     let any = false;
-    for (const slot of ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket']) {
+    for (const slot of ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket', 'offhand']) {
       const it = eq[slot];
       const el = document.createElement('div');
       el.className = `inspect-slot ${it ? 'rarity-' + it.rarity : 'empty'}`;
@@ -2375,7 +2375,7 @@ export class UI {
     const p = this.game.player;
     const equipWrap = $('equip-slots');
     equipWrap.innerHTML = '';
-    for (const slotName of ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket']) {
+    for (const slotName of ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket', 'offhand']) {
       const item = p.equipped[slotName];
       const el = document.createElement('div');
       const offClass = item && item.affinity && item.affinity !== p.classId;
@@ -2400,15 +2400,6 @@ export class UI {
       }
       equipWrap.appendChild(el);
     }
-    // Offhand has no slot type in loot.js (GEAR_SLOTS is weapon/helmet/chest/
-    // legs/hands/trinket - no off-hand item ever generates) so the anatomy
-    // position is shown locked rather than implying a system that isn't there.
-    const offhand = document.createElement('div');
-    offhand.className = 'inv-slot equip locked';
-    offhand.dataset.slot = 'offhand';
-    offhand.title = 'Offhand - coming soon';
-    offhand.innerHTML = `${svgIcon('lock', 'lock-icon')}<span class="slot-label">offhand</span>`;
-    equipWrap.appendChild(offhand);
 
     this.renderInvStats(p);
 
@@ -2567,14 +2558,20 @@ export class UI {
   }
 
   statName(k) {
-    return ({ damagePct: 'damage', maxHp: 'max HP', armor: 'armor', crit: 'crit', speed: 'move speed', regen: 'regen', cdr4: 'ult cooldown' })[k] || k;
+    return ({
+      damagePct: 'damage', maxHp: 'max HP', armor: 'armor', crit: 'crit', speed: 'move speed', regen: 'regen', cdr4: 'ult cooldown',
+      blockChance: 'block chance', thorns: 'thorns', procRegen: 'bonus regen', goldFind: 'gold find', killHeal: 'kill heal',
+    })[k] || k;
   }
 
   // Split a stat into a bold value and a readable name, for the two-column
   // stat list in the item panel (value on the left, label on the right).
   statParts(k, v) {
-    const pct = k === 'damagePct' || k === 'armor' || k === 'crit' || k === 'speed' || k === 'cdr4';
-    const name = ({ damagePct: 'Damage', maxHp: 'Max Health', armor: 'Armor', crit: 'Crit Chance', speed: 'Move Speed', regen: 'Resource Regen', cdr4: 'Ult Cooldown' })[k] || k;
+    const pct = k === 'damagePct' || k === 'armor' || k === 'crit' || k === 'speed' || k === 'cdr4' || k === 'blockChance' || k === 'goldFind' || k === 'killHeal';
+    const name = ({
+      damagePct: 'Damage', maxHp: 'Max Health', armor: 'Armor', crit: 'Crit Chance', speed: 'Move Speed', regen: 'Resource Regen', cdr4: 'Ult Cooldown',
+      blockChance: 'Block Chance', thorns: 'Thorns (reflect)', procRegen: 'Bonus Regen', goldFind: 'Gold Find', killHeal: 'Heal on Kill',
+    })[k] || k;
     const sign = k === 'cdr4' ? '-' : '+';
     return { val: `${sign}${v}${pct ? '%' : ''}`, name };
   }
@@ -2585,7 +2582,10 @@ export class UI {
   // item level then rarity as tie-breakers.
   bestBagItemForSlot(slotName) {
     const p = this.game.player;
-    const W = { maxHp: 0.15, armor: 1, crit: 1.5, speed: 1, regen: 0.8, damagePct: 1.2, cdr4: 1 };
+    const W = {
+      maxHp: 0.15, armor: 1, crit: 1.5, speed: 1, regen: 0.8, damagePct: 1.2, cdr4: 1,
+      blockChance: 1.3, thorns: 0.9, procRegen: 0.8, goldFind: 0.7, killHeal: 1.1,
+    };
     const RANK = { common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4 };
     const score = (it) => {
       const scale = (it.affinity && it.affinity !== p.classId) ? 0.5 : 1;
@@ -2621,7 +2621,10 @@ export class UI {
       const m = {}; for (const [k, v] of Object.entries(it.stats || {})) m[k] = v * scale; return m;
     };
     const a = eff(item), b = eff(equipped);
-    const W = { maxHp: 0.15, armor: 1, crit: 1.5, speed: 1, regen: 0.8, damagePct: 1.2, cdr4: 1 };
+    const W = {
+      maxHp: 0.15, armor: 1, crit: 1.5, speed: 1, regen: 0.8, damagePct: 1.2, cdr4: 1,
+      blockChance: 1.3, thorns: 0.9, procRegen: 0.8, goldFind: 0.7, killHeal: 1.1,
+    };
     let total = 0; const rows = [];
     for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
       const d = Math.round((a[k] || 0) - (b[k] || 0));

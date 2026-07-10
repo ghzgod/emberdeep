@@ -4,7 +4,7 @@ import { Input } from './core/input.js';
 import { SaveManager } from './core/save.js';
 import { audio } from './core/audio.js';
 import { generateDungeon, generateTown, FLOOR, WALL, DOOR, BRIDGE } from './world/dungeon.js';
-import { buildDungeonMeshes, TILE, tileToWorld } from './world/meshbuilder.js';
+import { buildDungeonMeshes, TILE, tileToWorld, worldToTile, setWallCellStage } from './world/meshbuilder.js';
 import { themeForFloor, actOfFloor, actFloorOf, makeGlowTexture } from './world/textures.js';
 import { Player, xpForLevel } from './entities/player.js';
 import { Enemy, Boss, ENEMY_TYPES, ACT_BOSSES, buildEnemyMesh, buildBossMesh, resetEnemyAnimBudget } from './entities/enemies.js';
@@ -265,6 +265,15 @@ export class Game {
     this.elitesKilled = 0;
     this.storySeen = [];
     this.clearedFloors = {}; // { floor: true } once every enemy on that floor is slain
+    // Destructible interior walls: SESSION-ONLY state (never written to the
+    // save file). destroyedWallsSession[floor] is a Set of "x,y" cell keys
+    // this character has broken open on that floor THIS session; loadFloor
+    // re-applies it after every (re)generation so a revisit keeps its holes.
+    // destructibleWallHits tracks in-progress damage ("floor:x,y" -> hit
+    // count, 1 or 2; the 3rd hit finalizes the break and the key is dropped).
+    // Both reset to empty on startNewGame/continueGame (a fresh session).
+    this.destroyedWallsSession = {};
+    this.destructibleWallHits = {};
     this.inTown = false;
     this.inTavern = false;
     this.slotId = null;
@@ -408,6 +417,8 @@ export class Game {
     this.storySeen = [];
     this.vendorMemory = {}; // per-vendor { met, lastItem } for greeting-first dialogue
     this.clearedFloors = {}; // fresh character, nothing culled yet
+    this.destroyedWallsSession = {}; // fresh session: every wall whole again
+    this.destructibleWallHits = {};
     this.ui.buildHotbar(this.player);
     this.enterWorld();
     this.showStory('prologue');
@@ -430,6 +441,8 @@ export class Game {
     this.storySeen = data.storySeen || [];
     this.vendorMemory = data.vendorMemory || {};
     this.clearedFloors = data.clearedFloors || {}; // absent on pre-feature saves
+    this.destroyedWallsSession = {}; // session-only: never persisted, always fresh
+    this.destructibleWallHits = {};
     if (this.floor === MAX_FLOOR && this.bossDefeated) this.floor = MAX_FLOOR + 1;
     this.ui.buildHotbar(this.player);
     // A mid-dungeon refresh drops you back onto the floor you were fighting on,
@@ -1288,6 +1301,23 @@ export class Game {
     // right after invoking this fire-and-forget load, which would otherwise hide
     // the loading screen we opened above.)
     this.dungeon = this.generateDungeonSeeded(floor);
+
+    // Destructible walls: re-apply any holes THIS character already broke
+    // open on THIS floor earlier in the same session. Deliberately done AFTER
+    // the seeded generation above (never before) so the seeded room layout
+    // stays revisit-stable; only these specific cells get patched back to
+    // FLOOR on top of it. dungeon.preOpenedWalls is handed to
+    // buildDungeonMeshes so it can drop a rubble pile back in each hole
+    // (grid.js/meshbuilder.js are the only files touched here; the session
+    // map itself lives on the Game instance and is never saved).
+    const holes = this.destroyedWallsSession[floor];
+    if (holes?.size && this.dungeon.grid) {
+      for (const key of holes) {
+        const [hx, hy] = key.split(',').map(Number);
+        if (this.dungeon.grid[hy]?.[hx] === WALL) this.dungeon.grid[hy][hx] = FLOOR;
+      }
+      this.dungeon.preOpenedWalls = holes;
+    }
     this.ui.showLoading(0.3, 'Carving halls…');
     await this._yieldFrame();
 
@@ -1901,7 +1931,7 @@ export class Game {
   // the local hero (full items) and remotes (compact synced loadout) alike.
   updateHeroGear(mesh, equipped, classId = 'knight') {
     if (!mesh || !equipped) return;
-    const slots = ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket'];
+    const slots = ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket', 'offhand'];
     // Key the rebuild on each item's ID (not just rarity) so swapping to a
     // different helmet of the same rarity actually changes the look.
     const sig = classId + '|' + slots.map((s) => equipped[s]?.id ?? '-').join(',');
@@ -2119,6 +2149,80 @@ export class Game {
       const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.07), m); gem.position.set(0, 1.14, 0.26); grp.add(gem);
       if (it.rarity === 'legendary' || it.rarity === 'epic') { const glow = new THREE.PointLight(RARITIES[it.rarity].color, 3, 2, 2); glow.position.set(0, 1.14, 0.3); grp.add(glow); }
     }
+    // Offhand: the knight already always shows the baked Round_Shield (see
+    // HELD_LOADOUT in heroModel.js) so an equipped offhand just rarity-tints
+    // that existing shield instead of adding a second one. Mage/ranger have no
+    // baked offhand prop, so a small procedural tome/orb (mage) or quiver
+    // (ranger) is attached at a fixed off-hand local position — the same
+    // static-offset approach used for the gauntlets/pauldrons above, since
+    // this codebase doesn't do true bone-parented procedural attachments.
+    if (!mesh.userData.shieldMesh) {
+      mesh.traverse((o) => { if (o.isMesh && /Round_Shield/i.test(o.name)) mesh.userData.shieldMesh = o; });
+    }
+    const oh = equipped.offhand;
+    const OFFHAND_POS = { x: -0.36, y: 0.86, z: 0.1 }; // off-hand side, mirrors the hands slot
+    if (classId === 'knight' && mesh.userData.shieldMesh) {
+      const shield = mesh.userData.shieldMesh;
+      if (!shield.userData.origMat) shield.userData.origMat = shield.material;
+      if (oh) {
+        shield.material = shield.userData.origMat.clone();
+        const c = new THREE.Color(RARITIES[oh.rarity]?.color ?? 0x8a8a8a);
+        const hot = oh.rarity === 'legendary' || oh.rarity === 'epic';
+        shield.material.color.lerp(c, oh.rarity === 'common' ? 0.15 : 0.55);
+        if (shield.material.emissive) {
+          shield.material.emissive.copy(c);
+          shield.material.emissiveIntensity = oh.rarity === 'legendary' ? 0.5 : oh.rarity === 'epic' ? 0.3 : oh.rarity === 'rare' ? 0.12 : 0;
+        }
+        if (hot) {
+          const motes = new THREE.Group();
+          const n = oh.rarity === 'legendary' ? 5 : 3;
+          const mMat = new THREE.MeshBasicMaterial({ color: c });
+          for (let i = 0; i < n; i++) {
+            const sp = new THREE.Mesh(new THREE.SphereGeometry(0.025, 5, 5), mMat);
+            const a = (i / n) * Math.PI * 2;
+            sp.position.set(-0.45 + Math.cos(a) * 0.16, 0.8 + Math.sin(a * 1.4) * 0.12, 0.1 + Math.sin(a) * 0.16);
+            sp.userData.orbit = { a, speed: 0.7 + (i % 3) * 0.3, radius: 0.16, baseY: 0.8, cx: -0.45, cz: 0.1 };
+            motes.add(sp);
+          }
+          grp.add(motes);
+          grp.userData.offhandMotes = motes;
+        }
+      } else {
+        shield.material = shield.userData.origMat;
+      }
+    } else if (oh) {
+      const m = mat(oh.rarity);
+      let prop;
+      if (classId === 'mage') {
+        const cover = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.22, 0.045), m);
+        const pages = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.19, 0.03), new THREE.MeshStandardMaterial({ color: 0xe8dcb8, roughness: 0.9 }));
+        pages.position.z = -0.005;
+        prop = new THREE.Group(); prop.add(cover, pages);
+        prop.rotation.x = -0.3;
+      } else {
+        prop = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.34, 8), m);
+        prop.rotation.x = 0.2;
+      }
+      prop.position.set(OFFHAND_POS.x, OFFHAND_POS.y, OFFHAND_POS.z);
+      grp.add(prop);
+      if (oh.rarity === 'legendary' || oh.rarity === 'epic') {
+        const glow = new THREE.PointLight(RARITIES[oh.rarity].color, 2.4, 1.6, 2);
+        glow.position.copy(prop.position);
+        grp.add(glow);
+        const motes = new THREE.Group();
+        const n = oh.rarity === 'legendary' ? 5 : 3;
+        const mMat = new THREE.MeshBasicMaterial({ color: RARITIES[oh.rarity].color });
+        for (let i = 0; i < n; i++) {
+          const sp = new THREE.Mesh(new THREE.SphereGeometry(0.025, 5, 5), mMat);
+          const a = (i / n) * Math.PI * 2;
+          sp.position.set(OFFHAND_POS.x + Math.cos(a) * 0.16, OFFHAND_POS.y + Math.sin(a * 1.4) * 0.12, OFFHAND_POS.z + Math.sin(a) * 0.16);
+          sp.userData.orbit = { a, speed: 0.7 + (i % 3) * 0.3, radius: 0.16, baseY: OFFHAND_POS.y, cx: OFFHAND_POS.x, cz: OFFHAND_POS.z };
+          motes.add(sp);
+        }
+        grp.add(motes);
+        grp.userData.offhandMotes = motes;
+      }
+    }
     // The held weapon is skinned to the hand (animated), so we tint it in place
     // rather than replace it: equipping a better weapon visibly recolours the
     // one in your hand by its rarity, and a plain weapon returns to default.
@@ -2254,12 +2358,23 @@ export class Game {
         sp.position.set(Math.cos(a) * o.radius, o.baseY + Math.sin(t * 1.4 + o.a) * 0.05, Math.sin(a) * o.radius);
       }
     }
+    // Offhand rarity mote cosmetic (Epic/Legendary only) — same slow orbit/bob,
+    // centered on the shield (knight) or procedural prop (mage/ranger).
+    const ohMotes = mesh.userData.gearVisual?.userData?.offhandMotes;
+    if (ohMotes) {
+      for (const sp of ohMotes.children) {
+        const o = sp.userData.orbit;
+        if (!o) continue;
+        const a = o.a + t * o.speed;
+        sp.position.set(o.cx + Math.cos(a) * o.radius, o.baseY + Math.sin(t * 1.4 + o.a) * 0.05, o.cz + Math.sin(a) * o.radius);
+      }
+    }
   }
 
   // A compact snapshot of the equipped gear, for co-op inspect panels.
   compactLoadout() {
     const out = {};
-    for (const slot of ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket']) {
+    for (const slot of ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket', 'offhand']) {
       const it = this.player.equipped[slot];
       out[slot] = it ? { icon: it.icon, name: it.name, rarity: it.rarity, slot: it.slot, stats: it.stats, affinity: it.affinity || null } : null;
     }
@@ -2740,6 +2855,8 @@ export class Game {
     this.scene.remove(e.mesh);
 
     this.player.gainXp(e.xp, this);
+    // Offhand kill-heal proc: a small heal each kill (see player.js recompute).
+    if (this.player.killHealPct) this.player.heal(Math.round(this.player.maxHp * this.player.killHealPct), this);
     this.rollDeathLoot(e.pos.x, e.pos.z, { miniboss: e.miniboss, isBoss: e.isBoss, elite: e.elite, goldRange: e.goldRange });
 
     // In co-op every hero gets full XP and rolls their own personal loot.
@@ -3935,6 +4052,38 @@ export class Game {
     this.spawnImpactFlash(x, y, z, opts.tint ?? 0xfff0d0);
     this.addWallImpactMark(x, z, { dirX: opts.dirX, dirZ: opts.dirZ, tint: opts.tint, y });
     this.breakNear(x, z, 0.9); // a stray shot can smash a container too
+    this.damageDestructibleWall(x, z);
+  }
+
+  // Every wallDebris impact (melee whiff or a projectile hitting stone, both
+  // already routed here) also checks whether it landed on a destructible
+  // interior wall cell (dungeon.destructibleWalls, computed at floor-build in
+  // dungeon.js: a wall separating two open areas, never a perimeter/boss cell).
+  // 3 hits break it: hits 1-2 stage the visual (intact -> cracked), the 3rd
+  // removes the wall outright — patches dungeon.grid to FLOOR (the single
+  // isWalkable/pathing source of truth, so enemies and the minimap see the
+  // opening immediately), drops a rubble pile, and records the break in this
+  // character's in-memory session map so revisiting the floor keeps the hole.
+  damageDestructibleWall(x, z) {
+    const { tx, ty } = worldToTile(x, z);
+    if (this.dungeon?.grid?.[ty]?.[tx] !== WALL) return;
+    if (!this.dungeon.destructibleWalls?.has(`${tx},${ty}`)) return;
+    const cellKey = `${tx},${ty}`;
+    const hitKey = `${this.floor}:${cellKey}`;
+    const hits = (this.destructibleWallHits[hitKey] || 0) + 1;
+    if (hits >= 3) {
+      delete this.destructibleWallHits[hitKey];
+      setWallCellStage(this.dungeonMeshes, this.dungeon, tx, ty, 2);
+      (this.destroyedWallsSession[this.floor] ||= new Set()).add(cellKey);
+      const w = tileToWorld(tx, ty);
+      this.particles.burst(w.x, 1.0, w.z, 16, 0x8a8590, { speed: 4.2, life: 0.5, size: 0.14, up: 1.1 });
+      this.particles.burst(w.x, 0.3, w.z, 10, 0x5a5560, { speed: 2.2, life: 0.6, size: 0.2 });
+      audio.play('golem_slam', { pos: { x: w.x, z: w.z }, volume: 0.8, rate: 0.85 }); // solid thunk
+      this.shake(0.15);
+    } else {
+      this.destructibleWallHits[hitKey] = hits;
+      setWallCellStage(this.dungeonMeshes, this.dungeon, tx, ty, hits); // 1 = cracked
+    }
   }
 
   // A persistent GROUND decal (chip/scuff/scorch) for things that happen at
