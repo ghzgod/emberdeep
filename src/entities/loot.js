@@ -32,11 +32,33 @@ const DROP_LEGENDARIES = [
   { slot: 'trinket', icon: '👑', name: 'Crown of the Dungeon Lord', stats: (f) => ({ maxHp: Math.round(110 + L(f) * 26), crit: 16, regen: 6 }) },
 ];
 
+// Legendary WEAPONS additionally roll an elemental identity - a flame or
+// frost brand that shows up in the name/on the item card (see makeLegendary),
+// as a visual (updateHeroGear in game.js: emissive blade/grip edges + drifting
+// motes) and as an on-hit effect (game.js meleeAttack/spawnProjectile wire the
+// element into the existing burn/slow status system). Extensible: add a key
+// here (plus a matching branch anywhere WEAPON_ELEMENTS is read) for more.
+export const WEAPON_ELEMENTS = {
+  flame: { name: 'Flamebrand', color: 0xff5a1a, particleColor: 0xffb347 },
+  frost: { name: 'Frostbite', color: 0x5ad1ff, particleColor: 0xcfefff },
+};
+const WEAPON_ELEMENT_KEYS = Object.keys(WEAPON_ELEMENTS);
+
 function makeLegendary(def, floor) {
-  return {
+  const item = {
     id: nextItemId++, slot: def.slot, rarity: 'legendary', name: def.name,
     icon: def.icon, ilvl: floor, stats: def.stats(floor), value: 500 + floor * 40, unique: true,
   };
+  // Old saves may hold a legendary weapon from before this system existed -
+  // those simply have no `element` and stay plain (see updateHeroGear/
+  // meleeAttack: both only branch on it when present). Only NEW weapon rolls
+  // get one.
+  if (def.slot === 'weapon') {
+    const key = WEAPON_ELEMENT_KEYS[Math.floor(Math.random() * WEAPON_ELEMENT_KEYS.length)];
+    item.element = key;
+    item.name = `${WEAPON_ELEMENTS[key].name} ${def.name}`;
+  }
+  return item;
 }
 
 // The pinnacle EPIC uniques — earned in a fight only, never sold or gambled.

@@ -18,6 +18,65 @@ const _AXIS_Y = new THREE.Vector3(0, 1, 0);
 
 const loaded = new Map(); // classId -> { scene, animations, scale }
 
+// Roughly how much of a held weapon's length (measured outward from the
+// hand-bone pivot, which is this mesh's local origin) belongs to the
+// grip/hilt versus the blade/head - used by splitWeaponMesh below so
+// updateHeroGear (game.js) can give each region its own real material
+// (metal blade, wood/leather grip) instead of tinting the whole weapon
+// one flat hue.
+function weaponGripFraction(name) {
+  if (/Staff|Wand/i.test(name)) return 0.62; // long wood shaft, ornamental head at the tip
+  if (/Crossbow|Bow/i.test(name)) return 0.42; // stock/grip vs. bow arm + mechanism
+  return 0.32; // sword/knife/dagger/axe/mace/hammer/spear: short grip, long blade/head
+}
+
+// Splits a held weapon's single baked mesh into two triangle-index groups -
+// grip/hilt (material slot 0) and blade/head (material slot 1) - by each
+// triangle's average distance from the hand-bone pivot (this mesh's local
+// origin) along its longest axis. KayKit bakes one shared material per whole
+// character model (not one per weapon part), so without this split a rarity
+// tint multiplies the ENTIRE weapon one flat hue (the "orange sword" bug).
+// Cheap and one-time per geometry: guarded by geo.userData.weaponSplit so
+// re-running on a shared geometry (skeletonClone shares geometry across
+// hero instances) is a no-op on the second+ call. Returns null (and leaves
+// the geometry untouched) when there's no index buffer or the split would be
+// degenerate (everything on one side) - callers then fall back to a single
+// steel material for the whole mesh, which still reads as metal rather than
+// a flat rarity-colored blob.
+export function splitWeaponMesh(mesh) {
+  const geo = mesh.geometry;
+  if (!geo || !geo.index) return null;
+  if (geo.userData.weaponSplit) return geo.userData.weaponSplit;
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const ext = { x: bb.max.x - bb.min.x, y: bb.max.y - bb.min.y, z: bb.max.z - bb.min.z };
+  const axis = ext.x >= ext.y && ext.x >= ext.z ? 'x' : ext.z >= ext.y ? 'z' : 'y';
+  const pos = geo.attributes.position;
+  const getA = axis === 'x' ? (i) => pos.getX(i) : axis === 'y' ? (i) => pos.getY(i) : (i) => pos.getZ(i);
+  let maxAbs = 0;
+  for (let i = 0; i < pos.count; i++) { const a = Math.abs(getA(i)); if (a > maxAbs) maxAbs = a; }
+  if (maxAbs < 1e-6) return null;
+  const threshold = maxAbs * weaponGripFraction(mesh.name);
+  const idxArr = geo.index.array;
+  const gripTris = [], headTris = [];
+  for (let t = 0; t < idxArr.length; t += 3) {
+    const a = idxArr[t], b = idxArr[t + 1], c = idxArr[t + 2];
+    const avg = (Math.abs(getA(a)) + Math.abs(getA(b)) + Math.abs(getA(c))) / 3;
+    (avg <= threshold ? gripTris : headTris).push(a, b, c);
+  }
+  if (!gripTris.length || !headTris.length) return null;
+  const Ctor = idxArr.constructor;
+  const newIndex = new Ctor(gripTris.length + headTris.length);
+  newIndex.set(gripTris, 0);
+  newIndex.set(headTris, gripTris.length);
+  geo.setIndex(new THREE.BufferAttribute(newIndex, 1));
+  geo.clearGroups();
+  geo.addGroup(0, gripTris.length, 0); // grip/hilt -> material[0]
+  geo.addGroup(gripTris.length, headTris.length, 1); // blade/head -> material[1]
+  geo.userData.weaponSplit = { grip: 0, head: 1 };
+  return geo.userData.weaponSplit;
+}
+
 export async function preloadHeroModels(onProgress) {
   const loader = new GLTFLoader();
   const entries = Object.entries(MODEL_FILES);
@@ -543,8 +602,12 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
   const heldMeshes = [];
   mesh.traverse((o) => {
     if (o.isMesh && HELD_PATTERN.test(o.name)) {
-      if (keepHeld.has(o.name)) heldMeshes.push(o);
-      else o.visible = false;
+      if (keepHeld.has(o.name)) {
+        heldMeshes.push(o);
+        // Shields tint as a single flat rarity color already (see
+        // updateHeroGear); only actual weapons need the grip/blade split.
+        if (!/Shield/i.test(o.name)) splitWeaponMesh(o);
+      } else o.visible = false;
     }
   });
   // Ground-clearance for the kept held weapons. KayKit bakes each weapon at a

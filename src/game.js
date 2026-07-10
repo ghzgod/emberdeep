@@ -12,7 +12,7 @@ import { attachEnemyModel, typeModelKey, bossModelKey } from './entities/enemyMo
 import { buildAnimatedHero } from './entities/heroModel.js';
 import { CLASSES, buildHeroMesh } from './entities/classes.js';
 import { ProjectileSystem } from './entities/projectiles.js';
-import { LootSystem, generateGear, rollRarity, sellValue, gambleItem, dropLegendary, RARITIES, newItemId } from './entities/loot.js';
+import { LootSystem, generateGear, rollRarity, sellValue, gambleItem, dropLegendary, RARITIES, newItemId, WEAPON_ELEMENTS } from './entities/loot.js';
 
 // Alchemist buff elixirs — consumables drunk from the inventory that grant a
 // temporary boon via the existing buff system (damageMult / damageTakenMult).
@@ -1367,6 +1367,10 @@ export class Game {
     this.openedDoors = new Set();
 
     const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
+    // loadFloor is async and fire-and-forget: quitting to the title (which
+    // nulls the player) while the earlier yields are pending must not crash
+    // the in-flight load. Bail out - the world is being torn down anyway.
+    if (!this.player) { this._loading = false; return; }
     this.player.pos.set(spawn.x, 0, spawn.z);
     this.player.dead = false;
 
@@ -2259,28 +2263,83 @@ export class Game {
         grp.userData.offhandMotes = motes;
       }
     }
-    // The held weapon is skinned to the hand (animated), so we tint it in place
-    // rather than replace it: equipping a better weapon visibly recolours the
-    // one in your hand by its rarity, and a plain weapon returns to default.
+    // The held weapon is skinned to the hand (animated), so we tint it in
+    // place rather than replace it. Real swords are a metal blade + a wood-or-
+    // leather hilt, never one flat tinted color - see splitWeaponMesh
+    // (heroModel.js), which pre-splits each held weapon's baked mesh into a
+    // grip/hilt triangle group (material slot 0) and a blade/head group
+    // (material slot 1) by distance from the hand-bone pivot. The blade stays
+    // genuinely metallic (high metalness/low roughness, reflecting the
+    // scene's PMREM env - see envMapIntensity below) at every rarity; the
+    // grip stays wood/leather. Rarity only layers a subtle accent on top:
+    // rare = a cool blued-steel sheen on the blade, epic = a gold-encrusted
+    // grip/pommel (the closest stand-in for "guard" this two-region split
+    // affords) with a faint gold emissive edge, legendary = a full elemental
+    // identity (flame/frost - WEAPON_ELEMENTS in loot.js) with emissive edges
+    // on blade AND grip plus a few drifting ember/frost motes (same cheap
+    // orbiting-mote pattern as the offhand rarity motes above). A weapon mesh
+    // that couldn't be split (no index buffer / degenerate geometry) falls
+    // back to a single steel material carrying the same accent - it never
+    // becomes a flat rarity-colored blob either way.
     if (!mesh.userData.weaponMats) {
       mesh.userData.weaponMats = [];
       mesh.traverse((o) => {
         if (o.isMesh && o.visible && /Sword|Staff|Wand|Crossbow|Knife|Bow|Axe|Hammer|Mace|Dagger|Spear/i.test(o.name)) {
-          o.material = o.material.clone();
-          mesh.userData.weaponMats.push({ m: o.material, color: o.material.color.clone(), emi: o.material.emissive?.clone?.() });
+          const split = Array.isArray(o.geometry?.groups) && o.geometry.groups.length === 2 && o.geometry.userData?.weaponSplit;
+          const bladeMat = new THREE.MeshStandardMaterial({ metalness: 0.95, roughness: 0.22, envMapIntensity: 0.55 });
+          if (split) {
+            const gripMat = new THREE.MeshStandardMaterial({ metalness: 0.05, roughness: 0.85 });
+            o.material = [gripMat, bladeMat];
+            mesh.userData.weaponMats.push({ blade: bladeMat, grip: gripMat });
+          } else {
+            o.material = bladeMat;
+            mesh.userData.weaponMats.push({ blade: bladeMat, grip: null });
+          }
         }
       });
     }
-    const wr = equipped.weapon?.rarity;
+    const wItem = equipped.weapon;
+    const wr = wItem?.rarity;
+    const element = wr === 'legendary' && wItem.element ? WEAPON_ELEMENTS[wItem.element] : null;
+    const STEEL = new THREE.Color(0xaeb4bc);
+    const WOOD = new THREE.Color(0x5a3d22);
+    const BLADE_SHEEN = { rare: 0x8fa8c2, epic: 0xc9b568 };
     for (const w of mesh.userData.weaponMats) {
-      if (wr && wr !== 'common') {
-        const c = new THREE.Color(RARITIES[wr]?.color ?? 0x8a8a8a);
-        w.m.color.copy(c);
-        if (w.m.emissive) { w.m.emissive.copy(c); w.m.emissiveIntensity = wr === 'legendary' ? 0.5 : wr === 'epic' ? 0.3 : 0.15; }
-      } else {
-        w.m.color.copy(w.color);
-        if (w.m.emissive && w.emi) { w.m.emissive.copy(w.emi); w.m.emissiveIntensity = 0; }
+      let bladeColor = STEEL, bladeEmissive = 0x000000, bladeEmissiveI = 0;
+      if (element) { bladeColor = STEEL.clone().lerp(new THREE.Color(element.color), 0.45); bladeEmissive = element.color; bladeEmissiveI = 0.55; }
+      else if (BLADE_SHEEN[wr]) { bladeColor = STEEL.clone().lerp(new THREE.Color(BLADE_SHEEN[wr]), 0.35); }
+      w.blade.color.copy(bladeColor);
+      w.blade.emissive.set(bladeEmissive);
+      w.blade.emissiveIntensity = bladeEmissiveI;
+      if (w.grip) {
+        let gripColor = WOOD, gripEmissive = 0x000000, gripEmissiveI = 0;
+        if (element) { gripColor = WOOD.clone().lerp(new THREE.Color(element.color), 0.3); gripEmissive = element.color; gripEmissiveI = 0.3; }
+        else if (wr === 'epic') { gripColor = WOOD.clone().lerp(new THREE.Color(0xc9a227), 0.55); gripEmissive = 0xc9a227; gripEmissiveI = 0.16; }
+        w.grip.color.copy(gripColor);
+        w.grip.emissive.set(gripEmissive);
+        w.grip.emissiveIntensity = gripEmissiveI;
       }
+    }
+    if (element) {
+      // Approximate main-hand position (mirrors OFFHAND_POS above) - the
+      // weapon mesh itself is bone-skinned mid-swing, so like the offhand
+      // motes these sit at a fixed rest-hand spot rather than truly tracking
+      // the blade through the swing animation.
+      const WEAPON_POS = { x: 0.36, y: 0.86, z: 0.1 };
+      const motes = new THREE.Group();
+      const mMat = new THREE.MeshBasicMaterial({ color: element.particleColor });
+      const n = 5;
+      for (let i = 0; i < n; i++) {
+        const sp = new THREE.Mesh(new THREE.SphereGeometry(0.02, 5, 5), mMat);
+        const a = (i / n) * Math.PI * 2;
+        sp.userData.orbit = { a, speed: 0.9 + (i % 3) * 0.4, radius: 0.05 + (i % 2) * 0.03, baseY: WEAPON_POS.y + (i % 3) * 0.06, cx: WEAPON_POS.x, cz: WEAPON_POS.z };
+        motes.add(sp);
+      }
+      grp.add(motes);
+      grp.userData.weaponMotes = motes;
+      const glow = new THREE.PointLight(element.color, 1.6, 1.2, 2);
+      glow.position.set(WEAPON_POS.x, WEAPON_POS.y, WEAPON_POS.z);
+      grp.add(glow);
     }
     mesh.add(grp);
     mesh.userData.gearVisual = grp;
@@ -2399,6 +2458,17 @@ export class Game {
     const ohMotes = mesh.userData.gearVisual?.userData?.offhandMotes;
     if (ohMotes) {
       for (const sp of ohMotes.children) {
+        const o = sp.userData.orbit;
+        if (!o) continue;
+        const a = o.a + t * o.speed;
+        sp.position.set(o.cx + Math.cos(a) * o.radius, o.baseY + Math.sin(t * 1.4 + o.a) * 0.05, o.cz + Math.sin(a) * o.radius);
+      }
+    }
+    // Legendary weapon elemental motes (flame/frost) - same slow orbit/bob,
+    // centered on the approximate main-hand position (see updateHeroGear).
+    const wpnMotes = mesh.userData.gearVisual?.userData?.weaponMotes;
+    if (wpnMotes) {
+      for (const sp of wpnMotes.children) {
         const o = sp.userData.orbit;
         if (!o) continue;
         const a = o.a + t * o.speed;
@@ -2736,10 +2806,25 @@ export class Game {
   // basic.variations — carries this swing's range/arc/dmgMult so left/right
   // slices, the overhead chop and the lunging stab each hit a slightly
   // different shape instead of one identical swing every time.
+  // A legendary weapon's element rides along on the wielder's own basic
+  // attacks (melee here, ranged/bolt in spawnProjectile below) - modest
+  // magnitudes so a legendary feels special without breaking balance: burn
+  // ticks for ~30% of the hit's base damage over 2s, frost slows to half
+  // speed for 1.5s. Old-save legendaries without an `element` (see loot.js
+  // makeLegendary) simply produce no status, same as any mundane weapon.
+  weaponElementStatus(player) {
+    const el = player.equipped?.weapon?.element;
+    if (!el) return null;
+    if (el === 'flame') return { burn: { dps: Math.max(1, player.damage * 0.3), duration: 2 } };
+    if (el === 'frost') return { slow: { mult: 0.5, duration: 1.5 } };
+    return null;
+  }
+
   meleeAttack(player, basic, variation) {
     const range = variation?.range ?? basic.range;
     const arc = variation?.arc ?? basic.arc;
     const dmgMult = variation?.dmgMult ?? 1;
+    const status = this.weaponElementStatus(player);
     let hitAny = false;
     for (const e of this.enemies) {
       if (e.dead) continue;
@@ -2751,7 +2836,7 @@ export class Game {
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       if (Math.abs(diff) < arc / 2) {
-        this.damageEnemy(e, player.damage * dmgMult, { knockback: 3, kbFrom: player.pos });
+        this.damageEnemy(e, player.damage * dmgMult, { knockback: 3, kbFrom: player.pos, status });
         learner.recordPlayerHit(dist); // learn your engagement range
         hitAny = true;
       }
@@ -3065,6 +3150,16 @@ export class Game {
   }
 
   spawnProjectile(opts) {
+    // A legendary weapon's element rides along on any friendly projectile that
+    // doesn't already carry its own status - this is what makes the ranged/
+    // bolt basic attack (player.js tryBasicAttack, which has no status param
+    // of its own) apply burn/slow on hit, same as meleeAttack above. Ability
+    // shots that roll their own status (Fireball's burn, Frost Nova's slow)
+    // are untouched since they already set opts.status.
+    if (opts.friendly && !opts.status && this.player) {
+      const st = this.weaponElementStatus(this.player);
+      if (st) opts = { ...opts, status: st };
+    }
     this.projectiles.spawn(opts);
     // guests must see (and dodge) host-simulated enemy projectiles
     if (net.isHost && !opts.friendly) {
