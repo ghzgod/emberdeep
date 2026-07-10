@@ -495,6 +495,14 @@ export class Player {
       }
     }
 
+    // Floor-height following: ease pos.y toward whatever the ground under the
+    // hero's feet samples to (dais/sunken patch in a dungeon, the raised town
+    // plaza), instead of snapping, so stepping onto a raised tile visibly
+    // rises rather than popping. ~10/s exponential ease reaches a new step
+    // height in a few frames without ever overshooting.
+    const groundY = game.heightAt ? game.heightAt(this.pos.x, this.pos.z) : 0;
+    this.pos.y += (groundY - this.pos.y) * Math.min(1, 10 * dt);
+
     // mesh sync + facing. The body follows MOVEMENT direction whenever the hero
     // is walking (the loved feel); aiming only steers the body when the hero is
     // essentially stationary, so it settles toward the target between steps

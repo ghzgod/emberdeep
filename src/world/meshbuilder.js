@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { FLOOR, WALL, DOOR, PIT, BRIDGE, RUBBLE, CHASM } from './dungeon.js';
+import { FLOOR, WALL, DOOR, PIT, BRIDGE, RUBBLE, CHASM, TOWN_PLAZA_HEIGHT } from './dungeon.js';
 import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture, makeBannerTexture, makeGlowTexture, makeRuneTexture, makeExteriorSignTexture, floorRng, jitterAccentHue } from './textures.js';
 import { buildPortal } from './portal.js';
 import { buildAnimatedHero } from '../entities/heroModel.js';
@@ -818,10 +818,15 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95 });
   // The descend-stairs tile has its own recessed stairwell built below, so the
   // solid floor tile there is omitted -> the hatch actually opens into the well
-  // instead of a floor plane sitting over it. (floorTiles itself is left intact;
-  // motes/runes may still pepper the surrounding tiles.)
-  const floorRenderTiles = (!town && dungeon.stairs)
-    ? floorTiles.filter((tp) => !(tp.x === dungeon.stairs.x && tp.y === dungeon.stairs.y))
+  // instead of a floor plane sitting over it. Dais/sunken tiles get their own
+  // offset-Y floor box below (buildDungeonMeshes's height-field pass), so the
+  // flat 0-height tile here is skipped for them too, or the two boxes would
+  // z-fight (raised) or the flat tile would paper over the sunken one.
+  // (floorTiles itself is left intact; motes/runes may still pepper the
+  // surrounding tiles.)
+  const patchKeys = new Set([...(dungeon.daisTiles || []), ...(dungeon.sunkTiles || [])].map((p) => `${p.x},${p.y}`));
+  const floorRenderTiles = (!town && (dungeon.stairs || patchKeys.size))
+    ? floorTiles.filter((tp) => !(dungeon.stairs && tp.x === dungeon.stairs.x && tp.y === dungeon.stairs.y) && !patchKeys.has(`${tp.x},${tp.y}`))
     : floorTiles;
   const floorMesh = new THREE.InstancedMesh(floorGeo, floorMat, floorRenderTiles.length);
   const m = new THREE.Matrix4();
@@ -1048,13 +1053,58 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
     const cobbleGeo = new THREE.BoxGeometry(TILE, 0.06, TILE);
     const cobbleMat = new THREE.MeshStandardMaterial({ map: makeCobbleTexture(), roughness: 0.95 });
     const cobbleMesh = new THREE.InstancedMesh(cobbleGeo, cobbleMat, dungeon.cobbles.length);
+    const cobbleY = TOWN_PLAZA_HEIGHT - 0.03; // box centre so its top = TOWN_PLAZA_HEIGHT
     dungeon.cobbles.forEach((c, i) => {
       const w = tileToWorld(c.x, c.y);
-      m.setPosition(w.x, 0.02, w.z);
+      m.setPosition(w.x, cobbleY, w.z);
       cobbleMesh.setMatrixAt(i, m);
     });
     cobbleMesh.instanceMatrix.needsUpdate = true;
     group.add(cobbleMesh);
+
+    // Step-up skirt: a thin stone lip around the plaza's edge so the raised
+    // flagstone doesn't read as a floating slab where it meets the grass.
+    const cobbleSet = new Set(dungeon.cobbles.map((c) => `${c.x},${c.y}`));
+    const skirtMat = new THREE.MeshStandardMaterial({ color: 0x8a8378, roughness: 0.9 });
+    const skirtGeo = new THREE.BoxGeometry(TILE, TOWN_PLAZA_HEIGHT, 0.1);
+    for (const c of dungeon.cobbles) {
+      for (const [dx, dy, rot] of [[0, -1, 0], [0, 1, 0], [-1, 0, Math.PI / 2], [1, 0, Math.PI / 2]]) {
+        if (cobbleSet.has(`${c.x + dx},${c.y + dy}`)) continue;
+        const w = tileToWorld(c.x, c.y);
+        const skirt = new THREE.Mesh(skirtGeo, skirtMat);
+        skirt.position.set(w.x + dx * TILE / 2, TOWN_PLAZA_HEIGHT / 2, w.z + dy * TILE / 2);
+        skirt.rotation.y = rot;
+        group.add(skirt);
+      }
+    }
+  }
+
+  // --- Dungeon: seeded raised daises / sunken patches (dungeon.heights) ---
+  // Renders the same modeled floor tile at an offset Y for each stamped tile,
+  // plus a simple stone side skirt on any edge bordering a tile that is NOT
+  // part of the same patch, so a dais/sunken tile never reads as a floating
+  // or gapped floor plane. Purely cosmetic: XZ collision is untouched.
+  if (!town && (dungeon.daisTiles?.length || dungeon.sunkTiles?.length)) {
+    const bumpMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95 });
+    const skirtMat2 = new THREE.MeshStandardMaterial({ color: new THREE.Color(theme.wall).multiplyScalar(0.7), roughness: 0.9 });
+    const patches = [...(dungeon.daisTiles || []), ...(dungeon.sunkTiles || [])];
+    const patchByKey = new Map(patches.map((p) => [`${p.x},${p.y}`, p]));
+    for (const p of patches) {
+      const w = tileToWorld(p.x, p.y);
+      const bump = new THREE.Mesh(new THREE.BoxGeometry(TILE, 0.2, TILE), bumpMat);
+      bump.position.set(w.x, p.h - 0.1, w.z);
+      group.add(bump);
+      const skirtH = Math.abs(p.h);
+      const skirtGeo2 = new THREE.BoxGeometry(TILE, skirtH, 0.1);
+      for (const [dx, dy, rot] of [[0, -1, 0], [0, 1, 0], [-1, 0, Math.PI / 2], [1, 0, Math.PI / 2]]) {
+        if (patchByKey.has(`${p.x + dx},${p.y + dy}`)) continue;
+        const skirt = new THREE.Mesh(skirtGeo2, skirtMat2);
+        const skirtY = p.h > 0 ? p.h - skirtH / 2 : p.h + skirtH / 2;
+        skirt.position.set(w.x + dx * TILE / 2, skirtY, w.z + dy * TILE / 2);
+        skirt.rotation.y = rot;
+        group.add(skirt);
+      }
+    }
   }
 
   // --- Town: trees, plants, well, tavern ---
@@ -1157,7 +1207,10 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
     const trim = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.1, 0.64), chestTrimMat);
     trim.position.y = 0.5;
     chest.add(body, lid, trim);
-    chest.position.set(w.x, 0, w.z);
+    // Sit the chest on whatever height the floor under it sampled to (a dais
+    // is deliberately stamped under dungeon.chests[0] in dungeon.js).
+    const chestH = dungeon.heights?.[c.y]?.[c.x] || 0;
+    chest.position.set(w.x, chestH, w.z);
     chest.rotation.y = Math.random() * Math.PI * 2;
     group.add(chest);
     chestMeshes.push({ mesh: chest, lid, tile: c, opened: false, x: w.x, z: w.z });

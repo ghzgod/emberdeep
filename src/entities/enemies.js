@@ -18,6 +18,11 @@ const MAX_ANIMATED = 18; // concurrently mixer-updated modeled enemies per frame
 // overlap the player mesh at point-blank range. Not a gameplay hitbox.
 const PLAYER_BODY_RADIUS = 0.32;
 
+// Floor-height following (dais/sunken patches, town plaza): "floater" types
+// hover, so instead of sitting flush on the ground field they keep a fixed
+// hover height ABOVE it. Walkers ease their pos.y flush onto the ground.
+const FLOATER_HOVER = { ghost: 0.9 };
+
 // Per-frame mixer-update budget, shared across every Enemy instance. Reset
 // once at the top of each frame's enemy loop (see resetEnemyAnimBudget,
 // called from game.js right before it iterates this.enemies) so near-camera
@@ -757,6 +762,14 @@ export class Enemy {
         }
       }
     }
+
+    // Floor-height following: same ground sampler the player uses. Walkers
+    // ease flush onto the sampled height; floaters (ghost) keep their hover
+    // gap ABOVE it, so they still visibly rise over a dais instead of hovering
+    // at a fixed world height while the floor moves underneath them.
+    const hover = FLOATER_HOVER[this.typeId] || 0;
+    const groundY = game.heightAt ? game.heightAt(this.pos.x, this.pos.z) : 0;
+    this.pos.y += (groundY + hover - this.pos.y) * Math.min(1, 10 * dt);
 
     // mesh sync
     this.mesh.position.copy(this.pos);
