@@ -4,14 +4,15 @@ import { TILE, tileToWorld, buildNpcModel, pushNpcAnimDriver } from './meshbuild
 import { makeWoodTexture, makePaintingTexture, makePlankTexture, makeHearthStoneTexture, makeTavernSignTexture } from './textures.js';
 
 // "The Sleeping Golem" — the tavern interior. Warm, safe, and populated.
-// 12 x 9 tiles. Furniture occupies solid (WALL) tiles so you can't walk
+// 16 x 12 tiles (enlarged from 12x9 - the owner found the room cramped and
+// the two walled-in tables senseless). Furniture occupies solid (WALL) tiles so you can't walk
 // through the bar; patrons and the barkeep can be chatted with.
-const W = 12, H = 9;
+const W = 16, H = 12;
 
 // solid furniture tiles (collision): bar row, two tables, the hearth
-const BAR_TILES = [[3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1]];
-const TABLE_TILES = [[3, 4], [8, 4]];
-const HEARTH_TILES = [[10, 4]];
+const BAR_TILES = [[3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1], [9, 1], [10, 1]];
+const TABLE_TILES = [[3, 4], [8, 4], [3, 8], [8, 8]];
+const HEARTH_TILES = [[14, 6]];
 
 export function generateTavernInterior() {
   const grid = Array.from({ length: H }, (_, y) =>
@@ -20,9 +21,9 @@ export function generateTavernInterior() {
   for (const [x, y] of [...BAR_TILES, ...TABLE_TILES, ...HEARTH_TILES]) grid[y][x] = WALL;
   return {
     grid, size: Math.max(W, H), rooms: [],
-    spawn: { x: 6, y: 6 },
-    exit: { x: 6, y: 7 },
-    barkeep: { x: 5, y: 2 },     // stands in front of the bar's left side? no — behind: see mesh
+    spawn: { x: 8, y: 9 },
+    exit: { x: 8, y: 10 },
+    barkeep: { x: 6, y: 2 },     // stands in front of the bar's left side? no — behind: see mesh
     patrons: [
       { x: 3, y: 4, seatAngle: 0.8, drunk: false },
       { x: 8, y: 4, seatAngle: -2.2, drunk: true },
@@ -86,8 +87,8 @@ export function buildTavernInterior() {
   mkWall(W * TILE, TILE, (W * TILE) / 2, TILE / 2, true);
   mkWall(TILE, H * TILE, TILE / 2, (H * TILE) / 2, false);
   mkWall(TILE, H * TILE, W * TILE - TILE / 2, (H * TILE) / 2, false);
-  mkWall(5 * TILE, TILE, 2.5 * TILE + TILE / 2, H * TILE - TILE / 2, true);
-  mkWall(4.5 * TILE, TILE, W * TILE - 2.25 * TILE, H * TILE - TILE / 2, true);
+  mkWall(7 * TILE, TILE, 4 * TILE, H * TILE - TILE / 2, true);
+  mkWall(6.5 * TILE, TILE, W * TILE - 3.25 * TILE, H * TILE - TILE / 2, true);
   // exposed ceiling beams overhead for timber-frame feel
   for (let i = 0; i < 4; i++) {
     const beam = new THREE.Mesh(new THREE.BoxGeometry(W * TILE - TILE, 0.22, 0.28), darkWood);
@@ -110,7 +111,7 @@ export function buildTavernInterior() {
   mkPainting(W * TILE - TILE - 0.04, 3.4 * TILE, -Math.PI / 2); // east wall
 
   // ---- the bar (on BAR_TILES row) ----
-  const barCenter = tileToWorld(5.5, 1);
+  const barCenter = tileToWorld(6.5, 1);
   const bar = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 1.05, 1.2), boardMat);
   bar.position.set(barCenter.x + TILE / 2, 0.52, barCenter.z);
   group.add(bar);
@@ -181,7 +182,7 @@ export function buildTavernInterior() {
     new THREE.MeshStandardMaterial({ color: 0xdcb24e, metalness: 0.55, roughness: 0.45 }));
   heldMug.position.set(0.6, 1.08, 0.36);
   keeper.add(kBody, kBelly, kApron, kApronBib, head, kArmL, kArmR, heldMug);
-  const keeperPos = tileToWorld(5.5, 0.55);
+  const keeperPos = tileToWorld(6.5, 0.55);
   keeper.position.set(keeperPos.x + TILE / 2, 0, keeperPos.z);
   keeper.rotation.y = 0; // face the customer side (+z), not the back wall
   group.add(keeper);
@@ -218,7 +219,7 @@ export function buildTavernInterior() {
   // z 0..2), so the bottles sit ON the wall behind Barlow rather than buried
   // inside the wall as they were before.
   const shelfZ = 2.04;
-  const shelfW = 6 * TILE;
+  const shelfW = 8 * TILE;
   const shelfYs = [1.32, 1.74, 2.16];
   for (const sy of shelfYs) {
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(shelfW, 0.07, 0.28), boardMat);
@@ -417,7 +418,7 @@ export function buildTavernInterior() {
     new THREE.MeshStandardMaterial({ map: makeTavernSignTexture(), roughness: 0.9 }));
   board.position.y = -0.02;
   sign.add(signBar, chL, chR, board);
-  sign.position.set((W * TILE) / 2, 2.05, TILE * 6.2);
+  sign.position.set((W * TILE) / 2, 2.05, TILE * 8.2);
   group.add(sign);
 
   // ---- tables (on TABLE_TILES) with stools, mugs, candles ----
@@ -574,7 +575,7 @@ export function buildTavernInterior() {
   group.add(rug);
   const mat = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.04, 0.8),
     new THREE.MeshStandardMaterial({ color: 0x5a4a30, roughness: 1 }));
-  const exitW = tileToWorld(6, 7);
+  const exitW = tileToWorld(8, 10);
   mat.position.set(exitW.x, 0.02, exitW.z + 0.6);
   group.add(mat);
 
