@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CLASSES, buildHeroMesh } from '../entities/classes.js';
-import { SKIN_TONES, GENDERS, HAIR_TONES, EYE_COLORS, FACE_SHAPES, buildAnimatedHero } from '../entities/heroModel.js';
+import { SKIN_TONES, GENDERS, HAIR_TONES, EYE_COLORS, FACE_SHAPES, HAIR_STYLES, buildAnimatedHero } from '../entities/heroModel.js';
 import { SKILLS } from '../entities/skills.js';
 import { svgIcon, ICONS, CLASS_ICONS } from './icons.js';
 import { RARITIES, statLabel, sellValue, buyPrice } from '../entities/loot.js';
@@ -675,6 +675,27 @@ export class UI {
         faceWrap.appendChild(btn);
       }
     }
+    const hairStyleWrap = $('cs-hairstyle');
+    if (hairStyleWrap) {
+      const cur = HAIR_STYLES.some((t) => t.id === localStorage.getItem('emberdeep-hairstyle-v1'))
+        ? localStorage.getItem('emberdeep-hairstyle-v1') : 'short';
+      if (!localStorage.getItem('emberdeep-hairstyle-v1')) localStorage.setItem('emberdeep-hairstyle-v1', cur);
+      hairStyleWrap.innerHTML = '';
+      for (const t of HAIR_STYLES) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cs-hairstyle-btn' + (t.id === cur ? ' selected' : '');
+        btn.textContent = t.label;
+        btn.onclick = () => {
+          localStorage.setItem('emberdeep-hairstyle-v1', t.id);
+          audio.play('ui_click', { volume: 0.6 });
+          hairStyleWrap.querySelectorAll('.cs-hairstyle-btn').forEach((b) => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          this.refreshCharPreview();
+        };
+        hairStyleWrap.appendChild(btn);
+      }
+    }
   }
 
   // Tap/click selects and shows details; the confirm button starts the game.
@@ -799,9 +820,11 @@ export class UI {
     const eyeColor = EYE_COLORS.some((t) => t.id === storedEyes) ? storedEyes : 'brown';
     const storedFace = localStorage.getItem('emberdeep-face-v1');
     const faceShape = FACE_SHAPES.some((t) => t.id === storedFace) ? storedFace : 'standard';
+    const storedHairStyle = localStorage.getItem('emberdeep-hairstyle-v1');
+    const hairStyle = HAIR_STYLES.some((t) => t.id === storedHairStyle) ? storedHairStyle : 'short';
     // Same builder + same creation options the real Player uses, so what spins
     // here is exactly what spawns. Primitive fallback only if the GLB failed.
-    const anim = buildAnimatedHero(clsId, name, { gender, skinTone, hairColor, eyeColor, faceShape });
+    const anim = buildAnimatedHero(clsId, name, { gender, skinTone, hairColor, eyeColor, faceShape, hairStyle });
     let mesh, gait = null;
     if (anim) {
       mesh = anim.mesh;
@@ -2473,7 +2496,7 @@ export class UI {
     scene.add(turntable);
 
     const p = this.game.player;
-    const anim = buildAnimatedHero(p.classId, this.game.playerName(), { gender: p.gender, skinTone: p.skinTone, hairColor: p.hairColor, eyeColor: p.eyeColor, faceShape: p.faceShape });
+    const anim = buildAnimatedHero(p.classId, this.game.playerName(), { gender: p.gender, skinTone: p.skinTone, hairColor: p.hairColor, eyeColor: p.eyeColor, faceShape: p.faceShape, hairStyle: p.hairStyle });
     let mesh, gait = null;
     if (anim) mesh = anim.mesh;
     else { mesh = buildHeroMesh(CLASSES[p.classId], this.game.playerName()); gait = mesh.userData.updateGait; }
