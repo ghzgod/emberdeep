@@ -1423,7 +1423,7 @@ export class UI {
 
   setMicIndicator(on) {
     $('voice-indicator').classList.toggle('hidden', !on);
-    $('ab-mic').classList.toggle('live', on);
+    $('touch-mic')?.classList.toggle('live', on);
   }
 
   // ---------- key bindings ----------
@@ -1632,7 +1632,6 @@ export class UI {
   }
 
   setMicAvailable(on) {
-    $('ab-mic').classList.toggle('hidden', !on);
     // With the mic bubble hidden (single player / mic off), the utility arc
     // would show a hole at its slot - body.mic-hidden re-spaces the remaining
     // bubbles over the gap (style.css).
@@ -1653,27 +1652,14 @@ export class UI {
 
   wireActionBar() {
     const g = this.game;
-    // Flat-stroke SVG glyphs for the tray buttons (single source: icons.js),
-    // replacing the old emoji labels.
-    const AB_ICONS = { 'ab-inv': 'bag', 'ab-quests': 'scroll', 'ab-skills': 'star', 'ab-mic': 'mic', 'ab-pause': 'gear' };
-    for (const [id, name] of Object.entries(AB_ICONS)) { const b = $(id); if (b) b.innerHTML = svgIcon(name); }
-    // Action-bar button tooltips: drop the keyboard-key footnote on touch
-    // devices (no keyboard there) and keep the plain action label instead.
-    if (isTouchDevice()) {
-      const t = { 'ab-inv': 'Inventory', 'ab-quests': 'Quest Log', 'ab-skills': 'Mastery',
-        'ab-mic': 'Push-to-talk', 'ab-pause': 'Menu' };
-      for (const [id, label] of Object.entries(t)) { const b = $(id); if (b) b.title = label; }
-    }
+    // Desktop shares the touch utility bubbles (#touch-inv/mic/pause + potion)
+    // - the old flat-stroke #action-bar row is gone. Only the generic pieces
+    // remain here.
     $('interact-prompt').onclick = () => g.doInteract();
     // universal corner ✕ on every panel overlay (works without a keyboard)
     document.querySelectorAll('.overlay-close').forEach((btn) => {
       btn.onclick = () => { g.state = 'playing'; this.hideAll(); };
     });
-    // Always-visible circular bubble row - no collapse toggle (see index.html).
-    $('ab-inv').onclick = () => g.toggleInventory();
-    $('ab-quests').onclick = () => { if (g.state === 'playing') g.toggleQuestLog(); };
-    $('ab-skills').onclick = () => { if (g.state === 'playing') g.toggleSkills(); };
-    $('ab-pause').onclick = () => g.togglePause(true);
   }
 
   syncSettingsInputs() {

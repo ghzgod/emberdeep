@@ -6,10 +6,6 @@ game.boot();
 
 // title screen: platform-appropriate controls + build stamp
 try {
-  if (game.touch.enabled) {
-    // touch devices have their own button drawer, no desktop action bar
-    document.getElementById('action-bar')?.classList.add('hidden');
-  }
   if (typeof __BUILD_DATE__ !== 'undefined') {
     // Human-readable "how long ago this build was made", computed at page load
     // from the baked-in build timestamp.

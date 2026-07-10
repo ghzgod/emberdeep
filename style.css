@@ -642,34 +642,10 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
 /* On touch devices the chip reads "Tap" instead of a key (set in showInteract),
    so it stays visible - the pill itself is the button. */
 
-/* Desktop utility row: the SAME circular gold-ring bubbles as the ability
-   cluster (.act-btn language: deep purple-dark disc, soft rim, layered
-   shadow), clustered right next to the ability row instead of a floating box
-   of squares (Wild Rift principle: utilities live where the thumb/cursor
-   already is, not off in a separate corner tray). Always visible - no
-   collapse toggle. Hidden on touch/compact layouts, which get their own
-   utility row built into the mobile cluster instead. */
-#action-bar { display: none; }
-@media (hover: hover) and (pointer: fine) {
-  #action-bar {
-    /* sits just right of the centered desktop ability row (#hotbar is
-       left:50% + translateX(-50%); its content runs roughly 300px wide with
-       4 abilities + the potion bubble), so the utilities read as part of the
-       same cluster instead of a separate floating tray in the corner. */
-    position: absolute; left: calc(50% + 175px); bottom: 26px; display: flex;
-    flex-direction: row; align-items: center; gap: 10px; pointer-events: auto;
-  }
-}
-.touch-mode #action-bar { display: none !important; }
-/* .ab-bubble layers onto .act-btn (ring markup isn't used here, so hide it;
-   these are static utility buttons, not cooldown-tracked abilities). */
-#action-bar button.ab-bubble {
-  position: relative; width: 46px; height: 46px; font-size: 20px; cursor: pointer;
-  transition: border-color 0.25s cubic-bezier(0.4,0,0.2,1), filter 0.25s cubic-bezier(0.4,0,0.2,1);
-}
-#action-bar button.ab-bubble:hover { border-color: var(--gold); filter: brightness(1.15); }
-#action-bar button.ab-bubble svg { width: 22px; height: 22px; }
-#ab-mic.live { border-color: #7ce87c; color: #7ce87c; box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 10px rgba(124,232,124,0.4); }
+/* The old desktop-only #action-bar row is gone: desktop shares the touch
+   utility bubbles (#touch-inv/mic/pause + the hotbar potion), so every layout
+   uses one utility UI. Desktop row positions live with the bubble rules. */
+#touch-mic.live { border-color: #7ce87c; color: #7ce87c; box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 10px rgba(124,232,124,0.4); }
 
 /* Two overlapping gold coins for currency displays. Drawn in CSS (not the
    coin emoji): the emoji falls back to a flat monochrome disc in this font
@@ -1476,11 +1452,20 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
 .drawer-icon { width: 22px; height: 22px; display: block; }
 
 /* Desktop default positions (declared BEFORE the coarse media query so the
-   mobile overrides below win on touch devices). */
-#touch-inv { right: 14px; bottom: 164px; }
-#touch-mic { right: 14px; bottom: 300px; }
+   mobile overrides below win on touch devices): a horizontal row just right
+   of the centered ability hotbar, where the old #action-bar sat - same
+   bubbles, same colorful icons as tablet/phone. */
+#touch-inv   { left: calc(50% + 175px); right: auto; bottom: 26px; }
+#touch-mic   { left: calc(50% + 233px); right: auto; bottom: 26px; }
 #touch-mic.hidden { display: none !important; }
-#touch-pause { right: 14px; bottom: 232px; }
+#touch-pause { left: calc(50% + 291px); right: auto; bottom: 26px; }
+/* mic hidden on desktop: settings slides left to close the gap */
+body.mic-hidden:not(.touch-mode) #touch-pause { left: calc(50% + 233px); }
+#touch-inv:hover, #touch-mic:hover, #touch-pause:hover { border-color: var(--gold); filter: brightness(1.15); }
+/* Desktop shows #touch-ui for the utility bubbles only - every touch-specific
+   piece inside it stays off unless the compact/touch layout is active. */
+body:not(.touch-mode) #joystick-base, body:not(.touch-mode) #joy-ghost,
+body:not(.touch-mode) #touch-tut { display: none !important; }
 
 /* Mobile layout: left thumb moves, abilities live under the right thumb.
    Utilities are a smaller INNER ARC of FOUR equal, larger circular bubbles
