@@ -89,12 +89,9 @@ export function buildTavernInterior() {
   mkWall(TILE, H * TILE, W * TILE - TILE / 2, (H * TILE) / 2, false);
   mkWall(7 * TILE, TILE, 4 * TILE, H * TILE - TILE / 2, true);
   mkWall(6.5 * TILE, TILE, W * TILE - 3.25 * TILE, H * TILE - TILE / 2, true);
-  // exposed ceiling beams overhead for timber-frame feel
-  for (let i = 0; i < 4; i++) {
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(W * TILE - TILE, 0.22, 0.28), darkWood);
-    beam.position.set((W * TILE) / 2, 2.55, TILE * (1.6 + i * 1.6));
-    group.add(beam);
-  }
+  // Ceiling beams REMOVED (user report): at gameplay camera angles the
+  // y=2.55 rafters sliced across the view and read as mid-room walls that
+  // blocked sight of the table areas.
 
   // framed procedural paintings on the side walls (each is a unique dusk scene)
   const mkPainting = (x, z, roty) => {
@@ -183,7 +180,13 @@ export function buildTavernInterior() {
   heldMug.position.set(0.6, 1.08, 0.36);
   keeper.add(kBody, kBelly, kApron, kApronBib, head, kArmL, kArmR, heldMug);
   const keeperPos = tileToWorld(6.5, 0.55);
-  keeper.position.set(keeperPos.x + TILE / 2, 0, keeperPos.z);
+  // Duckboard platform behind the bar: lifts Barlow 0.24 so his head and
+  // shoulders clear the 1.1-high bar top from the game's overhead camera
+  // (user report: "can't even see the bartender... shorter than the counter").
+  const duckboard = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.24, 0.9), darkWood);
+  duckboard.position.set(keeperPos.x + TILE / 2, 0.12, keeperPos.z);
+  group.add(duckboard);
+  keeper.position.set(keeperPos.x + TILE / 2, 0.24, keeperPos.z);
   keeper.rotation.y = 0; // face the customer side (+z), not the back wall
   group.add(keeper);
 
@@ -350,7 +353,9 @@ export function buildTavernInterior() {
     group.add(l);
   };
   warmLight(0xffb464, 26, 14, (W * TILE) / 2, 2.1, (H * TILE) / 2);          // under the chandelier
-  warmLight(0xffc884, 22, 9, barCenter.x + TILE / 2, 1.9, shelfZ + 0.45);    // behind the bar (lights Barlow + shelves)
+  // Raised + slid off Barlow's axis + dimmed: at (keeper x, 1.9) this light
+  // sat exactly at his head and blew him out into a white blob.
+  warmLight(0xffc884, 12, 9, barCenter.x - TILE, 2.5, shelfZ + 0.45);        // behind the bar (lights shelves, grazes Barlow)
   warmLight(0xffa860, 16, 8, 3.5 * TILE, 1.9, 6 * TILE);                     // near the entrance
 
   // ---- glowing back-bar panel so the bottles silhouette and read ----
