@@ -394,6 +394,7 @@ export class UI {
     $('btn-inspect-close').onclick = () => $('inspect-panel').classList.add('hidden');
     $('inspect-panel').addEventListener('click', (e) => { if (e.target.id === 'inspect-panel') $('inspect-panel').classList.add('hidden'); });
     $('item-actions').addEventListener('click', (e) => { if (e.target.id === 'item-actions') this.closeItemActions(); });
+    $('btn-item-close').onclick = () => this.closeItemActions();
     $('btn-shop-restock').onclick = () => {
       if (this.game.activeVendor) this.game.restockVendor(this.game.activeVendor);
     };
@@ -2172,6 +2173,10 @@ export class UI {
     audio.play('ui_open');
   }
   closeInventory() {
+    // the item stats/actions card floats on top of the inventory but isn't
+    // one of the this.screens panels hideAll() cycles through - close it
+    // explicitly so it never gets orphaned open behind a closed inventory.
+    this.closeItemActions();
     this.hideAll();
     audio.play('ui_close');
   }
