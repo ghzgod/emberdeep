@@ -4008,20 +4008,37 @@ export class Game {
     return dot >= 0 ? base : base + Math.PI;
   }
 
+  // Corridor-entry yaw pick, least-travel edition (user feedback: "rotations
+  // should take the path of least travel so the user doesn't get dizzy").
+  // Of the two axis-aligned quarter-turns, prefer whichever is CLOSER to the
+  // current camera yaw - unless that nearest option would show the hero
+  // face-on while they're clearly walking into the camera (dot well below 0),
+  // in which case the behind-view still wins. Walking away or entering
+  // sideways never triggers a long 180 spin anymore.
+  _pickCorridorYaw(base, dirX, dirZ) {
+    const a = base, b = base + Math.PI;
+    const behind = this._behindYawFor(base, dirX, dirZ);
+    const nearest = Math.abs(this._angDiff(a, this.camYaw)) <= Math.abs(this._angDiff(b, this.camYaw)) ? a : b;
+    if (nearest === behind) return nearest;
+    const fwd = { x: -Math.sin(nearest), z: -Math.cos(nearest) };
+    const dot = fwd.x * dirX + fwd.z * dirZ;
+    return dot < -0.35 ? behind : nearest;
+  }
+
   // Hallway camera auto-rotate. Standing in or entering a 1- or 2-wide
   // straight passage LATCHES a quarter-turn: the camera commits to easing all
   // the way to the axis-aligned yaw (hallway vertical on screen) and lands on
   // it EXACTLY - once latched, only manual rotation or leaving the corridor
   // cancels the turn (a momentary drop of the corridor gate never half-turns
   // it back). Of the two 180-degree-apart quarter-turns that both run the
-  // hallway vertically, the latch always picks the one that puts the camera
-  // BEHIND the hero's direction of travel (see _behindYawFor) - standing
-  // still, the direction they entered the corridor is used instead. If the
-  // player reverses and walks the other way for more than a moment, the latch
-  // re-picks the behind-view for the new direction. The pre-corridor yaw is
-  // remembered; backing out the same end you entered eases the camera back to
-  // that exact angle. Manual rotation (Q/E, rotate buttons, twist) kills the
-  // latch until the corridor is left. Dungeon floors only.
+  // hallway vertically, the latch picks by LEAST TRAVEL (see _pickCorridorYaw),
+  // falling back to the behind-view only when the nearest turn would leave the
+  // hero walking face-on into the camera. If the player reverses and walks the
+  // other way for more than a moment, the latch re-picks the behind-view for
+  // the new direction. Leaving the corridor keeps the corridor yaw (no restore
+  // ease - it caused re-rotations in rooms where the camera was already fine).
+  // Manual rotation (Q/E, twist) kills the latch until the corridor is left.
+  // Dungeon floors only.
   updateCorridorYaw(dt, p) {
     if (this.inTown || this.inTavern) { this._hallway = null; return; }
     const tx = Math.floor(p.pos.x / TILE), tz = Math.floor(p.pos.z / TILE);
@@ -4029,17 +4046,20 @@ export class Game {
     let hw = this._hallway;
     const moving = !!(p.moveDir.x || p.moveDir.z);
     if (!axis) {
-      if (hw) {
-        // left the corridor. If the player backed out the end they came in
-        // from (and never took manual control inside), restore the yaw they
-        // had in that room; leaving out the far end keeps the corridor yaw.
-        const exitCoord = hw.axis === 'x' ? tx : tz;
-        if (!hw.dead && Math.abs(exitCoord - hw.entryCoord) <= 1) {
-          this._yawEase = { target: hw.entryYaw };
-        }
-        this._hallway = null;
-      }
+      // Left the corridor: keep whatever yaw we have. The old "restore the
+      // room's yaw" ease is gone - it re-rotated a camera that was already
+      // fine behind the hero, and hovering near the corridor mouth made it
+      // ping-pong (user feedback in TODO 675).
+      this._hallway = null;
+      this._corrT = 0;
       return;
+    }
+    // Entry debounce: a single frame's toe over the corridor threshold must
+    // not latch a turn - that's the "sporadic rotate if I move a little near
+    // the hallway I just left" complaint. Require a firm dwell first.
+    if (!hw) {
+      this._corrT = (this._corrT || 0) + dt;
+      if (this._corrT < 0.22) return;
     }
     if ((this._yawManualT || 0) > 0) {
       if (hw) hw.dead = true; // the player rotated: hands off until they leave
@@ -4059,11 +4079,9 @@ export class Game {
       // (facingDir if standing still) and remember where the camera was so
       // the room can get it back
       if (!dirX && !dirZ) { dirX = p.facingDir ? p.facingDir().x : 0; dirZ = p.facingDir ? p.facingDir().z : -1; }
-      const target = this._behindYawFor(base, dirX, dirZ);
+      const target = this._pickCorridorYaw(base, dirX, dirZ);
       hw = this._hallway = {
         axis, target,
-        entryYaw: this.camYaw,
-        entryCoord: axis === 'x' ? tx : tz,
         lastDirX: dirX, lastDirZ: dirZ,
         reverseT: 0,
       };
