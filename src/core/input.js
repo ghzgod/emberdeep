@@ -14,8 +14,9 @@ export class Input {
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     // A missed mouseup (window blur, pointer canceled, synthetic event streams)
-    // must never leave mouse.down latched - a stuck true here makes the hero
-    // auto-attack forever with no input.
+    // must never leave mouse.down latched - a stuck true here locks the hero's
+    // facing toward the aim cursor forever with no input held (mouse.down no
+    // longer fires an attack itself - see game.js TODO 684).
     const clearAll = () => { this.keys.clear(); this.mouse.down = false; this.mouse.rightDown = false; };
     window.addEventListener('blur', clearAll);
     window.addEventListener('pointercancel', clearAll);
