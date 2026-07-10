@@ -461,6 +461,43 @@ export class AudioEngine {
     }, 160);
   }
 
+  // Low-health warning: a soft, low "lub-dub" heartbeat that loops while the
+  // player's HP stays under the HUD's low-health threshold. Two dull
+  // low-frequency thumps per beat at ~62bpm, quiet and routed through sfxGain
+  // (respects the SFX slider/mute, and simply won't fire if the context is
+  // suspended). Never stacks — calling start again while already looping is
+  // a no-op; stopHeartbeat() tears the schedule down cleanly.
+  startHeartbeat() {
+    if (this._heartbeat || !this.ctx) return;
+    const beatMs = 968; // ~62bpm
+    const thump = (delaySec, gainMul) => {
+      if (!this.ctx || this.ctx.state !== 'running') return;
+      const t = this.ctx.currentTime + delaySec;
+      const o = this.ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(60, t);
+      o.frequency.exponentialRampToValueAtTime(38, t + 0.16);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.15 * gainMul, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      o.connect(g);
+      g.connect(this.sfxGain || this.ctx.destination);
+      o.start(t); o.stop(t + 0.22);
+    };
+    const beat = () => {
+      if (!this.ctx || this.ctx.state !== 'running') return;
+      thump(0, 1);       // "lub"
+      thump(0.16, 0.65); // "dub" - softer, close behind
+    };
+    beat();
+    this._heartbeat = setInterval(beat, beatMs);
+  }
+
+  stopHeartbeat() {
+    if (this._heartbeat) { clearInterval(this._heartbeat); this._heartbeat = null; }
+  }
+
   play(name, opts = {}) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     // UI blips are synthesized, not sampled — softer and more pleasant.
