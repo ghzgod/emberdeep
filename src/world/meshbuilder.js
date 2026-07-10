@@ -836,7 +836,11 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       stall.add(structure);
       swapInModel(stall, structure, ['stall'], ([tpl]) => {
         if (!tpl) return null;
-        const node = buildModelMesh(tpl, 2.25, { RoofTiles_Red: canopyColor });
+        // 2.25 left only ~1.6 units of headroom under the canopy: exactly the
+        // hero's own height with no clearance, so a player walking up to the
+        // counter could clip the underside of the roof. 2.6 keeps the canopy
+        // clearly overhead.
+        const node = buildModelMesh(tpl, 2.6, { RoofTiles_Red: canopyColor });
         node.position.set(0, 0, -0.15);
         return node;
       });
@@ -966,7 +970,14 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
         pushNpcAnimDriver(smokePuffs, npc, null);
       }
 
-      keeper.position.z = -0.62;
+      // Pushed back from -0.62: the modeled CC0 stall's frame runs much
+      // deeper (front-to-back) than the old procedural counter did, and at
+      // -0.62 the keeper stood mid-frame with the stall's own corner/roof
+      // struts passing straight through their body. -1.25 clears the whole
+      // strut band and plants the keeper at the back of the stand, still
+      // under the canopy, with the counter and wares between them and the
+      // player.
+      keeper.position.z = -1.25;
       stall.add(keeper);
 
       // hanging lantern on the stall front — lights the keeper's face at night
@@ -1708,10 +1719,18 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
     // Slightly non-uniform scale fills the tavern's wide plot without making
     // the building tower over the square; the enter-trigger world point in
     // game.js (doorstep on the south face) is untouched.
+    // The Y scale is taller than the original (4.6 -> 5.8): measured against a
+    // 1.6-unit hero marker, the model's own door opening is a small fraction of
+    // its total height, so at 4.6 the door read as barely half the hero's
+    // height (a doll-house door next to the player). Scaling Y further still
+    // doesn't fully clear 1.6 at the door without stretching the whole
+    // building unnaturally tall and gaunt, so this is the tallest Y that still
+    // reads as a cottage rather than a tower; the door is now much closer to
+    // hero height instead of roughly half of it.
     swapInModel(tavern, shell, ['inn'], ([tpl]) => {
       if (!tpl) return null;
       const node = buildModelMesh(tpl, 1);
-      node.scale.set(6.2, 4.6, 5.4);
+      node.scale.set(6.2, 5.8, 5.4);
       return node;
     });
 
