@@ -1919,6 +1919,13 @@ export class UI {
     btn.className = 'act-btn act-potion ready';
     btn.setAttribute('role', 'button');
     btn.setAttribute('aria-label', 'Drink potion');
+    // Desktop has a keyboard, so the potion gets the same top-right hotkey
+    // chip as the four ability bubbles (uses the live keybind, not a
+    // hardcoded "R"). The touch cluster has no keyboard, so it's skipped
+    // there - buildHotbar/buildActionCluster set body.touch-mode before this
+    // runs, so that class is the reliable "are we on the desktop row" check.
+    const keyChip = document.body.classList.contains('touch-mode')
+      ? '' : `<span class="act-key">${this.keyLabel(this.game.settings.keybinds.potion)}</span>`;
     btn.innerHTML = `
       <svg class="act-ring" viewBox="0 0 100 100" aria-hidden="true">
         <circle class="act-ring-bg" cx="50" cy="50" r="45"></circle>
@@ -1932,6 +1939,7 @@ export class UI {
         <ellipse cx="10.3" cy="14.3" rx="1.1" ry="1.7" fill="#ff8f7a" opacity="0.75"/>
       </svg>
       <span class="act-count"></span>
+      ${keyChip}
     `;
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault(); e.stopPropagation();
@@ -2509,8 +2517,14 @@ export class UI {
     P.turntable.remove(P.mesh);
     P.mesh.traverse((o) => {
       if (o.isMesh && o.material) {
-        if (o.material.map && o.material.map.isCanvasTexture) o.material.map.dispose();
-        o.material.dispose();
+        // split weapons carry an ARRAY of materials (grip/blade groups from
+        // splitWeaponMesh) - dispose each; a bare .dispose() on the array
+        // itself throws and leaked every preview teardown.
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          if (m.map && m.map.isCanvasTexture) m.map.dispose();
+          m.dispose();
+        }
       }
     });
     P.renderer.dispose();

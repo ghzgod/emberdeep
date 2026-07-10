@@ -482,6 +482,17 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 /* potion bubble in the cluster: inert (never hidden) when it cannot be drunk */
 .act-btn.disabled { opacity: 0.4; filter: grayscale(1); cursor: default; }
 .act-btn.disabled:active { transform: none; }
+/* Potion "can't drink right now" (full HP or empty stack) reads differently
+   from an ability on cooldown: the red flask + count badge must stay fully
+   saturated and readable (54 potions in your pack should never look broken),
+   so only the gold ring dims/desaturates instead of washing out the whole
+   bubble. Overrides the generic .act-btn.disabled grey-out above. */
+.act-btn.act-potion.disabled { opacity: 1; filter: none; cursor: default; }
+.act-btn.act-potion.disabled .act-ring { opacity: 0.6; filter: grayscale(0.7); }
+.act-btn.act-potion.disabled .potion-icon,
+.act-btn.act-potion.disabled .act-count,
+.act-btn.act-potion.disabled .act-key { opacity: 1; filter: none; }
+.act-btn.act-potion.disabled:active { transform: none; }
 .act-potion .potion-icon { width: 22px; height: 22px; }
 /* small parchment potions-remaining badge on the bubble's lower edge */
 .act-count {
@@ -512,9 +523,18 @@ body:not(.touch-input) #joy-ghost { display: none !important; }
   text-shadow: 0 1px 3px #000; pointer-events: none; letter-spacing: 0.5px;
 }
 .act-cd:empty { display: none; }
+/* Hotkey badge: a small gold-on-dark chip (same anatomy as .act-count, just
+   pinned to the top-right corner) rather than faint translucent text - the
+   old barely-visible label was nearly unreadable at a glance. Shared by the
+   four ability slots and (when a keyboard is in play) the potion bubble. */
 .act-key {
-  position: absolute; top: 4px; right: 8px; font-size: 10px;
-  color: rgba(232,222,248,0.6); pointer-events: none;
+  position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px;
+  border-radius: 8px; padding: 0 4px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--gold);
+  font-size: 11px; font-weight: 700; line-height: 1; color: var(--gold);
+  text-shadow: 0 1px 1px rgba(0,0,0,0.9); letter-spacing: 0;
+  pointer-events: none;
 }
 /* the big basic-attack button carries a solid gold rim (the cluster's anchor) */
 .act-basic { border: 2px solid rgba(232,192,90,0.8); box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 10px rgba(232,192,90,0.18); }
@@ -593,7 +613,10 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
 #hotbar.desktop-row { align-items: center; gap: 10px; }
 #hotbar.desktop-row .act-btn { position: relative; width: 56px; height: 56px; flex: none; }
 #hotbar.desktop-row .act-btn:hover { border-color: var(--gold); }
-#hotbar.desktop-row .act-potion { width: 46px; height: 46px; margin-left: 8px; }
+/* No extra margin: the flex `gap: 10px` above already spaces the potion off
+   the last ability by the same amount abilities space off each other, so the
+   row reads as one evenly-spaced family instead of a bubble stranded apart. */
+#hotbar.desktop-row .act-potion { width: 46px; height: 46px; }
 /* drag-to-swap feedback (wireHotbarInput): lifted button dims, target glows */
 #hotbar.desktop-row .act-btn.dragging { opacity: 0.55; }
 #hotbar.desktop-row .act-btn.drop-target { border-color: var(--gold); box-shadow: 0 0 16px rgba(232,192,90,0.8); }
@@ -1464,13 +1487,32 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
    mobile overrides below win on touch devices): a horizontal row just right
    of the centered ability hotbar, where the old #action-bar sat - same
    bubbles, same colorful icons as tablet/phone. */
-#touch-inv   { left: calc(50% + 175px); right: auto; bottom: 26px; }
-#touch-mic   { left: calc(50% + 233px); right: auto; bottom: 26px; }
+/* Desktop row: match the ability/potion gold-ring language (not the flat
+   purple-rim disc used by the touch corner cluster below) and match the
+   potion's 46px exactly, so the whole row - abilities, potion, inventory,
+   mic, settings - reads as one visual family. Scoped to :not(.touch-mode)
+   so the touch cluster's own sizing/positions (further below) are untouched. */
+body:not(.touch-mode) #touch-pause,
+body:not(.touch-mode) #touch-inv,
+body:not(.touch-mode) #touch-mic {
+  width: 46px; height: 46px; font-size: 22px;
+  border: 2px solid rgba(232,192,90,0.75);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 6px rgba(232,192,90,0.35);
+}
+/* Positions: a consistent 10px gap off the potion's right edge and off each
+   other (the same gap the ability bubbles use), and bottom: 21px so their
+   46px circles vertically center on the same line as the 56px ability/potion
+   row (#hotbar sits at bottom: 16px, tallest child 56px tall). */
+#touch-inv   { left: calc(50% + 165px); right: auto; bottom: 21px; }
+#touch-mic   { left: calc(50% + 221px); right: auto; bottom: 21px; }
 #touch-mic.hidden { display: none !important; }
-#touch-pause { left: calc(50% + 291px); right: auto; bottom: 26px; }
+#touch-pause { left: calc(50% + 277px); right: auto; bottom: 21px; }
 /* mic hidden on desktop: settings slides left to close the gap */
-body.mic-hidden:not(.touch-mode) #touch-pause { left: calc(50% + 233px); }
-#touch-inv:hover, #touch-mic:hover, #touch-pause:hover { border-color: var(--gold); filter: brightness(1.15); }
+body.mic-hidden:not(.touch-mode) #touch-pause { left: calc(50% + 221px); }
+#touch-inv:hover, #touch-mic:hover, #touch-pause:hover {
+  border-color: #f2d27a; filter: brightness(1.15);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 10px rgba(232,192,90,0.65);
+}
 /* Desktop shows #touch-ui for the utility bubbles only - every touch-specific
    piece inside it stays off unless the compact/touch layout is active. */
 body:not(.touch-mode) #joystick-base, body:not(.touch-mode) #joy-ghost,
