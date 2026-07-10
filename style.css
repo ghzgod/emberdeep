@@ -262,12 +262,32 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #hud-gold { color: var(--gold); }
 #hud-potions { color: #e87a7a; }
 
-#hud-topright { position: absolute; top: 16px; right: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-#hud-floor { font-size: 20px; color: var(--gold); text-shadow: 0 2px 2px #000; letter-spacing: 1px; }
-#hud-clear { font-size: 13px; text-shadow: 0 1px 2px #000; opacity: 0.9; }
+/* One clean right-aligned stack (TODO 697): the location/floor title (icon +
+   text) sits on its own row, with the objective/clear lines below it flush to
+   the SAME right edge as the title - a single shared max-width on the
+   container is what keeps every line's right edge identical even when they
+   wrap, instead of each child sizing to its own content and drifting. */
+#hud-topright {
+  position: absolute; top: 16px; right: 16px; display: flex; flex-direction: column;
+  align-items: flex-end; gap: 4px; max-width: 280px; text-align: right;
+}
+#hud-floor-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; max-width: 100%; }
+#hud-floor-row.hidden { display: none; }
+#hud-floor-icon { font-size: 18px; line-height: 1; display: flex; align-items: center; }
+#hud-floor-icon.hidden { display: none; }
+#hud-floor {
+  font-size: 20px; line-height: 1.2; color: var(--gold); text-shadow: 0 2px 2px #000;
+  letter-spacing: 1px; text-align: right;
+}
+#hud-clear, #hud-quest {
+  width: 100%; text-align: right; line-height: 1.35; letter-spacing: 0.2px;
+  text-shadow: 0 1px 2px #000;
+}
+#hud-clear { font-size: 13px; opacity: 0.9; }
 #hud-clear.sealed { color: #e88a8a; }
 #hud-clear.open { color: #7ce87c; }
-#hud-quest { font-size: 12px; opacity: 0.7; text-shadow: 0 1px 2px #000; max-width: 200px; }
+#hud-clear:empty { display: none; }
+#hud-quest { font-size: 13px; opacity: 0.72; }
 
 /* Minimap: tap opens a big centered discovered-map view either way. On touch
    devices it also idles down to barely-visible so it doesn't clutter the
@@ -851,9 +871,13 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
 /* flex-shrink:0 - #inventory-screen is a flex column with overflow-y:auto;
    without this the doll gets squashed by the flexbox algorithm before the
    scrollbar ever kicks in on short screens, instead of just scrolling. */
-#paperdoll { position: relative; width: 100%; max-width: 480px; height: 380px; margin: 0 auto 10px; flex-shrink: 0; }
+/* height/margin-bottom and the preview's top offset are tuned together so the
+   helmet slot-label (hanging -18px below its box, top row of the anatomy
+   grid) never touches the preview box's top edge, and the hands/trinket
+   labels (bottom row) always clear the #inv-stats block below - see 685. */
+#paperdoll { position: relative; width: 100%; max-width: 480px; height: 404px; margin: 0 auto 24px; flex-shrink: 0; }
 #inv-preview {
-  position: absolute; left: 50%; top: 84px; transform: translateX(-50%);
+  position: absolute; left: 50%; top: 108px; transform: translateX(-50%);
   width: 210px; height: 290px; overflow: hidden;
   border: 1px solid var(--panel-border); border-radius: 12px;
   background: radial-gradient(circle at 50% 30%, #241d31, #100b18);
@@ -1728,7 +1752,7 @@ body.touch-mode #chat-title { font-size: 11px; }
     grid-template-areas: "floor map" "clear map" "quest map";
     justify-items: end; align-items: start; gap: 1px 8px; min-height: 88px; max-width: 80vw;
   }
-  #hud-floor { grid-area: floor; }
+  #hud-floor-row { grid-area: floor; }
   #hud-clear { grid-area: clear; }
   #hud-quest { grid-area: quest; max-width: 42vw; }
   #minimap { grid-area: map; align-self: start; }
@@ -1846,10 +1870,13 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
   #hud-topleft .bar-wrap.small { height: 16px; }
   #hud-topleft .bar-text { font-size: 13px; }
   #hud-stats { font-size: 18px; gap: 10px; }
+  /* Title (icon + short name) never wraps; the objective/clear lines below it
+     DO wrap (tidily, flush right) instead of truncating mid-word - a long
+     boss-hunt objective reads better wrapped than cut off with an ellipsis. */
   #hud-topright { max-width: 46vw; align-items: flex-end; }
-  #hud-topright > div {
-    max-width: 42vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;
-  }
+  #hud-floor-row { max-width: 42vw; }
+  #hud-floor { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #hud-clear, #hud-quest { max-width: 42vw; text-align: right; }
   #minimap { width: 110px; height: 110px; }
   #hud-floor { font-size: 26px; }
   #hud-quest { font-size: 15px; opacity: 0.85; }
@@ -1866,15 +1893,15 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
   .inv-slot.equip { width: 58px; height: 58px; }
   .inv-slot.equip .inv-item-icon { width: 74%; height: 74%; }
   .inv-slot.equip .slot-label { bottom: -17px; font-size: 12px; opacity: 0.72; }
-  #paperdoll { height: 300px; max-width: 380px; }
-  #inv-preview { width: 160px; height: 220px; top: 70px; }
+  #paperdoll { height: 316px; max-width: 380px; margin-bottom: 20px; }
+  #inv-preview { width: 160px; height: 220px; top: 86px; }
 }
 /* Short landscape phones: the doll + stats + bag grid must all fit without
    the footer hint scrolling off, so shrink the turntable and go one stats
    column instead of stacking two half-width columns even narrower. */
 @media (max-height: 520px) and (pointer: coarse), (max-height: 460px) {
-  #paperdoll { height: 220px; max-width: 320px; margin-bottom: 4px; }
-  #inv-preview { width: 120px; height: 160px; top: 52px; }
+  #paperdoll { height: 234px; max-width: 320px; margin-bottom: 12px; }
+  #inv-preview { width: 120px; height: 160px; top: 69px; }
   #inv-stats { grid-template-columns: 1fr 1fr; max-width: 340px; font-size: 11px; margin-bottom: 8px; }
   /* 4 equip-row grid tracks at the 58px compact size (+ gaps) need ~268px of
      min-content height, which overflows this 220px-tall doll and pushed the
