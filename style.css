@@ -426,9 +426,10 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 
 #hotbar { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: auto; transition: opacity 0.3s ease; }
 /* Ability bar is a dungeon combat tool: hide it (and make it non-interactive)
-   in town, in every mode -- desktop row and touch wheel alike. The touch-mode
-   rule below layers on top of this for its own pointer-events default. */
-.in-town #hotbar { opacity: 0; pointer-events: none; }
+   in town on desktop. Touch mode is excluded: there the potion bubble lives
+   INSIDE #hotbar and must stay usable in town, so touch hides only the combat
+   buttons per-button (see the .touch-mode.in-town rules near the cluster). */
+.in-town:not(.touch-mode) #hotbar { opacity: 0; pointer-events: none; }
 /* Touch action cluster (Wild Rift layout, Emberdeep palette): circular buttons
    in the bottom-right corner - one big BASIC-ATTACK at the thumb pivot, four
    ability buttons fanned in an arc up-and-left of it. Each button is a deep
@@ -1764,8 +1765,38 @@ body.touch-mode #chat-title { font-size: 11px; }
    mic) stay visible and usable in town too - per the brief, "town shows the same
    rows, abilities hidden, utilities visible" - so they are excluded from this
    fade via :not(.act-potion). */
-.touch-mode.in-town #hotbar > .act-btn:not(.act-potion),
 .touch-mode.show-interact #hotbar > .act-btn:not(.act-potion) { opacity: 0; pointer-events: none; }
+/* Town hides EVERYTHING in the cluster except the potion - combat buttons AND
+   the vitals arcs (which curve around a cluster that is not there in town). */
+.touch-mode.in-town #hotbar > *:not(.act-potion) { opacity: 0; pointer-events: none; }
+/* Town utility cluster: with the combat arc gone the four remaining bubbles
+   (potion, inventory, mic, settings) regroup into a quarter-arc fan anchored
+   in the bottom-right corner - same cluster language as combat, scaled up to
+   46px since they are the only controls. Potion sits at the thumb pivot; the
+   other three fan up-and-left on a radius-66 arc around it. Selectors carry
+   body.touch-mode.in-town so they outrank both the base column layout and the
+   compact-arc positions regardless of media query. .act-potion is box-relative
+   to #hotbar (its own right/bottom 14px), the #touch-* bubbles are viewport-
+   anchored, hence the 14px difference between their numbers. */
+body.touch-mode.in-town .act-potion { width: 46px; height: 46px; right: 2px; bottom: 2px; }
+body.touch-mode.in-town .act-potion .potion-icon { width: 24px; height: 24px; }
+body.touch-mode.in-town #touch-inv, body.touch-mode.in-town #touch-mic,
+body.touch-mode.in-town #touch-pause { width: 46px; height: 46px; font-size: 22px; left: auto; }
+body.touch-mode.in-town #touch-inv   { right: 16px; bottom: 82px; }
+body.touch-mode.in-town #touch-mic   { right: 63px; bottom: 63px; }
+body.touch-mode.in-town #touch-pause { right: 82px; bottom: 16px; }
+/* mic hidden: settings slides into the diagonal slot so the fan stays contiguous */
+body.mic-hidden.touch-mode.in-town #touch-pause { right: 63px; bottom: 63px; }
+@media (max-height: 540px) {
+  body.touch-mode.in-town .act-potion { width: 40px; height: 40px; right: 0; bottom: 0; }
+  body.touch-mode.in-town .act-potion .potion-icon { width: 21px; height: 21px; }
+  body.touch-mode.in-town #touch-inv, body.touch-mode.in-town #touch-mic,
+  body.touch-mode.in-town #touch-pause { width: 40px; height: 40px; font-size: 19px; }
+  body.touch-mode.in-town #touch-inv   { right: 14px; bottom: 72px; }
+  body.touch-mode.in-town #touch-mic   { right: 55px; bottom: 55px; }
+  body.touch-mode.in-town #touch-pause { right: 72px; bottom: 14px; }
+  body.mic-hidden.touch-mode.in-town #touch-pause { right: 55px; bottom: 55px; }
+}
 /* When any full-screen menu/overlay is open, hide the touch controls so the
    joystick and menu launcher never float on top of the inventory or settings. */
 body:has(.overlay.visible) #touch-ui { display: none !important; }
