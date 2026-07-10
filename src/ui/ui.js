@@ -607,6 +607,8 @@ export class UI {
         if (P.hero.anim) P.hero.anim.setLocomotion(0, dt, false);
         if (P.hero.anim) P.hero.anim.mixer.update(dt);
         if (P.hero.gait) P.hero.gait(dt, 0, false);
+        // female head shrink: after the mixer, because the idle keys scale
+        if (P.hero.headBone) P.hero.headBone.scale.setScalar(P.hero.headScale);
       }
       P.renderer.render(P.scene, P.camera);
     };
@@ -647,8 +649,23 @@ export class UI {
       mesh = buildHeroMesh(CLASSES[clsId], name);
       gait = mesh.userData.updateGait;
     }
+    // PREVIEW-ONLY gender amplification: the in-game female silhouette hint
+    // (x0.94 / y1.03 in buildAnimatedHero) is deliberately subtle and reads
+    // as near-identical on this small turntable, so the preview pushes it
+    // further - noticeably slimmer + taller build and a smaller head - so
+    // male vs female are visibly different the moment the picker flips. The
+    // head shrink must be re-applied AFTER every mixer.update in the render
+    // loop because the idle animation keys bone scale and resets it each
+    // frame. The spawned in-game hero keeps the subtle proportions untouched.
+    let headBone = null;
+    if (gender === 'female') {
+      mesh.scale.x *= 0.85;
+      mesh.scale.z *= 0.85;
+      mesh.scale.y *= 1.06;
+      mesh.traverse((o) => { if (!headBone && o.isBone && /^head$/i.test(o.name)) headBone = o; });
+    }
     P.turntable.add(mesh);
-    P.hero = { mesh, anim, gait };
+    P.hero = { mesh, anim, gait, headBone, headScale: 0.86 };
   }
 
   stopCharPreview() {
