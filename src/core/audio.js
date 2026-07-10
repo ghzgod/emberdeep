@@ -71,9 +71,24 @@ const UI_SYNTH = {
 };
 
 const MUSIC = {
+  // generic fallbacks (kept: they cover any act track that fails to load)
   dungeon: 'audio/music_dungeon.mp3',
   boss:    'audio/music_boss.mp3',
   tavern:  'audio/music_tavern.mp3',
+  // One themed exploration bed per act (see CREDITS.md for sources; all CC0):
+  // 1 old halls / crypt, 2 rotting damp depths, 3 ember vaults, 4 sunless
+  // court, 5 abyssal throne (also used for the endless post-victory floors).
+  dungeon1: 'audio/music_act1.mp3',
+  dungeon2: 'audio/music_act2.mp3',
+  dungeon3: 'audio/music_act3.mp3',
+  dungeon4: 'audio/music_act4.mp3',
+  dungeon5: 'audio/music_act5.mp3',
+  // One battle loop per act lord; boss5 (The Dungeon Lord) is the most epic.
+  boss1: 'audio/music_boss1.mp3',
+  boss2: 'audio/music_boss2.mp3',
+  boss3: 'audio/music_boss3.mp3',
+  boss4: 'audio/music_boss4.mp3',
+  boss5: 'audio/music_boss5.mp3',
 };
 
 const AUDIBLE_RANGE = 26; // world units; beyond this SFX are silent
@@ -659,6 +674,21 @@ export class AudioEngine {
       src.connect(f); f.connect(g); g.connect(this.sfxGain);
       src.start(tt, Math.random() * 2, 0.14);
     }
+  }
+
+  hasMusic(name) { return this.musicBuffers.has(name); }
+
+  // Themed track pickers. Each act has its own exploration bed and its own
+  // act-lord battle loop; if a per-act file failed to load we fall back to
+  // the original generic dungeon/boss tracks so music never goes silent.
+  dungeonTrack(act) {
+    const name = 'dungeon' + Math.min(5, Math.max(1, act || 1));
+    return this.hasMusic(name) ? name : 'dungeon';
+  }
+
+  bossTrack(act) {
+    const name = 'boss' + Math.min(5, Math.max(1, act || 1));
+    return this.hasMusic(name) ? name : 'boss';
   }
 
   playMusic(name, fadeSec = 1.5) {
