@@ -715,6 +715,7 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
     mesh.scale.y *= 1.03;
   }
   let hoodedHead = null, headMesh = null, bakedHat = null;
+  const spellbookMeshes = []; // mage's baked Spellbook/Spellbook_open - reused as the real Tome offhand mesh below
   mesh.traverse((o) => {
     if (o.isMesh) {
       o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
@@ -729,10 +730,14 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       // with no clipping.
       if (/_(Hat|Helmet)$/.test(o.name)) { o.visible = false; bakedHat = o; }
       // The mage rig ships a baked offhand Spellbook mesh that renders as a
-      // blocky brick clipping at the hip and adds nothing (the mage already
-      // reads by its wand/staff in the main hand for attacks). Hide it, mage
-      // only, same treatment as the baked hat above.
-      if (classId === 'mage' && /Spellbook|Book/i.test(o.name)) o.visible = false;
+      // blocky brick clipping at the hip and adds nothing by default (the mage
+      // already reads by its wand/staff in the main hand for attacks). Hidden
+      // by default, mage only - same treatment as the baked hat above - but
+      // NOT abandoned: updateHeroGear (game.js) reuses this exact mesh as the
+      // real held prop for an equipped Tome/Grimoire/Codex offhand item (see
+      // heldVariants below), so a bare mage has no book but a tome-wielding one
+      // shows this authored asset instead of a procedural stand-in.
+      if (classId === 'mage' && /Spellbook|Book/i.test(o.name)) { o.visible = false; spellbookMeshes.push(o); }
       // Track the head so we can (a) anchor equipped helmets to its actual top
       // and (b) split the rogue's welded-in hood off below.
       if (/Head/i.test(o.name)) headMesh = o;
@@ -751,9 +756,11 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
   // hand bones at once (e.g. the knight ships 1H_Sword, 2H_Sword AND
   // 1H_Sword_Offhand plus four different shields, all simultaneously
   // visible), so a fresh hero shows several overlapping blades/shields
-  // clipping through each other. Keep exactly one sensible held-loadout per
-  // class and hide the rest - the kept pieces are baked to fit the hand pose
-  // together, so once the duplicates are gone there is nothing left to clip.
+  // clipping through each other. Show exactly one sensible held-loadout per
+  // class by default and hide the rest - the kept default is baked to fit the
+  // hand pose, so with the duplicates hidden there is nothing left to clip.
+  // The hidden variants are NOT discarded though (see heldVariants below):
+  // updateHeroGear swaps which one is visible based on the equipped item.
   const HELD_LOADOUT = {
     knight: ['1H_Sword', 'Round_Shield'],
     mage: ['2H_Staff'],
@@ -767,17 +774,38 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
   };
   const keepHeld = new Set(HELD_LOADOUT[classId] || []);
   const HELD_PATTERN = /Sword|Shield|Wand|Staff|Crossbow|Bow|Knife|Axe|Hammer|Mace|Dagger|Spear|Throwable/i;
+  // Every matched mesh (not just the kept default) is kept alive on
+  // mesh.userData.heldVariants, keyed by its own KayKit mesh name (e.g.
+  // '1H_Sword', '2H_Sword', 'Round_Shield', 'Spike_Shield'...), so
+  // updateHeroGear (game.js) can show whichever variant matches the equipped
+  // item's name and hide the rest - real distinct weapon/shield SILHOUETTES
+  // per item family instead of one baked shape retinted. The kept default
+  // loadout mesh starts visible (unchanged bare-hero look); every other
+  // variant starts hidden until an equipped item's name picks it.
+  const heldVariants = {};
   const heldMeshes = [];
   mesh.traverse((o) => {
     if (o.isMesh && HELD_PATTERN.test(o.name)) {
-      if (keepHeld.has(o.name)) {
-        heldMeshes.push(o);
-        // Shields tint as a single flat rarity color already (see
-        // updateHeroGear); only actual weapons need the grip/blade split.
-        if (!/Shield/i.test(o.name)) splitWeaponMesh(o);
-      } else o.visible = false;
+      heldVariants[o.name] = o;
+      heldMeshes.push(o); // ground-clearance measured for every variant, not just the visible one
+      // Shields tint as a single flat rarity color already (see
+      // updateHeroGear); only actual weapons need the grip/blade split. Split
+      // every weapon variant up front (not only the kept default) so any of
+      // them can be shown+tinted later without a first-frame flash of the
+      // un-split single-material fallback.
+      if (!/Shield/i.test(o.name)) splitWeaponMesh(o);
+      o.visible = keepHeld.has(o.name);
     }
   });
+  // The mage's baked Spellbook/Spellbook_open (hidden above, see the
+  // Spellbook detection block) are not weapon-shaped so they skip the split,
+  // but they DO need the same ground-clearance treatment and a heldVariants
+  // entry so updateHeroGear can show one as a real Tome/Grimoire/Codex offhand.
+  for (const o of spellbookMeshes) {
+    heldVariants[o.name] = o;
+    heldMeshes.push(o);
+  }
+  mesh.userData.heldVariants = heldVariants;
   // Ground-clearance for the kept held weapons. KayKit bakes each weapon at a
   // fixed hand-bone transform authored for a T-pose, so a long piece (the
   // ranger's 2H_Crossbow especially, plus a staff butt or sword tip) can dip

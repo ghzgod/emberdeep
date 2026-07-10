@@ -2040,6 +2040,61 @@ export class Game {
     // Physics refs collected below: hat tips / robe hems / cloak corners that
     // get a subtle per-frame sway in animateAuras. Reset each rebuild.
     const sway = { hat: null, hem: [], cloak: [] };
+    // Real distinct weapon/shield/tome GLB variants, keyed by their own KayKit
+    // mesh name (see heldVariants in heroModel.js's buildAnimatedHero - every
+    // baked weapon/shield the class's model ships is kept alive, hidden,
+    // rather than discarded). Below we pick exactly one weapon variant and
+    // (knight) one shield variant / (mage) one tome variant from the equipped
+    // item's NAME, show that one and hide its siblings - so a "Greatsword"
+    // shows the model's actual 2H_Sword mesh while a "Rusty Sword" shows the
+    // 1H_Sword, instead of the same baked shape retinted regardless of what
+    // was picked up. A variant that doesn't exist in this class's GLB (e.g.
+    // no true "Bow" mesh - KayKit only ships crossbows) falls back to
+    // whichever variant IS present, so a hero is never left empty-handed.
+    const variants = mesh.userData.heldVariants || {};
+    const KNIGHT_2H_SWORD_NAMES = /Greatsword|Warblade|Cleaver/i;
+    const MAGE_WAND_NAMES = /Wand|Scepter/i;
+    const RANGER_1H_BOW_NAMES = /Shortbow|Recurve/i;
+    let activeWeaponName = null;
+    if (classId === 'knight') {
+      activeWeaponName = (equipped.weapon && KNIGHT_2H_SWORD_NAMES.test(equipped.weapon.name) && variants['2H_Sword'])
+        ? '2H_Sword' : (variants['1H_Sword'] ? '1H_Sword' : (variants['2H_Sword'] ? '2H_Sword' : null));
+    } else if (classId === 'mage') {
+      activeWeaponName = (equipped.weapon && MAGE_WAND_NAMES.test(equipped.weapon.name) && variants['1H_Wand'])
+        ? '1H_Wand' : (variants['2H_Staff'] ? '2H_Staff' : (variants['1H_Wand'] ? '1H_Wand' : null));
+    } else if (classId === 'ranger') {
+      activeWeaponName = (equipped.weapon && RANGER_1H_BOW_NAMES.test(equipped.weapon.name) && variants['1H_Crossbow'])
+        ? '1H_Crossbow' : (variants['2H_Crossbow'] ? '2H_Crossbow' : (variants['1H_Crossbow'] ? '1H_Crossbow' : null));
+    }
+    const WEAPON_VARIANT_NAMES = ['1H_Sword', '2H_Sword', '1H_Wand', '2H_Staff', '1H_Crossbow', '2H_Crossbow'];
+    for (const n of WEAPON_VARIANT_NAMES) { const v = variants[n]; if (v) v.visible = (n === activeWeaponName); }
+    // Knight offhand shield: a per-item seeded pick among whichever shield
+    // variants this GLB ships (Round/Spike/Badge/Rectangle), so different
+    // shield items read as different shield SHAPES, not just different tints
+    // of the same round shield. No offhand equipped still shows the default
+    // Round_Shield (knights are never bare-handed on the off-side).
+    const SHIELD_NAMES = ['Round_Shield', 'Spike_Shield', 'Badge_Shield', 'Rectangle_Shield'];
+    let activeShieldName = null;
+    if (classId === 'knight') {
+      const avail = SHIELD_NAMES.filter((n) => variants[n]);
+      if (avail.length) {
+        activeShieldName = equipped.offhand ? avail[Math.floor(rof(equipped.offhand) * avail.length)]
+          : (variants['Round_Shield'] ? 'Round_Shield' : avail[0]);
+      }
+    }
+    for (const n of SHIELD_NAMES) { const v = variants[n]; if (v) v.visible = (n === activeShieldName); }
+    // Mage offhand tome: reuse the model's own baked Spellbook/Spellbook_open
+    // mesh (force-hidden by default in heroModel.js) as the real prop for a
+    // Tome/Grimoire/Codex offhand item, instead of the small procedural book
+    // stand-in used for the other mage offhand names (Orb/Focus Stone, which
+    // have no baked mesh to reuse - see the procedural fallback below).
+    const TOME_NAMES = ['Spellbook', 'Spellbook_open'];
+    let activeTomeName = null;
+    if (classId === 'mage' && equipped.offhand && /Tome|Grimoire|Codex/i.test(equipped.offhand.name)) {
+      const avail = TOME_NAMES.filter((n) => variants[n]);
+      if (avail.length) activeTomeName = avail[Math.floor(rof(equipped.offhand) * avail.length)];
+    }
+    for (const n of TOME_NAMES) { const v = variants[n]; if (v) v.visible = (n === activeTomeName); }
     if (equipped.helmet && mesh.userData.bakedHat) {
       // Show the model's OWN authored headgear mesh (KayKit's Mage_Hat /
       // Knight_Helmet - see heroModel.js bakedHat) instead of a procedural
@@ -2411,29 +2466,27 @@ export class Game {
       const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.07), m); gem.position.set(0, 1.14, 0.26); grp.add(gem);
       if (it.rarity === 'legendary' || it.rarity === 'epic') { const glow = new THREE.PointLight(RARITIES[it.rarity].color, 3, 2, 2); glow.position.set(0, 1.14, 0.3); grp.add(glow); }
     }
-    // Offhand: the knight already always shows the baked Round_Shield (see
-    // HELD_LOADOUT in heroModel.js) so an equipped offhand just rarity-tints
-    // that existing shield instead of adding a second one. Mage/ranger have no
-    // baked offhand prop, so a small procedural tome/orb (mage) or quiver
-    // (ranger) is attached at a fixed off-hand local position — the same
-    // static-offset approach used for the gauntlets/pauldrons above, since
-    // this codebase doesn't do true bone-parented procedural attachments.
-    if (!mesh.userData.shieldMesh) {
-      mesh.traverse((o) => { if (o.isMesh && /Round_Shield/i.test(o.name)) mesh.userData.shieldMesh = o; });
-    }
+    // Offhand: the knight shows whichever baked shield variant was picked
+    // above (activeShieldName) and just rarity-tints THAT real mesh; a mage
+    // with a Tome/Grimoire/Codex offhand shows the baked Spellbook variant
+    // (activeTomeName) the same way. Everything else with no matching baked
+    // mesh (mage Orb/Focus Stone, ranger's Quiver/Talisman/etc — no baked
+    // offhand prop exists for the ranger model at all) falls back to a small
+    // procedural stand-in attached at a fixed off-hand local position — the
+    // same static-offset approach used for the gauntlets/pauldrons above,
+    // since this codebase doesn't do true bone-parented procedural attachments.
     const oh = equipped.offhand;
     const OFFHAND_POS = { x: -0.36, y: 0.86, z: 0.1 }; // off-hand side, mirrors the hands slot
-    if (classId === 'knight' && mesh.userData.shieldMesh) {
-      const shield = mesh.userData.shieldMesh;
-      if (!shield.userData.origMat) shield.userData.origMat = shield.material;
+    const tintBakedOffhand = (baked) => {
+      if (!baked.userData.origMat) baked.userData.origMat = baked.material;
       if (oh) {
-        shield.material = shield.userData.origMat.clone();
+        baked.material = baked.userData.origMat.clone();
         const c = new THREE.Color(RARITIES[oh.rarity]?.color ?? 0x8a8a8a);
         const hot = oh.rarity === 'legendary' || oh.rarity === 'epic';
-        shield.material.color.lerp(c, oh.rarity === 'common' ? 0.15 : 0.55);
-        if (shield.material.emissive) {
-          shield.material.emissive.copy(c);
-          shield.material.emissiveIntensity = oh.rarity === 'legendary' ? 0.5 : oh.rarity === 'epic' ? 0.3 : oh.rarity === 'rare' ? 0.12 : 0;
+        baked.material.color.lerp(c, oh.rarity === 'common' ? 0.15 : 0.55);
+        if (baked.material.emissive) {
+          baked.material.emissive.copy(c);
+          baked.material.emissiveIntensity = oh.rarity === 'legendary' ? 0.5 : oh.rarity === 'epic' ? 0.3 : oh.rarity === 'rare' ? 0.12 : 0;
         }
         if (hot) {
           const motes = new THREE.Group();
@@ -2450,8 +2503,13 @@ export class Game {
           grp.userData.offhandMotes = motes;
         }
       } else {
-        shield.material = shield.userData.origMat;
+        baked.material = baked.userData.origMat;
       }
+    };
+    if (classId === 'knight' && activeShieldName) {
+      tintBakedOffhand(variants[activeShieldName]);
+    } else if (classId === 'mage' && activeTomeName) {
+      tintBakedOffhand(variants[activeTomeName]);
     } else if (oh) {
       const m = mat(oh.rarity);
       let prop;
@@ -2503,10 +2561,18 @@ export class Game {
     // that couldn't be split (no index buffer / degenerate geometry) falls
     // back to a single steel material carrying the same accent - it never
     // becomes a flat rarity-colored blob either way.
+    // Built once per hero mesh, across EVERY weapon-shaped mesh the class's GLB
+    // ships (not just the currently-visible variant) - since updateHeroGear
+    // now toggles visibility between several real weapon variants (see
+    // activeWeaponName above), a cache scoped to only the mesh that happened
+    // to be visible on the FIRST call would go stale the moment a different
+    // variant is shown. Tinting the hidden variants too is free (they don't
+    // render) and keeps every variant ready to look correct the instant it
+    // becomes visible.
     if (!mesh.userData.weaponMats) {
       mesh.userData.weaponMats = [];
       mesh.traverse((o) => {
-        if (o.isMesh && o.visible && /Sword|Staff|Wand|Crossbow|Knife|Bow|Axe|Hammer|Mace|Dagger|Spear/i.test(o.name)) {
+        if (o.isMesh && /Sword|Staff|Wand|Crossbow|Knife|Bow|Axe|Hammer|Mace|Dagger|Spear/i.test(o.name)) {
           const split = Array.isArray(o.geometry?.groups) && o.geometry.groups.length === 2 && o.geometry.userData?.weaponSplit;
           const bladeMat = new THREE.MeshStandardMaterial({ metalness: 0.95, roughness: 0.22, envMapIntensity: 0.55 });
           if (split) {
