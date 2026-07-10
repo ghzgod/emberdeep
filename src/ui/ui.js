@@ -1475,14 +1475,7 @@ export class UI {
     document.querySelectorAll('.overlay-close').forEach((btn) => {
       btn.onclick = () => { g.state = 'playing'; this.hideAll(); };
     });
-    // collapse/expand the icon row; the ☰ toggle keeps its fixed anchor
-    const bar = $('action-bar');
-    if (window.innerWidth < 1100) bar.classList.add('collapsed');
-    const syncToggle = () => {
-      $('ab-toggle').innerHTML = svgIcon(bar.classList.contains('collapsed') ? 'menu' : 'close');
-    };
-    syncToggle();
-    $('ab-toggle').onclick = () => { bar.classList.toggle('collapsed'); syncToggle(); };
+    // Always-visible circular bubble row - no collapse toggle (see index.html).
     $('ab-inv').onclick = () => g.toggleInventory();
     $('ab-quests').onclick = () => { if (g.state === 'playing') g.toggleQuestLog(); };
     $('ab-skills').onclick = () => { if (g.state === 'playing') g.toggleSkills(); };
@@ -1753,7 +1746,6 @@ export class UI {
       b.drag = null;
       b.el.classList.remove('aiming');
       this.game.setAimIndicator(null);
-      this.game.touch?._closeDrawer?.();
       this.game.touch?._advanceTut?.('ability');
       if (this.game.state !== 'playing') return;
       const dx = e.clientX - d.x0, dy = e.clientY - d.y0;

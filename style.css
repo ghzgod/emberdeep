@@ -234,13 +234,13 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 /* ---------- Story cards ---------- */
 #story-screen { background: radial-gradient(ellipse at center, rgba(15,10,20,0.92) 0%, rgba(3,2,5,0.98) 100%); }
 #story-card {
-  max-width: min(88vw, 560px); padding: 30px 34px; text-align: center;
-  border: 1px solid var(--gold); border-radius: 10px; background: #171021;
-  box-shadow: 0 0 40px rgba(232,192,90,0.12);
-  display: flex; flex-direction: column; gap: 18px; align-items: center;
+  max-width: min(88vw, 560px); max-height: 86vh; overflow: auto; padding: 14px 18px; text-align: center;
+  border: 2px solid var(--panel-brown); outline: 1px solid #000; border-radius: 6px;
+  background: var(--panel-grad); box-shadow: var(--panel-shadows);
+  display: flex; flex-direction: column; gap: 14px; align-items: center;
 }
-#story-title { color: var(--gold); font-size: 26px; letter-spacing: 3px; }
-#story-text { font-size: 15px; line-height: 1.75; opacity: 0.92; font-style: italic; text-align: left; }
+#story-title { color: var(--gold); font-size: 17px; letter-spacing: 1.5px; text-shadow: 1px 1px 2px #000; border-bottom: 1px solid var(--title-divider); padding-bottom: 6px; align-self: stretch; }
+#story-text { font-size: 14px; line-height: 1.7; opacity: 0.92; font-style: italic; text-align: left; }
 
 /* ---------- Mastery tree ---------- */
 #skills-screen { background: #14101c; }
@@ -277,9 +277,13 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
   font-size: 12px; letter-spacing: 3px; text-transform: uppercase; opacity: 0.6;
   margin-top: 4px; text-align: left;
 }
+/* Row anatomy matches the save-row template: layered gradient fill + brown
+   border + black outline, not a flat single-color block, per the panel
+   anatomy principle (gradients + layered shadows for depth). */
 .skill-row {
   display: flex; gap: 12px; align-items: center; text-align: left;
-  padding: 8px 12px; border: 1px solid var(--panel-border); border-radius: 8px; background: #1d1628;
+  padding: 8px 12px; border: 1px solid var(--panel-brown); outline: 1px solid #000;
+  border-radius: 8px; background: var(--panel-grad);
 }
 .skill-row .skill-icon { font-size: 22px; }
 .skill-row .skill-main { flex: 1; }
@@ -292,9 +296,12 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 
 /* ---------- Quest log ---------- */
 #quest-list { display: flex; flex-direction: column; gap: 8px; width: min(88vw, 460px); max-height: 44vh; overflow-y: auto; }
+/* Row anatomy matches the save-row template: layered gradient fill + brown
+   border + black outline, not a flat single-color block. */
 .quest-row {
   display: flex; gap: 12px; align-items: center; text-align: left;
-  padding: 10px 14px; border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel);
+  padding: 10px 14px; border: 1px solid var(--panel-brown); outline: 1px solid #000;
+  border-radius: 8px; background: var(--panel-grad);
 }
 .quest-row .quest-mark { width: 22px; flex: none; color: var(--parchment); }
 .quest-row .quest-mark svg { width: 22px; height: 22px; display: block; }
@@ -325,7 +332,8 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 #quest-stats {
   display: grid; grid-template-columns: 1fr 1fr; gap: 6px 26px;
   width: min(88vw, 460px); font-size: 13px; padding: 12px 14px;
-  border: 1px solid var(--panel-border); border-radius: 8px; background: #1a1424;
+  border: 1px solid var(--panel-brown); outline: 1px solid #000; border-radius: 8px;
+  background: var(--panel-grad);
 }
 .qs-row { display: flex; justify-content: space-between; gap: 10px; }
 .qs-row span { opacity: 0.6; }
@@ -482,12 +490,15 @@ body.touch-mode #hud-topleft .bar-wrap { display: none; }
 #buy-confirm { position: fixed; inset: 0; z-index: 61; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
 #buy-confirm.hidden { display: none; }
 #buy-card #buy-icon { font-size: 48px; margin: 2px 0; filter: drop-shadow(0 0 10px var(--relic-glow)); }
-#buy-card h2 { font-size: 20px; margin: 4px 0; }
-#buy-card #buy-rarity { font-size: 12px; opacity: 0.65; text-transform: capitalize; margin-bottom: 8px; }
-#buy-card #buy-stats { font-size: 13px; opacity: 0.9; margin-bottom: 6px; }
-#buy-card #buy-compare { font-size: 12px; margin-bottom: 10px; }
-#buy-card #buy-price { font-size: 15px; color: var(--gold); margin-bottom: 14px; }
-#buy-card .buy-actions { display: flex; gap: 10px; justify-content: center; }
+#buy-card h2 {
+  font-size: 17px; margin: 4px 0 6px; color: var(--gold); letter-spacing: 0.5px;
+  text-shadow: 1px 1px 2px #000; border-bottom: 1px solid var(--title-divider); padding-bottom: 6px;
+}
+#buy-card #buy-rarity { font-size: 11px; color: var(--muted); text-transform: capitalize; margin-bottom: 8px; }
+#buy-card #buy-stats { font-size: 12px; opacity: 0.9; margin-bottom: 6px; }
+#buy-card #buy-compare { font-size: 11px; margin-bottom: 10px; }
+#buy-card #buy-price { font-size: 14px; color: var(--gold); margin-bottom: 14px; }
+#buy-card .buy-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
 /* Relic reveal + buy confirm: panel anatomy with the rarity expressed as the
    border color + a soft glow (never a fill), per the rarity rule. */
@@ -507,7 +518,10 @@ body.touch-mode #hud-topleft .bar-wrap { display: none; }
 @keyframes relic-pop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 #relic-card .relic-spark { font-size: 22px; opacity: 0.85; }
 #relic-card #relic-icon { font-size: 54px; margin: 4px 0; filter: drop-shadow(0 0 12px var(--relic-glow)); }
-#relic-card h2 { font-size: 17px; margin: 4px 0; letter-spacing: 0.5px; text-shadow: 1px 1px 2px #000; }
+#relic-card h2 {
+  font-size: 17px; margin: 4px 0 6px; color: var(--gold); letter-spacing: 0.5px;
+  text-shadow: 1px 1px 2px #000; border-bottom: 1px solid var(--title-divider); padding-bottom: 6px;
+}
 #relic-card #relic-rarity { font-size: 11px; color: var(--muted); text-transform: capitalize; margin-bottom: 8px; }
 #relic-card #relic-stats { font-size: 12px; opacity: 0.9; margin-bottom: 14px; min-height: 18px; }
 #relic-card #btn-relic-take { min-width: 140px; }
@@ -529,53 +543,34 @@ body.touch-mode #hud-topleft .bar-wrap { display: none; }
 /* On touch devices the chip reads "Tap" instead of a key (set in showInteract),
    so it stays visible - the pill itself is the button. */
 
-/* desktop action bar: a horizontal tray anchored bottom-right. The ☰ toggle
-   is the rightmost, fixed anchor; the other icons flow to its left, so the
-   toggle never jumps when you collapse/expand. */
-/* Hidden by default; only true desktops (fine pointer + hover) show it, so
-   phones/tablets never get the desktop bar overlapping their touch drawer. */
+/* Desktop utility row: the SAME circular gold-ring bubbles as the ability
+   cluster (.act-btn language: deep purple-dark disc, soft rim, layered
+   shadow), clustered right next to the ability row instead of a floating box
+   of squares (Wild Rift principle: utilities live where the thumb/cursor
+   already is, not off in a separate corner tray). Always visible - no
+   collapse toggle. Hidden on touch/compact layouts, which get their own
+   utility row built into the mobile cluster instead. */
 #action-bar { display: none; }
 @media (hover: hover) and (pointer: fine) {
   #action-bar {
-    position: absolute; right: 16px; bottom: 16px; display: flex;
-    flex-direction: row; align-items: center; pointer-events: auto;
-    padding: 6px; border-radius: 14px;
-    background: rgba(18, 14, 22, 0.7); border: 1px solid var(--panel-border);
-    backdrop-filter: blur(3px);
+    /* sits just right of the centered desktop ability row (#hotbar is
+       left:50% + translateX(-50%); its content runs roughly 300px wide with
+       4 abilities + the potion bubble), so the utilities read as part of the
+       same cluster instead of a separate floating tray in the corner. */
+    position: absolute; left: calc(50% + 175px); bottom: 26px; display: flex;
+    flex-direction: row; align-items: center; gap: 10px; pointer-events: auto;
   }
 }
 .touch-mode #action-bar { display: none !important; }
-/* Collapsed only changes PAINT (no visible bg/border) — padding & border-box
-   are kept identical to the expanded bar so the ☰/✕ toggle never shifts. */
-#action-bar.collapsed { background: none; border-color: transparent; }
-#action-bar button {
-  width: 46px; height: 46px; border-radius: 10px; padding: 0; flex: none;
-  border: 2px solid var(--panel-border); background: var(--panel);
-  color: var(--parchment); font-size: 21px; cursor: pointer;
-  align-items: center; justify-content: center; line-height: 1;
-  transition: border-color 0.15s, transform 0.1s, opacity 0.15s;
+/* .ab-bubble layers onto .act-btn (ring markup isn't used here, so hide it;
+   these are static utility buttons, not cooldown-tracked abilities). */
+#action-bar button.ab-bubble {
+  position: relative; width: 46px; height: 46px; font-size: 20px; cursor: pointer;
+  transition: border-color 0.25s cubic-bezier(0.4,0,0.2,1), filter 0.25s cubic-bezier(0.4,0,0.2,1);
 }
-#action-bar button { display: flex; }
-#action-bar button:hover { border-color: var(--gold); transform: translateY(-2px); }
-#ab-mic.live { border-color: #7ce87c; color: #7ce87c; box-shadow: 0 0 10px rgba(124,232,124,0.4); }
-/* ☰ is the last, fixed anchor; the row grows to its left so it never shifts.
-   Explicit centering so the glyph sits dead-center in its box. */
-#ab-toggle {
-  font-size: 22px; order: 99; border-color: var(--card-color, #5a4a7a);
-  display: flex; align-items: center; justify-content: center; text-align: center;
-}
-/* Icons carry their own right-margin so both width AND spacing can animate to
-   zero — the row rolls out/in horizontally instead of snapping. */
-#action-bar button:not(#ab-toggle) {
-  margin-right: 8px; overflow: hidden;
-  transition: border-color 0.15s, transform 0.1s, opacity 0.3s ease,
-              width 0.45s ease, margin 0.45s ease, padding 0.45s ease, border-width 0.45s ease;
-}
-/* collapsed: only the ☰ toggle stays; the rest slide/fade shut horizontally */
-#action-bar.collapsed button:not(#ab-toggle) {
-  width: 0; margin-right: 0; padding-left: 0; padding-right: 0;
-  border-width: 0; opacity: 0; pointer-events: none;
-}
+#action-bar button.ab-bubble:hover { border-color: var(--gold); filter: brightness(1.15); }
+#action-bar button.ab-bubble svg { width: 22px; height: 22px; }
+#ab-mic.live { border-color: #7ce87c; color: #7ce87c; box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 10px rgba(124,232,124,0.4); }
 
 /* Two overlapping gold coins for currency displays. Drawn in CSS (not the
    coin emoji): the emoji falls back to a flat monochrome disc in this font
@@ -744,10 +739,11 @@ body.touch-mode #hud-topleft .bar-wrap { display: none; }
 .inv-slot.equip { width: 74px; height: 74px; }
 .inv-slot .slot-label { position: absolute; bottom: -18px; left: 0; right: 0; font-size: 11px; opacity: 0.6; }
 .inv-slot:hover { border-color: var(--gold); }
-.inv-slot.rarity-common { border-color: #8a8a8a; }
-.inv-slot.rarity-rare { border-color: #4f8bd9; box-shadow: 0 0 4px rgba(79,139,217,0.18); }
-.inv-slot.rarity-epic { border-color: #a03bd9; box-shadow: 0 0 5px rgba(160,59,217,0.22); }
-.inv-slot.rarity-legendary { border-color: #ff8c1a; box-shadow: 0 0 6px rgba(255,140,26,0.3); }
+.inv-slot.rarity-common { border-color: var(--r-common); }
+.inv-slot.rarity-uncommon { border-color: var(--r-uncommon); box-shadow: 0 0 4px rgba(30,255,0,0.18); }
+.inv-slot.rarity-rare { border-color: var(--r-rare); box-shadow: 0 0 4px rgba(0,112,221,0.22); }
+.inv-slot.rarity-epic { border-color: var(--r-epic); box-shadow: 0 0 5px rgba(163,53,238,0.25); }
+.inv-slot.rarity-legendary { border-color: var(--r-legendary); box-shadow: 0 0 6px rgba(255,128,0,0.3); }
 /* equipped gear attuned to another class: dimmed to signal reduced value */
 .inv-slot.equip.off-class { opacity: 0.55; }
 /* Empty equip slot with a bag item that fits: tap to auto-equip the best one. */
@@ -761,86 +757,128 @@ body.touch-mode #hud-topleft .bar-wrap { display: none; }
   content: ''; position: absolute; top: 1px; right: 2px; width: 13px; height: 13px;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e04444' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 6.5h15'/%3E%3Cpath d='M8.5 6.5V5a1.5 1.5 0 0 1 1.5-1.5h4A1.5 1.5 0 0 1 15.5 5v1.5'/%3E%3Cpath d='M6.5 6.5 7.3 19a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12.5'/%3E%3Cpath d='M10 10.5v6M14 10.5v6'/%3E%3C/svg%3E") center / contain no-repeat;
 }
-.menu-btn.danger { border-color: #7a3030; color: #e88; }
-.menu-btn.danger:hover { border-color: #e04444; color: #fff; box-shadow: 0 0 12px rgba(224,68,68,0.4); }
+/* Action-coded button borders (ClaudeCraft brief): equip green, neutral/drop
+   gold, destructive red. Text-only labels, centered - no icons inside these
+   buttons (icons offset lettering). Fill/shadow/hover/press inherit .menu-btn. */
+.menu-btn.action-equip { border-color: #339449; color: #c9ffd0; }
+.menu-btn.action-equip:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 2px 4px rgba(0,0,0,0.5), 0 0 8px rgba(51,148,73,0.35); }
+.menu-btn.action-neutral { border-color: #b18a32; color: #ffe3a5; }
+.menu-btn.action-neutral:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 2px 4px rgba(0,0,0,0.5), 0 0 8px rgba(177,138,50,0.35); }
+.menu-btn.danger, .menu-btn.action-destroy { border-color: #8f3a3a; color: #ffc6c6; }
+.menu-btn.danger:hover, .menu-btn.action-destroy:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 2px 4px rgba(0,0,0,0.5), 0 0 8px rgba(143,58,58,0.4); }
 
 /* destroy-items confirmation modal */
 #destroy-modal { position: fixed; inset: 0; z-index: 62; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
 #destroy-modal.hidden { display: none; }
 #destroy-card {
-  min-width: 280px; max-width: 86vw; max-height: 70vh; overflow: auto; padding: 22px 26px; text-align: center;
-  background: linear-gradient(180deg, rgba(30,18,18,0.98), rgba(18,12,12,0.98));
-  border: 2px solid #7a3030; border-radius: 16px; box-shadow: 0 0 30px rgba(224,68,68,0.35);
+  min-width: 280px; max-width: min(86vw, 420px); max-height: 80vh; overflow: auto; padding: 14px; text-align: center;
+  background: var(--panel-grad);
+  border: 2px solid #8f3a3a; outline: 1px solid #000; border-radius: 6px;
+  box-shadow: var(--panel-shadows), 0 0 14px rgba(143, 58, 58, 0.4);
   /* dark red card: force the light parchment text (was inheriting default black) */
   color: var(--parchment);
 }
-#destroy-card h2 { font-size: 20px; margin: 0 0 8px; color: var(--gold); }
-#destroy-card #destroy-count { font-size: 13px; opacity: 0.85; margin-bottom: 10px; }
-#destroy-card #destroy-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 16px; font-size: 13px; }
+#destroy-card h2 {
+  font-size: 15px; margin: 0 0 6px; color: var(--gold); letter-spacing: 0.5px;
+  text-shadow: 1px 1px 2px #000; border-bottom: 1px solid var(--title-divider); padding-bottom: 6px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+#destroy-card h2 svg { width: 16px; height: 16px; }
+#destroy-card #destroy-count { font-size: 12px; color: var(--muted); margin: 8px 0; }
+#destroy-card #destroy-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; font-size: 12px; }
 
 /* Generic themed confirm/notice modal, replacing native alert()/confirm() -
-   same dimmed backdrop + gradient card as #destroy-modal/#inspect-panel, with
-   a danger variant borrowing #destroy-card's red border for risky actions. */
+   same panel anatomy as every other modal, with a danger variant borrowing
+   the destroy card's red border for risky actions. */
 #confirm-modal { position: fixed; inset: 0; z-index: 65; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
 #confirm-modal.hidden { display: none; }
 #confirm-card {
-  min-width: 280px; width: 100%; max-width: min(90vw, 420px); padding: 22px 26px; text-align: center; color: var(--parchment);
-  background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98));
-  border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35);
+  min-width: 280px; width: 100%; max-width: min(90vw, 420px); max-height: 86vh; overflow: auto;
+  padding: 14px; text-align: center; color: var(--parchment);
+  background: var(--panel-grad);
+  border: 2px solid var(--panel-brown); outline: 1px solid #000; border-radius: 6px;
+  box-shadow: var(--panel-shadows);
 }
 #confirm-card.danger {
-  background: linear-gradient(180deg, rgba(30,18,18,0.98), rgba(18,12,12,0.98));
-  border-color: #7a3030; box-shadow: 0 0 30px rgba(224,68,68,0.35);
+  border-color: #8f3a3a; box-shadow: var(--panel-shadows), 0 0 14px rgba(143, 58, 58, 0.4);
 }
-#confirm-card h2 { font-size: 20px; margin: 0 0 10px; color: var(--gold); }
-#confirm-card p { font-size: 14px; opacity: 0.9; margin: 0 0 18px; line-height: 1.4; }
-#confirm-card .buy-actions { display: flex; gap: 10px; justify-content: center; }
-#confirm-dontshow-row { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; opacity: 0.85; margin: 0 0 16px; cursor: pointer; }
+#confirm-card h2 {
+  font-size: 15px; margin: 0 0 8px; color: var(--gold); letter-spacing: 0.5px;
+  text-shadow: 1px 1px 2px #000; border-bottom: 1px solid var(--title-divider); padding-bottom: 6px;
+}
+#confirm-card p { font-size: 13px; opacity: 0.9; margin: 10px 0 14px; line-height: 1.4; }
+#confirm-card .buy-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+#confirm-dontshow-row { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 12px; opacity: 0.85; margin: 0 0 14px; cursor: pointer; }
 #confirm-dontshow-row.hidden { display: none; }
 
 /* Act travel modal */
 #act-select { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
 #act-select.hidden { display: none; }
-#act-card { min-width: 300px; max-width: 88vw; padding: 24px 28px; text-align: center; background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98)); border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35); }
-#act-card h2 { font-size: 22px; margin: 0 0 14px; }
+#act-card {
+  min-width: 300px; max-width: min(88vw, 440px); max-height: 86vh; overflow: auto;
+  padding: 14px; text-align: center;
+  background: var(--panel-grad); border: 2px solid var(--panel-brown); outline: 1px solid #000;
+  border-radius: 6px; box-shadow: var(--panel-shadows);
+}
+#act-card h2 {
+  font-size: 15px; margin: 0 0 12px; color: var(--gold); letter-spacing: 0.5px;
+  text-shadow: 1px 1px 2px #000; border-bottom: 1px solid var(--title-divider); padding-bottom: 6px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+#act-card h2 svg { width: 16px; height: 16px; }
 #act-card #act-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 #act-card #act-list .menu-btn { display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
-#act-card #act-list .menu-btn small { opacity: 0.6; font-size: 11px; }
+#act-card #act-list .menu-btn small { color: var(--muted); font-size: 11px; }
 
 /* Player inspect panel */
 #inspect-panel { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
 #inspect-panel.hidden { display: none; }
-#inspect-card { min-width: 300px; max-width: 90vw; max-height: 80vh; overflow: auto; padding: 22px 26px; background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98)); border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35); text-align: center; }
-#inspect-card h2 { font-size: 22px; margin: 0 0 2px; }
-#inspect-card #inspect-sub { font-size: 13px; opacity: 0.7; margin-bottom: 12px; }
+#inspect-card {
+  min-width: 300px; max-width: min(90vw, 440px); max-height: 80vh; overflow: auto; padding: 14px;
+  background: var(--panel-grad); border: 2px solid var(--panel-brown); outline: 1px solid #000;
+  border-radius: 6px; box-shadow: var(--panel-shadows); text-align: center;
+}
+#inspect-card h2 {
+  font-size: 15px; margin: 0 0 2px; color: var(--gold); letter-spacing: 0.5px;
+  text-shadow: 1px 1px 2px #000;
+}
+#inspect-card #inspect-sub { font-size: 11px; color: var(--muted); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--title-divider); }
 #inspect-card #inspect-slots { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; text-align: left; }
-.inspect-slot { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--panel-border); background: rgba(0,0,0,0.25); }
+.inspect-slot { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--panel-brown); background: rgba(0,0,0,0.25); }
 .inspect-slot.empty { opacity: 0.5; }
 .inspect-slot .is-icon { font-size: 22px; width: 26px; text-align: center; }
 .inspect-slot .is-txt { display: flex; flex-direction: column; }
-.inspect-slot .is-txt small { opacity: 0.75; font-size: 11px; }
+.inspect-slot .is-txt small { color: var(--muted); font-size: 11px; }
 .inspect-slot .is-empty { text-transform: capitalize; }
-.inspect-slot.rarity-rare { border-color: #4f8bd9; }
-.inspect-slot.rarity-epic { border-color: #a03bd9; }
-.inspect-slot.rarity-legendary { border-color: #ff8c1a; }
+.inspect-slot.rarity-uncommon { border-color: var(--r-uncommon); box-shadow: 0 0 4px rgba(30,255,0,0.2); }
+.inspect-slot.rarity-rare { border-color: var(--r-rare); box-shadow: 0 0 4px rgba(0,112,221,0.25); }
+.inspect-slot.rarity-epic { border-color: var(--r-epic); box-shadow: 0 0 5px rgba(163,53,238,0.3); }
+.inspect-slot.rarity-legendary { border-color: var(--r-legendary); box-shadow: 0 0 6px rgba(255,128,0,0.35); }
 
 /* anti-cheat lockout banner */
 #cheat-lock { position: fixed; top: 18%; left: 50%; transform: translateX(-50%); z-index: 55; text-align: center; padding: 14px 26px; border-radius: 12px; background: rgba(40,10,10,0.9); border: 2px solid #e04444; color: #ffdada; font-size: 26px; font-weight: bold; letter-spacing: 1px; box-shadow: 0 0 26px rgba(224,68,68,0.5); pointer-events: none; }
 #cheat-lock.hidden { display: none; }
 #cheat-lock .cl-sub { font-size: 15px; font-weight: normal; opacity: 0.9; margin-top: 4px; }
+/* Item tooltip anatomy per the ClaudeCraft brief: title (colored by rarity)
+   -> muted subtitle -> stat rows -> divider -> compare block. */
 #item-tooltip {
-  position: absolute; z-index: 40; background: var(--panel); border: 1px solid var(--panel-border);
-  border-radius: 6px; padding: 10px 14px; font-size: 13px; text-align: left; pointer-events: none; max-width: 240px;
+  position: absolute; z-index: 40; background: var(--panel-grad);
+  border: 2px solid var(--panel-brown); outline: 1px solid #000;
+  border-radius: 6px; box-shadow: var(--panel-shadows);
+  padding: 8px 10px; font-size: 12px; line-height: 1.5; text-align: left; pointer-events: none; max-width: 280px;
 }
-#item-tooltip h4 { margin-bottom: 4px; }
-#item-tooltip .tt-common h4, h4.tt-common { color: #cfcfcf; }
-h4.tt-rare { color: #6fa8ff; }
-h4.tt-epic { color: #c77aff; }
-h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
-.shop-item.r-rare .shop-item-name { color: #6fa8ff; }
-.shop-item.r-epic .shop-item-name { color: #c77aff; }
-.shop-item.r-legendary .shop-item-name { color: #ffab4a; }
-#item-tooltip .tt-stat { color: #9fd89f; }
+#item-tooltip h4 { margin-bottom: 2px; font-size: 13.5px; text-shadow: 1px 1px 2px #000; }
+#item-tooltip .tt-common h4, h4.tt-common { color: var(--r-common); }
+h4.tt-uncommon { color: var(--r-uncommon); }
+h4.tt-rare { color: var(--r-rare); }
+h4.tt-epic { color: var(--r-epic); text-shadow: 1px 1px 2px #000, 0 0 6px rgba(163,53,238,0.4); }
+h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 6px rgba(255,128,0,0.4); }
+.shop-item.r-uncommon .shop-item-name { color: var(--r-uncommon); }
+.shop-item.r-rare .shop-item-name { color: var(--r-rare); }
+.shop-item.r-epic .shop-item-name { color: var(--r-epic); }
+.shop-item.r-legendary .shop-item-name { color: var(--r-legendary); }
+#item-tooltip .tt-stat { color: var(--buff); font-size: 11px; }
+#item-tooltip .tt-stat.nerf { color: var(--nerf); }
 /* Readability guard: the vendor, mystery-relic and buy panels sit on dark purple
    backgrounds, so their default text is light parchment. Never black on purple.
    Rarity names/prices set their own brighter colours above. */
@@ -848,18 +886,20 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 #relic-reveal, #buy-confirm { color: var(--parchment); }
 
 /* ---------- Settings ---------- */
-#settings-screen { background: rgba(6, 4, 10, 0.94); }
+#settings-screen { background: rgba(6, 4, 10, 0.94); justify-content: flex-start; padding-top: 3vh; overflow-y: auto; }
 .settings-rows {
   display: flex; flex-direction: column; gap: 12px;
-  width: min(92vw, 460px); max-height: 62vh; overflow-y: auto;
-  /* desktop gets a roomier panel so long labels/keybinds aren't cramped */
-  background: linear-gradient(170deg, #1d1526, #14101c);
-  border: 1px solid var(--panel-border); border-radius: 12px;
-  padding: 20px 22px; box-sizing: border-box;
+  width: min(92vw, 460px); max-height: 58vh; overflow-y: auto;
+  /* panel anatomy: layered gradient fill, brown border, black outline,
+     layered shadows - same language as every other modal card */
+  background: var(--panel-grad);
+  border: 2px solid var(--panel-brown); outline: 1px solid #000; border-radius: 6px;
+  box-shadow: var(--panel-shadows);
+  padding: 14px; box-sizing: border-box;
 }
 /* Desktop: a wider settings panel so labels, sliders and keybinds have room. */
 @media (hover: hover) and (pointer: fine) {
-  .settings-rows { width: min(82vw, 720px); max-height: 74vh; padding: 24px 30px; }
+  .settings-rows { width: min(82vw, 720px); max-height: 68vh; padding: 20px 24px; }
   .settings-rows select { max-width: 320px; }
 }
 /* Even vertical rhythm: every row is at least one 44px control tall, with the
@@ -1033,11 +1073,11 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 /* ---------- Save slots ---------- */
 #saves-list { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow-y: auto; min-width: min(88vw, 480px); }
 .save-row {
-  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
-  border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel);
-  cursor: pointer; transition: border-color 0.15s; text-align: left;
+  display: flex; align-items: center; gap: 12px; padding: 8px 14px; min-height: 40px;
+  border: 1px solid var(--panel-brown); outline: 1px solid #000; border-radius: 4px; background: var(--panel-grad);
+  cursor: pointer; transition: border-color 0.25s cubic-bezier(0.4,0,0.2,1), filter 0.25s cubic-bezier(0.4,0,0.2,1); text-align: left;
 }
-.save-row:hover { border-color: var(--gold); }
+.save-row:hover { border-color: var(--gold); filter: brightness(1.1); }
 .save-row .save-icon { font-size: 26px; }
 .save-row .save-main { flex: 1; }
 .save-row .save-name { font-size: 17px; color: var(--gold); }
@@ -1064,12 +1104,12 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 #shop-screen { background: rgba(4, 3, 8, 0.82); }
 #shop-panel {
   width: min(94vw, 760px); max-height: 88vh; overflow: hidden;
-  display: flex; flex-direction: column; gap: 16px; align-items: stretch;
-  background: linear-gradient(170deg, #1d1526 0%, #14101c 55%, #171021 100%);
-  border: 1px solid var(--gold); border-radius: 14px; padding: 22px 26px;
-  box-shadow: 0 0 0 4px #14101c, 0 0 0 5px var(--panel-border), 0 24px 60px rgba(0,0,0,0.7);
+  display: flex; flex-direction: column; gap: 14px; align-items: stretch;
+  background: var(--panel-grad);
+  border: 2px solid var(--panel-brown); outline: 1px solid #000; border-radius: 6px; padding: 14px;
+  box-shadow: var(--panel-shadows);
 }
-.shop-head { display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--panel-border); padding-bottom: 14px; }
+.shop-head { display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--title-divider); padding-bottom: 10px; }
 #shop-portrait {
   width: 58px; height: 58px; border-radius: 50%; font-size: 28px;
   display: flex; align-items: center; justify-content: center;
@@ -1077,7 +1117,7 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   border: 2px solid var(--gold); flex: none;
 }
 .shop-head-text { flex: 1; text-align: left; }
-.shop-head-text h2 { color: var(--gold); font-size: 24px; letter-spacing: 1px; }
+.shop-head-text h2 { color: var(--gold); font-size: 17px; letter-spacing: 0.5px; text-shadow: 1px 1px 2px #000; }
 #shop-tagline { font-size: 12px; font-style: italic; opacity: 0.65; margin-top: 2px; }
 .shop-gold {
   font-size: 16px; color: var(--gold); background: #241a30;
@@ -1093,12 +1133,12 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 .shop-col h3::before, .shop-col h3::after { content: ''; flex: 1; height: 1px; background: var(--panel-border); }
 .shop-col > div { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; max-height: 42vh; padding-right: 2px; }
 .shop-item {
-  display: flex; align-items: center; gap: 12px; padding: 10px 12px; text-align: left;
-  border: 1px solid var(--panel-border); border-radius: 10px;
+  display: flex; align-items: center; gap: 12px; padding: 8px 12px; min-height: 40px; text-align: left;
+  border: 1px solid var(--panel-brown); border-radius: 4px;
   background: linear-gradient(180deg, #241b31, #1c1527);
-  cursor: pointer; font-size: 14px; transition: border-color 0.12s, transform 0.12s;
+  cursor: pointer; font-size: 13px; transition: border-color 0.25s cubic-bezier(0.4,0,0.2,1), filter 0.25s cubic-bezier(0.4,0,0.2,1);
 }
-.shop-item:hover { border-color: var(--gold); transform: translateX(2px); }
+.shop-item:hover { border-color: var(--gold); filter: brightness(1.1); }
 .shop-item-icon {
   width: 36px; height: 36px; flex: none; font-size: 19px;
   display: flex; align-items: center; justify-content: center;
@@ -1115,9 +1155,10 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 .shop-item.disabled:hover { border-color: var(--panel-border); transform: none; }
 .shop-item.sold { opacity: 0.35; cursor: default; text-decoration: line-through; }
 .shop-item.sold:hover { border-color: var(--panel-border); transform: none; }
-.shop-item.r-rare .shop-item-name, .shop-item.r-rare .shop-item-icon { color: #6fa8ff; border-color: #33507a; }
-.shop-item.r-epic .shop-item-name, .shop-item.r-epic .shop-item-icon { color: #c77aff; border-color: #5a3378; }
-.shop-item.r-legendary .shop-item-name, .shop-item.r-legendary .shop-item-icon { color: #ffab4a; border-color: #7a5a1e; }
+.shop-item.r-uncommon .shop-item-name, .shop-item.r-uncommon .shop-item-icon { color: var(--r-uncommon); border-color: #2a5a1a; }
+.shop-item.r-rare .shop-item-name, .shop-item.r-rare .shop-item-icon { color: var(--r-rare); border-color: #0d4a86; }
+.shop-item.r-epic .shop-item-name, .shop-item.r-epic .shop-item-icon { color: var(--r-epic); border-color: #5a2a7a; }
+.shop-item.r-legendary .shop-item-name, .shop-item.r-legendary .shop-item-icon { color: var(--r-legendary); border-color: #7a4a10; }
 .shop-restock {
   font-family: inherit; font-size: 12px; padding: 8px; margin-top: 2px;
   background: none; border: 1px dashed var(--panel-border); border-radius: 8px;
@@ -1136,54 +1177,76 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   .shop-gold { font-size: 13px; padding: 4px 10px; }
 }
 
-/* ---------- Item stats panel (inventory) ---------- */
-/* Modal, matching #inspect-panel/#destroy-modal/#act-select: dimmed backdrop,
-   click outside the card to dismiss. */
+/* ---------- Item inspect/actions card (top priority per the brief) ---------- */
+/* Modal, matching every other card: dimmed backdrop, click outside to dismiss. */
 #item-actions { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
 #item-actions.hidden { display: none; }
+/* Panel anatomy: layered gradient fill, brown border, black outline, layered
+   shadows (drop + inset glow + inset top highlight). max-width per the
+   tooltip spec's card width, generous enough for the stat grid + compare. */
 #item-actions-card {
-  min-width: 300px; max-width: 90vw; max-height: 80vh; overflow: auto; padding: 22px 26px; text-align: center;
-  background: linear-gradient(180deg, rgba(24,20,34,0.98), rgba(14,11,20,0.98));
-  border: 2px solid var(--panel-border); border-radius: 16px; box-shadow: 0 0 30px rgba(124,92,191,0.35);
+  min-width: 280px; max-width: min(92vw, 340px); max-height: 86vh; overflow: auto;
+  padding: 14px; text-align: center;
+  background: var(--panel-grad);
+  border: 2px solid var(--panel-brown); outline: 1px solid #000; border-radius: 6px;
+  box-shadow: var(--panel-shadows);
   /* dark card lives outside .overlay, so set the light text explicitly instead
      of inheriting the browser default black */
   color: var(--parchment);
 }
 /* Default every bit of modal text to parchment so nothing falls back to the
    browser's black (which was invisible on the dark card). */
-#item-actions-info { font-size: 14px; margin-bottom: 14px; text-align: left; color: var(--parchment); }
-.item-actions-btns { display: flex; gap: 10px; justify-content: center; }
-/* the name is a div, not an h4, so the h4.tt-* rules did not reach it */
-.item-name.tt-common { color: #d4d4d4; }
-.item-name.tt-rare { color: #6fa8ff; }
-.item-name.tt-epic { color: #c77aff; }
-.item-name.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
+#item-actions-info { font-size: 12px; margin-bottom: 12px; text-align: left; color: var(--parchment); }
+.item-actions-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+/* the name is a div, not an h4, so the h4.tt-* rules did not reach it - same
+   rarity palette (border+glow philosophy applies to art frames; titles are
+   plain rarity-colored text per the brief). */
+.item-name.tt-common { color: var(--r-common); }
+.item-name.tt-uncommon { color: var(--r-uncommon); }
+.item-name.tt-rare { color: var(--r-rare); }
+.item-name.tt-epic { color: var(--r-epic); text-shadow: 1px 1px 2px #000, 0 0 6px rgba(163,53,238,0.4); }
+.item-name.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 6px rgba(255,128,0,0.4); }
 
-/* Item detail panel: a real layout, not one line of green text. */
-.item-panel { min-width: 300px; }
-.item-hero { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+/* Item detail panel layout: title -> muted subtitle -> stat rows -> divider ->
+   compare block -> action row (buttons live outside, in .item-actions-btns). */
+.item-panel { min-width: 260px; }
+.item-hero { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
 .item-pic {
-  width: 72px; height: 72px; flex: none; border-radius: 10px;
+  width: 72px; height: 72px; flex: none; border-radius: 6px;
   background: radial-gradient(circle at 40% 35%, #241d31, #100b18);
-  border: 2px solid var(--panel-border); box-shadow: inset 0 0 12px rgba(0,0,0,0.6);
+  border: 2px solid var(--panel-brown); box-shadow: inset 0 0 12px rgba(0,0,0,0.6);
   image-rendering: auto;
 }
 .item-pic.emoji { display: flex; align-items: center; justify-content: center; font-size: 40px; }
-.item-pic.rarity-rare { border-color: #4f7bd9; box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 12px rgba(79,123,217,0.4); }
-.item-pic.rarity-epic { border-color: #b35eff; box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 14px rgba(179,94,255,0.45); }
-.item-pic.rarity-legendary { border-color: #ff9a3a; box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 16px rgba(255,154,58,0.5); }
+/* rarity as border + glow on the art frame, never a fill */
+.item-pic.rarity-uncommon { border-color: var(--r-uncommon); box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 10px rgba(30,255,0,0.25); }
+.item-pic.rarity-rare { border-color: var(--r-rare); box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 12px rgba(0,112,221,0.35); }
+.item-pic.rarity-epic { border-color: var(--r-epic); box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 14px rgba(163,53,238,0.4); }
+.item-pic.rarity-legendary { border-color: var(--r-legendary); box-shadow: inset 0 0 12px rgba(0,0,0,0.6), 0 0 16px rgba(255,128,0,0.45); }
 .item-head { flex: 1; min-width: 0; }
-.item-name { font-size: 19px; font-weight: bold; line-height: 1.15; margin-bottom: 4px; }
-.item-meta { font-size: 12px; color: var(--parchment); opacity: 0.72; text-transform: capitalize; }
+/* title: rarity-colored, display-serif letterspaced per the brief */
+.item-name { font-size: 15px; font-weight: normal; letter-spacing: 0.4px; line-height: 1.2; margin-bottom: 3px; text-shadow: 1px 1px 2px #000; }
+/* muted subtitle line: rarity + slot + ilvl */
+.item-meta { font-size: 11px; color: var(--muted); text-transform: capitalize; }
 .item-ilvl { color: var(--gold); opacity: 0.9; font-style: italic; }
+/* stat rows: name muted (right-aligned label) / value white (or buff green /
+   nerf red when the row calls for it), divider lines above and below */
 .item-stats {
-  display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
-  padding: 10px 4px; margin: 4px 0 10px; border-top: 1px solid rgba(255,255,255,0.08);
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+  padding: 8px 4px; margin: 4px 0 8px;
+  border-top: 1px solid var(--stat-divider); border-bottom: 1px solid var(--stat-divider);
 }
 .stat-row { display: contents; }
-.stat-val { color: #9fe89f; font-weight: bold; font-variant-numeric: tabular-nums; text-align: right; }
-.stat-name { color: var(--parchment); opacity: 0.85; font-size: 13px; align-self: center; }
+.stat-val { color: var(--buff); font-weight: bold; font-variant-numeric: tabular-nums; text-align: right; }
+.stat-val.nerf { color: var(--nerf); }
+.stat-name { color: var(--parchment); opacity: 0.85; font-size: 11.5px; align-self: center; }
+/* compare block: divider line, uppercase muted heading, body rows */
+.item-compare { border-top: 1px solid var(--stat-divider); margin-top: 6px; padding-top: 6px; text-align: left; }
+.item-compare-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--compare-head); margin-bottom: 2px; }
+.item-compare-row { font-size: 11px; opacity: 0.85; }
+.item-affinity { font-size: 11px; margin-top: 2px; text-align: left; }
+.item-affinity.ok { color: var(--buff); }
+.item-affinity.off { color: var(--nerf); }
 
 /* unique procedural item pictures inside inventory / equip slots */
 .inv-item-icon { width: 84%; height: 84%; object-fit: contain; pointer-events: none; }
@@ -1205,18 +1268,19 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
   transform: translate(-50%, -50%); border-radius: 50%;
   background: rgba(216, 203, 176, 0.4); border: 2px solid rgba(216, 203, 176, 0.6);
 }
-/* Utility drawer buttons share the cluster's circular language: the same deep
-   purple-dark disc, soft purple rim and shadow as .act-btn, so the drawer and
-   the ability cluster read as one family. */
+/* Utility row buttons share the cluster's circular language: the same deep
+   purple-dark disc, soft purple rim and shadow as .act-btn, so the row and
+   the ability arc read as one family. ALWAYS rendered - no drawer, no toggle,
+   no open/closed state. */
 #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr {
-  position: absolute; pointer-events: auto; width: 56px; height: 56px;
+  position: absolute; pointer-events: auto; width: 48px; height: 48px;
   border-radius: 50%; border: 1px solid rgba(126,102,158,0.5);
   background: radial-gradient(circle at 50% 38%, rgba(38,30,54,0.94), var(--panel));
   box-shadow: 0 3px 10px rgba(0,0,0,0.55);
   font-size: 24px; color: var(--parchment); padding: 0;
   display: flex; align-items: center; justify-content: center; line-height: 1;
 }
-#touch-rotl:active, #touch-rotr:active, #touch-menu-toggle:active { border-color: var(--gold); color: var(--gold); }
+#touch-rotl:active, #touch-rotr:active { border-color: var(--gold); color: var(--gold); }
 #touch-mic:active { border-color: #7ce87c; background: rgba(40, 80, 40, 0.85); transform: scale(1.08); }
 /* red potion flask icon (the cluster/row potion bubble): sized to fill most
    of its round button. */
@@ -1224,21 +1288,19 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 /* Flat-stroke drawer glyphs (backpack / mic / gear / rotate) inherit the
    button's currentColor, so the existing :active gold/green states still tint
    them without any per-icon color rules. */
-.drawer-icon { width: 26px; height: 26px; display: block; }
-#touch-menu-toggle {
-  display: none; position: absolute; pointer-events: auto; right: 14px; bottom: 14px;
-  width: 56px; height: 56px; border-radius: 50%; border: 1px solid rgba(126,102,158,0.5);
-  background: radial-gradient(circle at 50% 38%, rgba(38,30,54,0.94), var(--panel));
-  box-shadow: 0 3px 10px rgba(0,0,0,0.55);
-  font-size: 0; color: var(--parchment); padding: 0;
-  align-items: center; justify-content: center; line-height: 1; z-index: 2;
+.drawer-icon { width: 22px; height: 22px; display: block; }
+
+/* Hold-progress ring on the rotate bubbles: same SVG-stroke technique as the
+   ability cooldown rings, but it FILLS while held (~1s) instead of draining.
+   touch.js drives stroke-dashoffset from 282.74 (empty) down to 0 (full) over
+   the hold duration; reaching 0 is what starts the actual camera rotation. */
+.hold-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); pointer-events: none; }
+.hold-ring-fg {
+  fill: none; stroke: var(--gold); stroke-width: 6; stroke-linecap: round;
+  transition: stroke-dashoffset 0.05s linear;
 }
-/* the glyph lives in ::before so it can SWAP (hamburger to close) without any
-   rotation, and stays perfectly centred by the flex box */
-/* menu launcher glyph: a kebab (more-options) mark, the standard mobile
-   affordance for "open a menu of extra controls". Swaps to a close mark when
-   the drawer is open (see the coarse-pointer block). */
-#touch-menu-toggle::before { content: '\22EE'; font-size: 30px; line-height: 1; letter-spacing: 2px; }
+#touch-rotl.holding, #touch-rotr.holding { border-color: rgba(232,192,90,0.8); }
+#touch-rotl.rotating, #touch-rotr.rotating { border-color: var(--gold); box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 10px rgba(232,192,90,0.4); }
 
 /* Desktop default positions (declared BEFORE the coarse media query so the
    mobile overrides below win on touch devices). */
@@ -1252,29 +1314,17 @@ h4.tt-legendary { color: #ffab4a; text-shadow: 0 0 8px rgba(255,140,26,0.5); }
 #touch-rotl { left: 14px; bottom: 96px; font-size: 34px; }
 #touch-rotr { left: 82px; bottom: 96px; font-size: 34px; }
 
-/* Mobile layout: left thumb moves, abilities live under the right thumb, and
-   every utility (potion, bag, pause, mic, camera rotate) tucks into one menu
-   opened from the bottom-right toggle, so nothing overlaps the abilities or the
-   status banner any more.
+/* Mobile layout: left thumb moves, abilities live under the right thumb.
+   Utilities are a SECOND ROW of circular bubbles nestled tight against the
+   ability arc (inventory, settings, rotate-left, rotate-right), always
+   visible - no drawer to open first. The potion bubble itself lives IN the
+   ability arc (buildActionCluster's _buildPotionBubble), right next to the
+   last ability, not in this utility row.
    Gated on body.touch-mode (set by core/touch.js's isTouchDevice() check, the
    same check buildHotbar() uses to pick the wheel) rather than the
-   @media (pointer: coarse) query directly. A media query and the JS check can
-   disagree on some tablets/emulators - that mismatch was the root cause of the
-   broken hybrid layout (row of buttons from JS + toggle from CSS both showing
-   at once, toggle overlapping ability #4). Keying both off one class means
-   they can never disagree, and touch.js re-toggles the class on
-   resize/orientationchange so it cannot get stuck either. */
+   @media (pointer: coarse) query directly, so the JS layout pick and the CSS
+   never disagree. */
 body.touch-mode {
-  #touch-menu-toggle {
-    display: flex;
-    transition: border-color 0.2s ease, color 0.2s ease,
-                right 0.35s ease, left 0.35s ease, bottom 0.35s ease;
-  }
-  #touch-ui.menu-open #touch-menu-toggle { border-color: var(--gold); color: var(--gold); }
-  /* the ::before glyph swaps to a close mark when open (defined in the base
-     rule). No rotation of the icon. */
-  #touch-ui.menu-open #touch-menu-toggle::before { content: '\2715'; }
-
   /* Action cluster: the BIG basic-attack button sits at the right thumb's
      natural pivot (inset from the literal corner so it lands where a thumb
      rests when gripping the lower-right, not out in the dead corner), and the
@@ -1294,45 +1344,24 @@ body.touch-mode {
   .act-slot-2 { right: 133px; bottom: 68px; }
   .act-slot-3 { right: 140px; bottom: 13px; }
 
-  /* Potion is one more bubble in the cluster: same circular style, sitting
-     right next to the last ability button (slot 3), inside #hotbar so it
-     fades and hides with the rest of the cluster automatically. */
-  .act-potion { width: 44px; height: 44px; right: 96px; bottom: 8px; z-index: 3; }
-
-  /* --- Utility menu: the buttons are ALWAYS rendered so opening/closing can
-     ANIMATE. Closed, each one is collapsed onto the toggle (scaled down, faded,
-     non-interactive); open, it slides out to its slot. A per-button delay makes
-     the cluster grow out smoothly instead of popping in. --- */
-  #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic {
-    left: auto; opacity: 0; transform: scale(0.35); pointer-events: none;
-    transition: right 0.30s cubic-bezier(.34,1.35,.5,1), bottom 0.30s cubic-bezier(.34,1.35,.5,1),
-                left 0.30s cubic-bezier(.34,1.35,.5,1), opacity 0.20s ease, transform 0.22s ease;
-  }
-  #touch-mic.hidden { display: none !important; }
-  #touch-ui.menu-open #touch-inv,
-  #touch-ui.menu-open #touch-pause,
-  #touch-ui.menu-open #touch-rotl,
-  #touch-ui.menu-open #touch-rotr,
-  #touch-ui.menu-open #touch-mic:not(.hidden) {
-    opacity: 1; transform: scale(1); pointer-events: auto;
-  }
-
-  /* PORTRAIT default: the toggle sits flush to the right edge, just ABOVE the
-     ability wheel, and the utilities rise straight UP from it in one clean
-     flush-right column when open. A vertical rise never moves left into the
-     wheel's horizontal space, so this direction is always safe regardless of
-     width and needs no .menu-side/.menu-up gating - the width-aware direction
-     switch (see chooseMenuDirection in touch.js) only matters for the
-     landscape short-screen layout below, where the drawer fans sideways.
-     Slots close up flush behind the toggle now that potion no longer takes
-     one - inv is the first stop, then pause/rotl/rotr/mic follow evenly. */
-  #touch-menu-toggle { right: 14px; bottom: 230px; }
-  #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { right: 14px; bottom: 230px; }
-  #touch-ui.menu-open #touch-inv    { bottom: 296px; transition-delay: 0s; }
-  #touch-ui.menu-open #touch-pause  { bottom: 360px; transition-delay: 0.03s; }
-  #touch-ui.menu-open #touch-rotl   { bottom: 424px; transition-delay: 0.06s; }
-  #touch-ui.menu-open #touch-rotr   { bottom: 488px; transition-delay: 0.09s; }
-  #touch-ui.menu-open #touch-mic    { bottom: 552px; transition-delay: 0.12s; }
+  /* Potion stays IN the cluster (inside #hotbar) so it fades/hides with the
+     rest of the arc automatically; the other three utility bubbles live in
+     #touch-ui (outside #hotbar, viewport-anchored) since they're needed in
+     town too, where the arc itself fades out.
+     Coordinate math: #hotbar sits at right:14/bottom:14 in a 210x210 box, and
+     .act-slot-0 sits at right:49/bottom:138 WITHIN that box, so slot-0's
+     bottom edge in VIEWPORT terms is 14+138=152px, and its left edge is
+     14+49+58=121px from the viewport's right edge. The potion (48px) is
+     placed just left of slot-0 with a small 4px gap, and settings/rotate-L/
+     rotate-R continue the row outward, each touching the next - all four
+     sharing the SAME bottom (152px, i.e. slot-0's bottom edge) so the row
+     reads as one continuous strip nestled under the arc. */
+  .act-potion { width: 48px; height: 48px; right: 125px; bottom: 152px; z-index: 3; }
+  #touch-pause { right: 177px; bottom: 152px; }
+  #touch-rotl  { right: 229px; bottom: 152px; font-size: 24px; left: auto; }
+  #touch-rotr  { right: 281px; bottom: 152px; font-size: 24px; left: auto; }
+  #touch-inv, #touch-mic { display: none; } /* inventory lives in Settings; mic keeps its own desktop-style corner spot when voice chat is on */
+  #touch-mic:not(.hidden) { display: flex; right: 14px; bottom: 300px; left: auto; }
 }
 
 /* First-time 3-step contextual tutorial (Embervale, first touch visit only):
@@ -1480,12 +1509,10 @@ body.touch-mode #chat-title { font-size: 11px; }
 
 /* Landscape phones: shorter screen — shrink the stack and minimap so nothing collides. */
 @media (max-height: 540px) and (pointer: coarse), (max-height: 540px) and (max-width: 1000px) {
-  /* short screen: smaller controls, and a tighter menu that still tucks to the
-     right (all positions stay LEFT of the shrunken minimap). */
-  #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr, #touch-menu-toggle { width: 46px; height: 46px; font-size: 19px; }
-  #touch-inv .drawer-icon, #touch-mic .drawer-icon, #touch-pause .drawer-icon, #touch-rotl .drawer-icon, #touch-rotr .drawer-icon { width: 22px; height: 22px; }
-  #touch-rotl, #touch-rotr { font-size: 27px; }
-  #touch-menu-toggle::before { font-size: 22px; }
+  /* short screen: smaller utility bubbles so the row stays clear of the minimap. */
+  #touch-pause, #touch-inv, #touch-mic, #touch-rotl, #touch-rotr { width: 40px; height: 40px; font-size: 19px; }
+  #touch-inv .drawer-icon, #touch-mic .drawer-icon, #touch-pause .drawer-icon, #touch-rotl .drawer-icon, #touch-rotr .drawer-icon { width: 19px; height: 19px; }
+  #touch-rotl, #touch-rotr { font-size: 20px; }
   #chat { bottom: 128px; width: min(44vw, 300px); }
   #chat-recent { max-height: 32vh; }
   #minimap { width: 84px; height: 84px; }
@@ -1520,54 +1547,31 @@ body.touch-mode #chat-title { font-size: 11px; }
   body.touch-mode .act-slot-1 { right: 84px;  bottom: 92px; }
   body.touch-mode .act-slot-2 { right: 110px; bottom: 54px; }
   body.touch-mode .act-slot-3 { right: 116px; bottom: 10px; }
-  body.touch-mode .act-potion { width: 38px; height: 38px; right: 78px; bottom: 4px; }
+  /* Utility row, short-screen geometry: #hotbar sits at right:26/bottom:22 here,
+     slot-0 (44px) at right:42/bottom:112 within it, so slot-0's bottom edge in
+     viewport terms is 22+112=134px and its left edge is 26+42+44=112px from the
+     viewport's right edge. Same nestled-row logic as the base layout, just at
+     the smaller 40px bubble size used on short screens. */
+  body.touch-mode .act-potion { width: 40px; height: 40px; right: 116px; bottom: 134px; }
   body.touch-mode .act-potion .potion-icon { width: 19px; height: 19px; }
+  body.touch-mode #touch-pause { right: 160px; bottom: 134px; }
+  body.touch-mode #touch-rotl  { right: 204px; bottom: 134px; }
+  body.touch-mode #touch-rotr  { right: 248px; bottom: 134px; }
   body.touch-mode .act-basic .act-icon { font-size: 26px; }
   body.touch-mode .act-icon { font-size: 20px; }
 }
-/* LANDSCAPE touch (short screen + touch-mode only): the ability wheel owns the
-   bottom-right, so the toggle goes to the bottom-LEFT corner and the utilities
-   fan out to the RIGHT along the bottom edge - well clear of the wheel. Each
-   one is collapsed on the toggle when closed and slides right (staggered)
-   when open. touch.js only applies .menu-side here when there's enough width
-   for the full fan to clear the wheel (see the width-aware JS); narrow short
-   screens fall back to .menu-up, stacking straight up from the bottom-left
-   corner instead, which stays clear of the wheel in any width. */
-@media (max-height: 540px) {
-  body.touch-mode {
-    #touch-menu-toggle { left: 12px; right: auto; bottom: 12px; }
-    #touch-inv, #touch-pause, #touch-rotl, #touch-rotr, #touch-mic { left: 12px; right: auto; bottom: 12px; }
-    #touch-ui.menu-open.menu-side #touch-inv    { left: 66px;  right: auto; bottom: 12px; transition-delay: 0s; }
-    #touch-ui.menu-open.menu-side #touch-pause  { left: 120px; right: auto; bottom: 12px; transition-delay: 0.03s; }
-    #touch-ui.menu-open.menu-side #touch-rotl   { left: 174px; right: auto; bottom: 12px; transition-delay: 0.06s; }
-    #touch-ui.menu-open.menu-side #touch-rotr   { left: 228px; right: auto; bottom: 12px; transition-delay: 0.09s; }
-    #touch-ui.menu-open.menu-side #touch-mic    { left: 282px; right: auto; bottom: 12px; transition-delay: 0.12s; }
-    /* not enough width to fan right without reaching the wheel: stack upward
-       from the bottom-left corner instead. */
-    #touch-ui.menu-open.menu-up #touch-inv    { left: 12px; right: auto; bottom: 66px;  transition-delay: 0s; }
-    #touch-ui.menu-open.menu-up #touch-pause  { left: 12px; right: auto; bottom: 120px; transition-delay: 0.03s; }
-    #touch-ui.menu-open.menu-up #touch-rotl   { left: 12px; right: auto; bottom: 174px; transition-delay: 0.06s; }
-    #touch-ui.menu-open.menu-up #touch-rotr   { left: 12px; right: auto; bottom: 228px; transition-delay: 0.09s; }
-    #touch-ui.menu-open.menu-up #touch-mic    { left: 12px; right: auto; bottom: 282px; transition-delay: 0.12s; }
-  }
-}
-/* In town the ability wheel fades away entirely (see .in-town #hotbar below),
-   so the toggle's normal spot (above the wheel in portrait, bottom-left away
-   from the wheel in landscape) is no longer the natural thumb position. Slide
-   it down into the bottom-right corner in EITHER orientation while in town,
-   and slide it back to its dungeon spot the moment play resumes. The drawer
-   itself still opens relative to wherever the toggle currently sits. */
-body.touch-mode.in-town #touch-menu-toggle { left: auto; right: 14px; bottom: 14px; }
 /* the cluster container is click-through; only its buttons capture touches, so
    attack taps that fall between the arc buttons still reach the game. */
 .touch-mode #hotbar { pointer-events: none; transition: opacity 0.3s ease; }
 .touch-mode #hotbar .act-btn { pointer-events: auto; }
-/* The action cluster is a dungeon combat tool: fade it right out in town, and
-   while an interact/descend prompt is up so it never sits under that button. */
-.touch-mode.in-town #hotbar,
-.touch-mode.show-interact #hotbar { opacity: 0; pointer-events: none; }
-.touch-mode.in-town #hotbar .act-btn,
-.touch-mode.show-interact #hotbar .act-btn { pointer-events: none; }
+/* The FIGHTING buttons (basic attack + 4 abilities) are a dungeon combat tool:
+   fade them out in town, and while an interact/descend prompt is up so they
+   never sit under that prompt. The potion + utility row (settings, rotate)
+   stay visible and usable in town too - per the brief, "town shows the same
+   rows, abilities hidden, utilities visible" - so they are excluded from this
+   fade via :not(.act-potion). */
+.touch-mode.in-town #hotbar > .act-btn:not(.act-potion),
+.touch-mode.show-interact #hotbar > .act-btn:not(.act-potion) { opacity: 0; pointer-events: none; }
 /* When any full-screen menu/overlay is open, hide the touch controls so the
    joystick and menu launcher never float on top of the inventory or settings. */
 body:has(.overlay.visible) #touch-ui { display: none !important; }
