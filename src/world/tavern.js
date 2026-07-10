@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, WALL } from './dungeon.js';
 import { TILE, tileToWorld, buildNpcModel, pushNpcAnimDriver } from './meshbuilder.js';
-import { makeWoodTexture, makePaintingTexture, makePlankTexture, makeHearthStoneTexture, makeTavernSignTexture } from './textures.js';
+import { makeWoodTexture, makePlankTexture, makeHearthStoneTexture, makeTavernSignTexture } from './textures.js';
 
 // "The Sleeping Golem" — the tavern interior. Warm, safe, and populated.
 // 16 x 12 tiles (enlarged from 12x9 - the owner found the room cramped and
@@ -93,19 +93,73 @@ export function buildTavernInterior() {
   // y=2.55 rafters sliced across the view and read as mid-room walls that
   // blocked sight of the table areas.
 
-  // framed procedural paintings on the side walls (each is a unique dusk scene)
-  const mkPainting = (x, z, roty) => {
-    const p = new THREE.Group();
-    p.add(new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.72, 0.05), darkWood));
-    const art = new THREE.Mesh(new THREE.PlaneGeometry(0.78, 0.58), new THREE.MeshStandardMaterial({ map: makePaintingTexture(), roughness: 0.9 }));
-    art.position.z = 0.03;
-    p.add(art);
-    p.position.set(x, 1.55, z); p.rotation.y = roty;
-    group.add(p);
+  // Recessed window openings on the side + entry walls, matching the
+  // exterior facade's fenestration (2 flanking the front door, 2 per long
+  // side) so the room isn't the solid, windowless box the user reported —
+  // rotating the camera to where an outside window sits now finds a real
+  // framed opening in here too, instead of a blank wall.
+  const mkWindow = (x, z, roty) => {
+    const grp = new THREE.Group();
+    // a darker recessed reveal set back into the wall gives the opening real
+    // depth instead of reading as a flat decal
+    const reveal = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.86, 0.1),
+      new THREE.MeshStandardMaterial({ color: 0x241a12, roughness: 1 }));
+    reveal.position.z = -0.04;
+    grp.add(reveal);
+    // warm amber pane (reads as the firelit room's glow reflected back, or a
+    // warm night sky outside — either way, alive, not a black hole)
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6),
+      new THREE.MeshStandardMaterial({ color: 0xffb45e, emissive: 0xff8a2a, emissiveIntensity: 0.55, roughness: 0.6 }));
+    pane.position.z = 0.005;
+    grp.add(pane);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.08, 0.12), darkWood); top.position.y = 0.35;
+    const bot = top.clone(); bot.position.y = -0.35;
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.78, 0.12), darkWood); l.position.x = -0.35;
+    const r = l.clone(); r.position.x = 0.35;
+    grp.add(top, bot, l, r);
+    const mV = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.6, 0.04), darkWood); mV.position.z = 0.02;
+    const mH = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.04), darkWood); mH.position.z = 0.02;
+    grp.add(mV, mH);
+    grp.position.set(x, 1.55, z); grp.rotation.y = roty;
+    group.add(grp);
   };
-  mkPainting(TILE + 0.04, 2.2 * TILE, Math.PI / 2);          // west wall
-  mkPainting(TILE + 0.04, 5.4 * TILE, Math.PI / 2);
-  mkPainting(W * TILE - TILE - 0.04, 3.4 * TILE, -Math.PI / 2); // east wall
+  // west wall (2, spaced away from the lantern at 3.5*TILE)
+  mkWindow(TILE + 0.04, 2.2 * TILE, Math.PI / 2);
+  mkWindow(TILE + 0.04, 5.4 * TILE, Math.PI / 2);
+  // east wall (2, spaced away from the lantern at 5.0*TILE and the hearth)
+  mkWindow(W * TILE - TILE - 0.04, 1.6 * TILE, -Math.PI / 2);
+  mkWindow(W * TILE - TILE - 0.04, 3.4 * TILE, -Math.PI / 2);
+  // entry wall (2, flanking the south exit gap — same wall the exterior door sits on)
+  mkWindow(6.5 * TILE, (H * TILE - TILE) - 0.04, Math.PI);
+  mkWindow(10 * TILE, (H * TILE - TILE) - 0.04, Math.PI);
+
+  // ---- exit door: a real timber frame + a leaf propped open against the
+  // inner wall at the south gap (matches the exterior KayKit arch style),
+  // so "stepping outside" reads as leaving through an actual doorway rather
+  // than walking through a bare hole in the wall (user report: "the door to
+  // leave doesn't even make sense"). The gap itself (its walkable width) is
+  // untouched — this only dresses its edges.
+  const gapWidth = 4, gapCenterX = 8 * TILE + TILE / 2; // matches exit tile (8, 10)
+  const gapZ = H * TILE - TILE / 2;
+  const jambGeo = new THREE.BoxGeometry(0.16, wallH, 0.3);
+  const jambL = new THREE.Mesh(jambGeo, darkWood); jambL.position.set(gapCenterX - gapWidth / 2, wallH / 2, gapZ);
+  const jambR = jambL.clone(); jambR.position.x = gapCenterX + gapWidth / 2;
+  const header = new THREE.Mesh(new THREE.BoxGeometry(gapWidth + 0.32, 0.2, 0.3), darkWood);
+  header.position.set(gapCenterX, wallH - 0.1, gapZ);
+  group.add(jambL, jambR, header);
+  // door leaf, hinged at the west jamb and swung open into the room so it
+  // reads as a real door without blocking the walkway
+  const leafH = wallH - 0.3, leafW = gapWidth / 2 - 0.1;
+  const leafPivot = new THREE.Group();
+  leafPivot.position.set(gapCenterX - gapWidth / 2, 0, gapZ - 0.14);
+  leafPivot.rotation.y = -1.3;
+  const leaf = new THREE.Mesh(new THREE.BoxGeometry(leafW, leafH, 0.08), darkWood);
+  leaf.position.set(leafW / 2, leafH / 2, 0);
+  const leafHandle = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8),
+    new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.35 }));
+  leafHandle.position.set(leafW - 0.15, leafH / 2, 0.06);
+  leafPivot.add(leaf, leafHandle);
+  group.add(leafPivot);
 
   // ---- the bar (on BAR_TILES row) ----
   const barCenter = tileToWorld(6.5, 1);

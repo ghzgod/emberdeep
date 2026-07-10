@@ -2180,106 +2180,149 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
         smokePuffs.push({ mesh: puff, baseY, phase: (i / 5) * Math.PI * 2, speed: 0.35 + i * 0.05, kind: 'smoke' });
       }
     }
-    // warm windows: framed + mullioned, INSET into the plaster (behind the
-    // timber frame layer) and sized to sit between the beams — facade layers
-    // never overlap: plaster face < window (+0.01) < mullions/frame (+0.02+).
-    // Added directly to `tavern` (not `shell`) so they survive the modeled
-    // CC0 inn swap too — the model's own baked windows are unlit glass, so
-    // these glowing panes are what actually gives the facade a lived-in,
-    // warm-at-night look either way.
+    // ---- Facade dressing: windows, hanging sign, and a single coherent
+    // door (frame + leaf + handle + a patch masking the modeled inn's own
+    // baked-on door art). All of it is built by `buildFacade`, called once
+    // immediately below against the PROCEDURAL shell's known wall planes (so
+    // it looks right before inn.glb loads, and stays correct forever if it
+    // never does), then called a second time — after clearing the first
+    // pass — from inside the inn's swapInModel callback further down, once
+    // that model's REAL measured bounding box is known. Previously this
+    // dressing was positioned once from the procedural shell's W/D and never
+    // revisited, so once the modeled inn swapped in, windows/door/sign could
+    // float off or sink into its real (differently proportioned) walls —
+    // the user's "bare wall with a small ass window that isn't even there"
+    // report. It also used to add a SECOND fallback door assembly directly
+    // to `tavern` on top of the procedural one already in `shell`, which is
+    // the source of the reported double/nonsensical door.
     const glow = new THREE.MeshBasicMaterial({ color: 0xffb45e });
-    const frontFace = D / 2 - 0.2; // plaster front plane
-    const mkWindow = (x, z, roty) => {
-      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.46), glow.clone());
-      win.position.set(x, 1.32, z);
-      win.rotation.y = roty;
-      tavern.add(win);
-      // wood frame around the pane
-      const frame = new THREE.Group();
-      const top = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.05), timber); top.position.y = 0.26;
-      const bot = top.clone(); bot.position.y = -0.26;
-      const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.58, 0.05), timber); l.position.x = -0.27;
-      const r = l.clone(); r.position.x = 0.27;
-      frame.add(top, bot, l, r);
-      frame.position.copy(win.position);
-      frame.rotation.y = roty;
-      tavern.add(frame);
-      // mullions: a cross dividing the pane into four small lights
-      const mV = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.46, 0.03), timber);
-      const mH = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.03), timber);
-      mV.position.copy(win.position); mV.rotation.y = roty;
-      mH.position.copy(win.position); mH.rotation.y = roty;
-      tavern.add(mV, mH);
-      // each pane has its own cloned material, so each needs its own
-      // townGlows entry — the day/night driver walks the list per-mesh.
-      townGlows.push({ mesh: win, base: new THREE.Color(0xffb45e), kind: 'basic' });
-      return win;
-    };
-    mkWindow(-W * 0.28, frontFace + 0.01, 0);
-    const sideFace = (W - 0.4) / 2;
-    mkWindow(-sideFace - 0.01, 0, -Math.PI / 2);
-    // door frame + door + step
-    const frameMat = timber;
-    const frameTop = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.14), frameMat);
-    frameTop.position.set(W * 0.28, 1.58, D / 2 - 0.1);
-    const frameL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.6, 0.14), frameMat);
-    frameL.position.set(W * 0.28 - 0.4, 0.78, D / 2 - 0.1);
-    const frameR = frameL.clone();
-    frameR.position.x = W * 0.28 + 0.4;
-    shell.add(frameTop, frameL, frameR);
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.5, 0.1), timber);
-    door.position.set(W * 0.28, 0.75, D / 2 - 0.12);
-    shell.add(door);
-    // door handle/knob — on the procedural fallback door AND, since the
-    // modeled inn's own baked door has no handle at all, a second one added
-    // directly to `tavern` at the same doorstep-aligned spot so a real
-    // handle reads on the door either way.
-    const handleMat = new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.35 });
-    const doorHandle = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), handleMat);
-    doorHandle.position.set(W * 0.28 + 0.22, 0.85, D / 2 - 0.06);
-    shell.add(doorHandle);
-    const modelDoorHandle = doorHandle.clone();
-    modelDoorHandle.position.set(W * 0.28 + 0.22, 0.85, D / 2 + 0.02);
-    tavern.add(modelDoorHandle);
-    // Modeled door + frame, proud of the facade: the inn.glb model's own
-    // baked door only reaches ~0.98x hero height (a baked proportion cap in
-    // the source model, not fixable by scaling the whole building further
-    // without making it gaunt), so a real, correctly-scaled entrance is
-    // layered in front of it here -- the same KayKit doorway asset already
-    // used for dungeon door archways (public/models/dungeon/wall_doorway.glb),
-    // just scaled to a ~1.9-unit-tall opening for a human-height cottage door
-    // instead of a 3-unit dungeon wall cell. Added directly to `tavern` (not
-    // `shell`), so it stands in front of the procedural fallback AND the
-    // modeled inn either way. Purely additive: if the GLB fails to load,
-    // nothing is removed, so the sign/windows/knob and whichever building
-    // shell is showing still read fine on their own.
-    loadDungeonTemplate('doorArch').then((doorT) => {
-      if (!doorT || tavern.parent !== group) return; // town torn down/rebuilt meanwhile
-      const doorH = 1.9, doorW = 1.2, doorThick = 0.4;
-      const sx = doorW / doorT.size.x, sy = doorH / doorT.size.y, sz = doorThick / doorT.size.z;
-      const doorGroup = buildArchInstances(tintTemplate(doorT, timber.color, 0.35), [
-        { x: W * 0.28, y: 0, z: D / 2 + 0.08, ry: 0, sx, sy, sz },
-      ]);
-      tavern.add(doorGroup);
-    });
-    const step = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.14, 0.4), new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.95 }));
-    step.position.set(W * 0.28, 0.07, D / 2 + 0.25);
-    tavern.add(step);
-    // hanging sign: an iron bracket bolted above the door, two chains, and a
-    // real wooden board reading "Emberville Tavern" (was a blank plank with
-    // a stray mug and a bare beam floating against the wall — replaced with
-    // a proper hung sign).
-    const ironMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.55, roughness: 0.5 });
-    const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.7), ironMat);
-    bracket.position.set(W * 0.28 + 0.85, 2.35, D / 2 + 0.15);
-    const chainL = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.3, 5), ironMat);
-    chainL.position.set(W * 0.28 + 0.85, 2.18, D / 2 - 0.1);
-    const chainR = chainL.clone();
-    chainR.position.z = D / 2 + 0.4;
-    const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.9),
-      new THREE.MeshStandardMaterial({ map: makeExteriorSignTexture(), roughness: 0.85 }));
-    signBoard.position.set(W * 0.28 + 0.85, 1.95, D / 2 + 0.15);
-    tavern.add(bracket, chainL, chainR, signBoard);
+    const doorX = W * 0.28; // fixed world offset — matches the doorstep enter-trigger in game.js (untouched)
+    let facadeGen = 0;
+    let facadeState = { objs: [], glowEntries: [] };
+    function clearFacade() {
+      for (const o of facadeState.objs) {
+        tavern.remove(o);
+        o.traverse?.((c) => c.geometry?.dispose?.());
+      }
+      for (const e of facadeState.glowEntries) {
+        const i = townGlows.indexOf(e);
+        if (i >= 0) townGlows.splice(i, 1);
+      }
+      facadeGen++;
+      facadeState = { objs: [], glowEntries: [] };
+    }
+    // halfW = half the building's real width (X); frontZ = the real
+    // south/door-facing wall's outer surface (+Z); sideSpan = half the
+    // building's real depth, used to spread windows along the east/west walls.
+    function buildFacade(halfW, frontZ, sideSpan) {
+      const myGen = facadeGen;
+      const objs = [];
+      const glowEntries = [];
+      const add = (...m) => { objs.push(...m); tavern.add(...m); };
+      const mkWindow = (x, z, roty) => {
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.46), glow.clone());
+        win.position.set(x, 1.32, z);
+        win.rotation.y = roty;
+        // wood frame around the pane
+        const frame = new THREE.Group();
+        const top = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.05), timber); top.position.y = 0.26;
+        const bot = top.clone(); bot.position.y = -0.26;
+        const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.58, 0.05), timber); l.position.x = -0.27;
+        const r = l.clone(); r.position.x = 0.27;
+        frame.add(top, bot, l, r);
+        frame.position.copy(win.position);
+        frame.rotation.y = roty;
+        // mullions: a cross dividing the pane into four small lights
+        const mV = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.46, 0.03), timber);
+        const mH = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.03), timber);
+        mV.position.copy(win.position); mV.rotation.y = roty;
+        mH.position.copy(win.position); mH.rotation.y = roty;
+        add(win, frame, mV, mH);
+        // each pane has its own cloned material, so each needs its own
+        // townGlows entry — the day/night driver walks the list per-mesh.
+        const entry = { mesh: win, base: new THREE.Color(0xffb45e), kind: 'basic' };
+        townGlows.push(entry);
+        glowEntries.push(entry);
+      };
+      // realistic fenestration: 2 windows flanking the front door, 2 more on
+      // each long side wall (evenly spaced, same sill height throughout).
+      // The door sits off-center (doorX), and how much wall is left between
+      // it and each corner depends on the model's real measured width. On a
+      // real building narrower than the procedural fallback assumed, the
+      // door can end up close enough to one corner that there's no room for
+      // a window between it and that corner at all — in that case both
+      // flanking windows go on the side that actually has room, rather than
+      // cramming one into (or past) the doorway's own archway.
+      const doorHalfW = 0.6; // matches the door assembly's half-width, defined below
+      const eastMargin = halfW - (doorX + doorHalfW);
+      const westMargin = (doorX - doorHalfW) + halfW;
+      if (eastMargin > 0.9) {
+        mkWindow(doorX - Math.min(1.7, westMargin - 0.5), frontZ + 0.01, 0);
+        mkWindow(doorX + Math.min(1.6, eastMargin - 0.3), frontZ + 0.01, 0);
+      } else {
+        mkWindow(doorX - Math.min(1.3, westMargin - 0.9), frontZ + 0.01, 0);
+        mkWindow(doorX - Math.min(2.6, westMargin - 0.5), frontZ + 0.01, 0);
+      }
+      const sideZ = sideSpan * 0.45;
+      // The measured halfW is the model's OVERALL bounding extent, which on
+      // the short gable ends includes the roof eave's overhang — the actual
+      // vertical wall face sits inset from that by roughly the eave depth, so
+      // a window placed exactly at halfW ends up floating out past the wall
+      // under the eave's shadow rather than sitting flush on the visible
+      // timber face. sideInset pulls it back to the wall itself.
+      const sideInset = halfW * 0.8;
+      mkWindow(-sideInset, -sideZ, -Math.PI / 2);
+      mkWindow(-sideInset, sideZ, -Math.PI / 2);
+      mkWindow(sideInset, -sideZ, Math.PI / 2);
+      mkWindow(sideInset, sideZ, Math.PI / 2);
+
+      // ---- one coherent door: a wall-colored patch masks the model's own
+      // baked door art at the real wall plane, a closed timber leaf sits
+      // just proud of it, the KayKit doorway arch frames the opening, and a
+      // single handle finishes it — no duplicated layers.
+      const doorH = 1.9, doorW = 1.2;
+      const mask = new THREE.Mesh(new THREE.PlaneGeometry(doorW + 0.5, doorH + 0.5), plaster);
+      mask.position.set(doorX, doorH / 2 - 0.05, frontZ + 0.005);
+      const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.1, doorH - 0.1, 0.08), timber);
+      doorLeaf.position.set(doorX, doorH / 2, frontZ + 0.04);
+      const handleMat = new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.35 });
+      const doorHandle = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), handleMat);
+      doorHandle.position.set(doorX + 0.22, doorH / 2 - 0.05, frontZ + 0.09);
+      add(mask, doorLeaf, doorHandle);
+      const step = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.14, 0.4), new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.95 }));
+      step.position.set(doorX, 0.07, frontZ + 0.3);
+      add(step);
+      // the KayKit doorway arch (same asset used for dungeon door archways)
+      // frames the opening; loaded (and cached) async, so it's added in
+      // place once resolved — guarded by `myGen` so a stale load from a
+      // pass that's since been cleared can't re-add itself after the fact.
+      loadDungeonTemplate('doorArch').then((doorT) => {
+        if (myGen !== facadeGen || !doorT || tavern.parent !== group) return;
+        const sx = doorW / doorT.size.x, sy = doorH / doorT.size.y, sz = 0.4 / doorT.size.z;
+        const doorGroup = buildArchInstances(tintTemplate(doorT, timber.color, 0.35), [
+          { x: doorX, y: 0, z: frontZ + 0.1, ry: 0, sx, sy, sz },
+        ]);
+        add(doorGroup);
+      });
+
+      // hanging sign: an iron bracket bolted above the door, two chains, and
+      // a real wooden board reading "Emberville Tavern".
+      const ironMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.55, roughness: 0.5 });
+      const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.7), ironMat);
+      bracket.position.set(doorX + 0.85, 2.35, frontZ + 0.2);
+      const chainL = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.3, 5), ironMat);
+      chainL.position.set(doorX + 0.85, 2.18, frontZ - 0.05);
+      const chainR = chainL.clone();
+      chainR.position.z = frontZ + 0.45;
+      const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.9),
+        new THREE.MeshStandardMaterial({ map: makeExteriorSignTexture(), roughness: 0.85 }));
+      signBoard.position.set(doorX + 0.85, 1.95, frontZ + 0.2);
+      add(bracket, chainL, chainR, signBoard);
+
+      facadeState = { objs, glowEntries };
+    }
+    // First pass: procedural shell's own wall planes (fallback + pre-load look).
+    buildFacade((W - 0.4) / 2, D / 2 - 0.2, D / 2 - 0.2);
     // barrel + bench outside, near the door (barrel swaps to the modeled one).
     // Held in its own subgroup (not loose in `tavern`) so breakNear() can
     // smash just the barrel without touching the rest of the building.
@@ -2316,6 +2359,17 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       if (!tpl) return null;
       const node = buildModelMesh(tpl, 1);
       node.scale.set(6.2, 5.8, 5.4);
+      // Measure the model's REAL world-space extent (after scaling) instead
+      // of trusting the procedural shell's W/D, and rebuild the facade
+      // dressing flush against it — this is what fixes windows/door/sign
+      // floating off or sinking into the real wall once the swap lands.
+      node.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(node);
+      const halfW = Math.max(Math.abs(box.min.x), Math.abs(box.max.x));
+      const sideSpan = Math.max(Math.abs(box.min.z), Math.abs(box.max.z));
+      const frontZ = box.max.z; // south wall — same side the doorstep trigger faces
+      clearFacade();
+      buildFacade(halfW, frontZ, sideSpan);
       return node;
     });
 
