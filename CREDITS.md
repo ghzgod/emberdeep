@@ -31,7 +31,7 @@ Per-act music tracks were re-encoded with ffmpeg to keep download weight low (mo
 
 | Pack | Author | License | Used for |
 |---|---|---|---|
-| [KayKit Character Pack: Adventurers](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0) | Kay Lousberg (kaylousberg.com) | CC0 | Animated hero models: Knight, Mage, Rogue (Ranger) with idle/run/attack/death animations |
+| [KayKit Character Pack: Adventurers](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0) | Kay Lousberg (kaylousberg.com) | CC0 | Animated hero models: Knight, Mage, Rogue (Ranger) with idle/run/attack/death animations; Barbarian + unhooded Rogue as townsfolk-only bodies (vendors, barkeep, patrons) so NPCs never mirror a player hero |
 | [KayKit Dungeon Remastered](https://github.com/KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0) | Kay Lousberg (kaylousberg.com) | CC0 | Dungeon floor tiles (intact/rocky/broken), wall segments (intact/cracked/broken), pillar, door archway, mounted torch, rubble/debris piles, iron floor grate (`public/models/dungeon/`); instanced per grid cell with random variant + rotation, tinted per-act. The floor grate (`floor_tile_big_grate.gltf.glb`) doubles as the descend-stairs hatch lid (procedural box lid is the load-failure fallback); the door archway (`wall_doorway.glb`, frame + door leaf) also dresses the Emberville Tavern's real entrance in town, scaled down to human-door height in front of the inn model's own undersized baked door |
 
 Enemy models and textures are procedurally generated in-engine.
