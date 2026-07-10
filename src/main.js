@@ -39,18 +39,35 @@ try {
 // (common right after a deploy) a visibilitychange re-check would reload the
 // player on every foreground — the "loading loop after talking to a vendor".
 // Players pick up new deploys on their next manual refresh instead.
-async function checkForUpdate() {
+async function checkForUpdate(silent = false) {
   try {
     const res = await fetch(import.meta.env.BASE_URL + 'version.json', { cache: 'no-store' });
     if (!res.ok) return;
     const { id } = await res.json();
     if (id && typeof __BUILD_ID__ !== 'undefined' && id !== __BUILD_ID__) {
       const url = new URL(location.href);
-      if (url.searchParams.get('u') !== id) { // one-shot, loop-guarded
-        url.searchParams.set('u', id);
-        location.replace(url.toString());
-      }
+      if (url.searchParams.get('u') === id) return; // loop guard
+      url.searchParams.set('u', id);
+      if (!silent) { location.replace(url.toString()); return; }
+      // Mid-session (foreground re-check): never auto-reload - offer a tap.
+      // A long-lived tab otherwise plays stale builds forever, since the
+      // startup check above only runs once.
+      if (document.getElementById('update-toast')) return;
+      const toast = document.createElement('button');
+      toast.id = 'update-toast';
+      toast.textContent = 'Update ready — tap to reload';
+      toast.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:200;'
+        + 'background:rgba(24,20,34,0.95);color:#e8c05a;border:1px solid #4a3b5c;border-radius:10px;'
+        + 'padding:10px 18px;font:14px Georgia,serif;letter-spacing:0.5px;cursor:pointer;'
+        + 'box-shadow:0 2px 16px rgba(0,0,0,0.8)';
+      toast.onclick = () => location.replace(url.toString());
+      document.body.appendChild(toast);
     }
   } catch { /* offline or dev server — ignore */ }
 }
 checkForUpdate();
+// Foreground re-checks surface a non-disruptive toast (never an auto-reload,
+// which caused the historical "loading loop after talking to a vendor").
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) checkForUpdate(true);
+});
