@@ -460,7 +460,7 @@ export class Game {
   // the host's world by stepping through the dungeon portal.
   enterWorld() {
     if (net.active && !net.isHost) {
-      net.send({ t: 'hello', cls: this.player.classId, name: this.playerName(), gn: this.player.gender, sk: this.player.skinTone });
+      net.send({ t: 'hello', cls: this.player.classId, name: this.playerName(), gn: this.player.gender, sk: this.player.skinTone, hc: this.player.hairColor });
       this.localTown = true;
     }
     this.loadTown();
@@ -1518,14 +1518,14 @@ export class Game {
       // Only announce a genuinely new hero; a guest re-sending `hello` for one we
       // already track must not spam join notices onto everyone's screen.
       const known = this.remotePlayers.has(from);
-      this.ensureRemotePlayer(from, msg.cls, msg.name, { gender: msg.gn, skinTone: msg.sk });
+      this.ensureRemotePlayer(from, msg.cls, msg.name, { gender: msg.gn, skinTone: msg.sk, hairColor: msg.hc });
       this.sendLoadout(); // let the (re)joining hero see our gear
       if (known) return;
       if (this.player) this.ui.floaters.spawn(this.player.pos, `${msg.name || 'A hero'} has joined!`, 'crit');
       net.send({ t: 'notice', txt: `${msg.name || 'A hero'} has joined the room!` });
     });
     net.on('pos', (msg, from) => {
-      const rp = this.ensureRemotePlayer(from, msg.cls, null, { gender: msg.gn, skinTone: msg.sk });
+      const rp = this.ensureRemotePlayer(from, msg.cls, null, { gender: msg.gn, skinTone: msg.sk, hairColor: msg.hc });
       rp.target.set(msg.x, 0, msg.z);
       rp.aim = msg.aim;
       rp.moving = !!msg.mv;
@@ -1606,7 +1606,7 @@ export class Game {
       const myId = net.peer?.id;
       for (const pl of msg.pl) {
         if (pl.id === myId) continue;
-        const rp = this.ensureRemotePlayer(pl.id, pl.cls, pl.nm, { gender: pl.gn, skinTone: pl.sk });
+        const rp = this.ensureRemotePlayer(pl.id, pl.cls, pl.nm, { gender: pl.gn, skinTone: pl.sk, hairColor: pl.hc });
         rp.target.set(pl.x, 0, pl.z);
         rp.aim = pl.aim;
         rp.moving = !!pl.mv;
@@ -1744,7 +1744,7 @@ export class Game {
       if (this.settings.voiceMode !== 'off') voice.enable(this.settings.voiceMode, this.settings.voiceThreshold);
       net.broadcastRoster();
     } else {
-      net.send({ t: 'hello', cls: this.player.classId, name: this.playerName(), gn: this.player.gender, sk: this.player.skinTone });
+      net.send({ t: 'hello', cls: this.player.classId, name: this.playerName(), gn: this.player.gender, sk: this.player.skinTone, hc: this.player.hairColor });
       this.ui.floaters.spawn(this.player.pos, 'Room restored.', 'heal');
     }
   }
@@ -2517,13 +2517,14 @@ export class Game {
       if (name && rp.name !== name) { rp.name = name; this.updateNametag(rp, false); }
       return rp;
     }
-    // thread the peer's name AND their creation choices (gender + skin tone) so
-    // the hero we render for them matches what they see on their own screen.
-    const opts = { gender: appearance?.gender, skinTone: appearance?.skinTone };
+    // thread the peer's name AND their creation choices (gender + skin tone +
+    // hair color) so the hero we render for them matches what they see on
+    // their own screen.
+    const opts = { gender: appearance?.gender, skinTone: appearance?.skinTone, hairColor: appearance?.hairColor || null };
     const anim = buildAnimatedHero(cls, name || 'Hero', opts);
     const mesh = anim ? anim.mesh : buildHeroMesh(CLASSES[cls] || CLASSES.knight, name || 'Hero');
     this.scene.add(mesh);
-    rp = { mesh, anim, cls, name: name || 'Hero', gender: opts.gender || 'male', skinTone: opts.skinTone || 'light', target: new THREE.Vector3(), aim: 0, moving: false, dead: false, away: false, level: 1, hp: 0, maxHp: 0 };
+    rp = { mesh, anim, cls, name: name || 'Hero', gender: opts.gender || 'male', skinTone: opts.skinTone || 'light', hairColor: opts.hairColor || null, target: new THREE.Vector3(), aim: 0, moving: false, dead: false, away: false, level: 1, hp: 0, maxHp: 0 };
     this.updateNametag(rp, false);
     this.remotePlayers.set(id, rp);
     return rp;
@@ -4600,7 +4601,7 @@ export class Game {
           t: 'pos', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
           aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
           dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(),
-          gn: p.gender, sk: p.skinTone,
+          gn: p.gender, sk: p.skinTone, hc: p.hairColor,
           aw: this.myZone(), lvl: p.level, hp: Math.round(p.hp), mhp: p.maxHp,
           au: this.heroAuraTier(),
         });
@@ -4620,7 +4621,7 @@ export class Game {
       id: 'host', x: +p.pos.x.toFixed(2), z: +p.pos.z.toFixed(2),
       aim: +p.aimAngle.toFixed(2), mv: (p.moveDir.x || p.moveDir.z) ? 1 : 0,
       dead: p.dead ? 1 : 0, cls: p.classId, nm: this.playerName(), aw: this.myZone(),
-      gn: p.gender, sk: p.skinTone,
+      gn: p.gender, sk: p.skinTone, hc: p.hairColor,
       lvl: p.level, hp: Math.round(p.hp), mhp: p.maxHp, au: this.heroAuraTier(),
     }];
     for (const [id, rp] of this.remotePlayers) {
@@ -4628,7 +4629,7 @@ export class Game {
         id, x: +rp.target.x.toFixed(2), z: +rp.target.z.toFixed(2),
         aim: +(rp.aim || 0).toFixed(2), mv: rp.moving ? 1 : 0, dead: rp.dead ? 1 : 0,
         cls: rp.cls, nm: rp.name, aw: rp.zone || 0,
-        gn: rp.gender, sk: rp.skinTone,
+        gn: rp.gender, sk: rp.skinTone, hc: rp.hairColor,
         lvl: rp.level || 1, hp: Math.round(rp.hp || 0), mhp: rp.maxHp || 0, au: rp.aura || 0,
       });
     }

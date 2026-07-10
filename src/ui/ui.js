@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CLASSES, buildHeroMesh } from '../entities/classes.js';
-import { SKIN_TONES, GENDERS, buildAnimatedHero } from '../entities/heroModel.js';
+import { SKIN_TONES, GENDERS, HAIR_TONES, buildAnimatedHero } from '../entities/heroModel.js';
 import { SKILLS } from '../entities/skills.js';
 import { svgIcon, ICONS, CLASS_ICONS } from './icons.js';
 import { RARITIES, statLabel, sellValue, buyPrice } from '../entities/loot.js';
@@ -607,6 +607,29 @@ export class UI {
         skinWrap.appendChild(sw);
       }
     }
+    const hairWrap = $('cs-hair');
+    if (hairWrap) {
+      // null = keep the rig's own baked hair (no swatch selected yet).
+      const stored = localStorage.getItem('emberdeep-hair-v1');
+      const cur = HAIR_TONES.some((t) => t.id === stored) ? stored : null;
+      hairWrap.innerHTML = '';
+      for (const t of HAIR_TONES) {
+        const sw = document.createElement('button');
+        sw.type = 'button';
+        sw.className = 'cs-hair-sw' + (t.id === cur ? ' selected' : '');
+        sw.title = t.label;
+        sw.setAttribute('aria-label', t.label);
+        sw.style.background = '#' + t.hex.toString(16).padStart(6, '0');
+        sw.onclick = () => {
+          localStorage.setItem('emberdeep-hair-v1', t.id);
+          audio.play('ui_click', { volume: 0.6 });
+          hairWrap.querySelectorAll('.cs-hair-sw').forEach((b) => b.classList.remove('selected'));
+          sw.classList.add('selected');
+          this.refreshCharPreview();
+        };
+        hairWrap.appendChild(sw);
+      }
+    }
   }
 
   // Tap/click selects and shows details; the confirm button starts the game.
@@ -725,9 +748,11 @@ export class UI {
     const name = ($('cs-name')?.value || '').trim() || 'Hero';
     const gender = localStorage.getItem('emberdeep-gender-v1') === 'female' ? 'female' : 'male';
     const skinTone = localStorage.getItem('emberdeep-skin-v1') || 'light';
+    const storedHair = localStorage.getItem('emberdeep-hair-v1');
+    const hairColor = HAIR_TONES.some((t) => t.id === storedHair) ? storedHair : null;
     // Same builder + same creation options the real Player uses, so what spins
     // here is exactly what spawns. Primitive fallback only if the GLB failed.
-    const anim = buildAnimatedHero(clsId, name, { gender, skinTone });
+    const anim = buildAnimatedHero(clsId, name, { gender, skinTone, hairColor });
     let mesh, gait = null;
     if (anim) {
       mesh = anim.mesh;
@@ -2357,7 +2382,7 @@ export class UI {
     scene.add(turntable);
 
     const p = this.game.player;
-    const anim = buildAnimatedHero(p.classId, this.game.playerName(), { gender: p.gender, skinTone: p.skinTone });
+    const anim = buildAnimatedHero(p.classId, this.game.playerName(), { gender: p.gender, skinTone: p.skinTone, hairColor: p.hairColor });
     let mesh, gait = null;
     if (anim) mesh = anim.mesh;
     else { mesh = buildHeroMesh(CLASSES[p.classId], this.game.playerName()); gait = mesh.userData.updateGait; }

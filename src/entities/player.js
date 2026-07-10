@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CLASSES, buildHeroMesh } from './classes.js';
-import { buildAnimatedHero, skinToneById } from './heroModel.js';
+import { buildAnimatedHero, skinToneById, hairToneById } from './heroModel.js';
 import { audio } from '../core/audio.js';
 
 export function xpForLevel(level) {
@@ -73,9 +73,13 @@ export class Player {
     const ls = typeof localStorage !== 'undefined' ? localStorage : null;
     this.gender = ls?.getItem('emberdeep-gender-v1') === 'female' ? 'female' : 'male';
     this.skinTone = ls?.getItem('emberdeep-skin-v1') || 'light';
+    // null = rig's own baked hair (no tint); only set once a hair swatch has
+    // actually been picked in char-select.
+    const savedHair = ls?.getItem('emberdeep-hair-v1');
+    this.hairColor = hairToneById(savedHair) ? savedHair : null;
 
     // Prefer the animated KayKit model; fall back to primitives if it failed to load.
-    this.anim = buildAnimatedHero(classId, heroName, { gender: this.gender, skinTone: this.skinTone });
+    this.anim = buildAnimatedHero(classId, heroName, { gender: this.gender, skinTone: this.skinTone, hairColor: this.hairColor });
     this.mesh = this.anim ? this.anim.mesh : buildHeroMesh(this.classDef, heroName);
   }
 
@@ -566,6 +570,7 @@ export class Player {
       abilityOrder: this.abilityOrder,
       gender: this.gender,
       skinTone: this.skinTone,
+      hairColor: this.hairColor,
     };
   }
 
@@ -633,11 +638,13 @@ export class Player {
     // p.mesh yet (game.js does that after fromSave), so swapping it is safe.
     const savedGender = data.gender === 'female' ? 'female' : 'male';
     const savedSkin = skinToneById(data.skinTone) ? data.skinTone : 'light';
-    if (savedGender !== p.gender || savedSkin !== p.skinTone) {
+    const savedHair = hairToneById(data.hairColor) ? data.hairColor : null;
+    if (savedGender !== p.gender || savedSkin !== p.skinTone || savedHair !== p.hairColor) {
       p.gender = savedGender;
       p.skinTone = savedSkin;
+      p.hairColor = savedHair;
       const heroName = (typeof localStorage !== 'undefined' && localStorage.getItem('emberdeep-name-v1')) || 'Hero';
-      const rebuilt = buildAnimatedHero(classId, heroName, { gender: p.gender, skinTone: p.skinTone });
+      const rebuilt = buildAnimatedHero(classId, heroName, { gender: p.gender, skinTone: p.skinTone, hairColor: p.hairColor });
       if (rebuilt) { p.anim = rebuilt; p.mesh = rebuilt.mesh; }
     }
 
