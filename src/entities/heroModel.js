@@ -260,6 +260,25 @@ export function faceShapeById(id) {
   return FACE_SHAPES.find((t) => t.id === id) || FACE_SHAPES[0];
 }
 
+// Player-chosen hair style for character creation. Doubles as hair LENGTH
+// (Short/Ponytail/Bun/Long). 'short' is a no-op: the rig's own baked hair,
+// unchanged (for the female mage this IS a ponytail already - see the
+// stripMagePonytail wiring in buildAnimatedHero, which strips that baked tail
+// for 'short' the same way it always has for male mages). The other three
+// options add small procedural meshes anchored to the head (see addHairMesh
+// below) so they work uniformly across classes whose rigs have no baked
+// long-hair geometry of their own.
+export const HAIR_STYLES = [
+  { id: 'short', label: 'Short' },
+  { id: 'ponytail', label: 'Ponytail' },
+  { id: 'bun', label: 'Bun' },
+  { id: 'long', label: 'Long' },
+];
+
+export function hairStyleById(id) {
+  return HAIR_STYLES.find((t) => t.id === id) || HAIR_STYLES[0];
+}
+
 // Lays two small unlit discs over the head mesh's baked-eye position to stand
 // in for a real eye-colour retint (see EYE_COLORS comment above for why the
 // atlas-tile route doesn't work here). Positions are estimated from the head
@@ -303,6 +322,94 @@ function addEyeDiscs(mesh, headMesh, hex) {
     disc.frustumCulled = false;
     mesh.add(disc);
   }
+}
+
+// Builds the procedural mesh for a chosen hair STYLE (see HAIR_STYLES above),
+// tinted to match the chosen hair colour exactly (same hex the baked hair
+// tile gets - see applyHairColor). Same measurement approach and same
+// rationale as addEyeDiscs directly above: offsets are derived proportionally
+// from the head mesh's own local geometry bounding box (bind-pose model
+// space) rather than a fixed constant, and the resulting group is parented to
+// the hero ROOT (not the head bone) for the identical reason addEyeDiscs is -
+// reusing these numbers as a bone-local offset would double-count the
+// neck-to-crown distance. Returns the built THREE.Group (already added to
+// `mesh`), or null for 'short' (no-op, handled by the caller before this is
+// even invoked) or if there's no head geometry to measure.
+function addHairMesh(mesh, headMesh, style, hex) {
+  if (!headMesh || style === 'short') return null;
+  headMesh.geometry.computeBoundingBox();
+  const bb = headMesh.geometry.boundingBox;
+  const w = bb.max.x - bb.min.x;
+  const h = bb.max.y - bb.min.y;
+  const d = bb.max.z - bb.min.z;
+  const cx = (bb.min.x + bb.max.x) / 2;
+  const mat = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.75, metalness: 0.05 });
+  const group = new THREE.Group();
+  // These rigs are stylized "chibi" proportions (an oversized head - the
+  // Knight_Head bounding box alone measures roughly half the character's
+  // total height), so a real anatomical "hair reaches the shoulder" length
+  // works out to about ONE head-height (h) below the crown, not several -
+  // tuned against actual screenshots rather than assumed from a normal
+  // human head/body ratio. Offsets are pushed a visible distance behind the
+  // head's own back surface (bb.min.z, since the rig faces +Z) so the hair
+  // reads as a separate volume floating just off the skull rather than a
+  // seam painted flush onto the baked head texture.
+  if (style === 'ponytail') {
+    // Three tapered capsule segments falling from the upper back of the
+    // skull, each one a bit shorter/narrower than the last so the whole
+    // chain reads as a single tapering tail rather than a uniform tube.
+    let y = bb.max.y - h * 0.2;
+    let z = bb.min.z - d * 0.05;
+    let topR = w * 0.16;
+    for (let i = 0; i < 3; i++) {
+      const botR = topR * 0.8;
+      const len = h * (0.34 - i * 0.05);
+      const r = Math.max(0.015, (topR + botR) / 2);
+      const seg = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 8), mat);
+      seg.position.set(cx, y - len * 0.5, z);
+      seg.rotation.x = -0.16 - i * 0.07; // falls down and slightly outward
+      seg.castShadow = false; seg.receiveShadow = false; seg.frustumCulled = false;
+      group.add(seg);
+      y -= len * 0.92;
+      z -= d * 0.02;
+      topR = botR;
+    }
+  } else if (style === 'bun') {
+    // A single squashed sphere sitting high at the back crown.
+    const bun = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.025, w * 0.2), 12, 10), mat);
+    bun.scale.set(1, 0.66, 0.9);
+    bun.position.set(cx, bb.max.y - h * 0.08, bb.min.z - d * 0.02);
+    bun.castShadow = false; bun.receiveShadow = false; bun.frustumCulled = false;
+    group.add(bun);
+  } else if (style === 'long') {
+    // A draped back-SHELL swept around the rear half of the skull (lathe
+    // profile, same technique as the mage hood): crown-hugging at the top,
+    // bulging just past the skull's back, then tapering to a soft rounded
+    // tip about one head-height below (chibi shoulder length - see note
+    // above). The earlier flattened-cylinder panel rendered as a hard-edged
+    // rectangular SLAB from behind; a revolved profile drapes around the
+    // sides like real hair instead. LatheGeometry's phi=0 sits at +Z (the
+    // face), so sweeping [PI/2, 3PI/2] covers exactly the back half.
+    const cz = (bb.min.z + bb.max.z) / 2;
+    const pts = [
+      [d * 0.30, 0],
+      [d * 0.56, -h * 0.18],
+      [d * 0.55, -h * 0.55],
+      [d * 0.40, -h * 0.85],
+      [d * 0.18, -h * 1.02],
+      [d * 0.02, -h * 1.08],
+    ].map(([r, y]) => new THREE.Vector2(r, y));
+    const shell = new THREE.Mesh(
+      new THREE.LatheGeometry(pts, 14, Math.PI / 2, Math.PI),
+      new THREE.MeshStandardMaterial({ color: hex, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide }));
+    shell.position.set(cx, bb.max.y - h * 0.05, cz);
+    shell.castShadow = false; shell.receiveShadow = false; shell.frustumCulled = false;
+    group.add(shell);
+  }
+  if (!group.children.length) return null;
+  group.frustumCulled = false;
+  mesh.add(group);
+  return group;
 }
 
 // All three KayKit rigs share one texture atlas laid out as an 8-column palette
@@ -686,12 +793,14 @@ const KNIGHT_COMBO_PATTERNS = {
 // and for every peer who sees them in co-op. `opts` carries the character's
 // creation choices: { gender: 'male'|'female', skinTone: <SKIN_TONES id>,
 // hairColor: <HAIR_TONES id>, eyeColor: <EYE_COLORS id>, faceShape: <FACE_SHAPES
-// id> }. Skin tone and hair color are the clearly visible ones (repaint the
-// head/hands and hair tile respectively); gender is a subtle silhouette hint
-// only (the base rigs have no gendered geometry). hairColor defaults to null
-// (no opts.hairColor / unrecognized id), which keeps the rig's own baked hair
-// untouched. eyeColor defaults to brown (EYE_COLORS[0]) rather than null since
-// every head has visible eyes; faceShape defaults to 'standard' (no scale).
+// id>, hairStyle: <HAIR_STYLES id> }. Skin tone and hair color are the clearly
+// visible ones (repaint the head/hands and hair tile respectively); gender is
+// a subtle silhouette hint only (the base rigs have no gendered geometry).
+// hairColor defaults to null (no opts.hairColor / unrecognized id), which
+// keeps the rig's own baked hair untouched. eyeColor defaults to brown
+// (EYE_COLORS[0]) rather than null since every head has visible eyes;
+// faceShape defaults to 'standard' (no scale); hairStyle defaults to 'short'
+// (rig's own baked hair/length, unchanged).
 export function buildAnimatedHero(classId, name = '', opts = {}) {
   const data = loaded.get(classId);
   if (!data) return null;
@@ -701,6 +810,7 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
   const hairTone = hairToneById(opts.hairColor);
   const eyeTone = eyeColorById(opts.eyeColor) || EYE_COLORS[0];
   const faceShape = faceShapeById(opts.faceShape);
+  const hairStyle = hairStyleById(opts.hairStyle).id;
 
   const mesh = skeletonClone(data.scene);
   mesh.scale.setScalar(data.scale);
@@ -744,11 +854,17 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       if (o.isSkinnedMesh && /Head.*Hood|Hood.*Head|Hooded/i.test(o.name)) hoodedHead = o;
     }
   });
-  // Only female mages keep the baked-in ponytail; male mages get the stripped
-  // head (see stripMagePonytail above). Built once and cached - skeletonClone
-  // hands every hero the SAME shared geometry instance, so swapping in a
-  // separate stripped instance is what keeps female/male heroes independent.
-  if (classId === 'mage' && gender === 'male' && headMesh) {
+  // Male mages always get the stripped head (see stripMagePonytail above).
+  // Female mages keep the baked-in ponytail ONLY when 'ponytail' is the chosen
+  // hair style (their baked hair already IS a ponytail, so there is nothing to
+  // add); any other style (including the default 'short') strips it the same
+  // way, since the stripped-and-capped head (see stripMagePonytail's hole cap)
+  // is the correct bald-crown base for Short/Bun/Long alike. Built once and
+  // cached - skeletonClone hands every hero the SAME shared geometry instance,
+  // so swapping in a separate stripped instance is what keeps
+  // female/male/style-varied heroes independent of each other.
+  const mageFemaleKeepsBakedTail = classId === 'mage' && gender === 'female' && hairStyle === 'ponytail';
+  if (classId === 'mage' && headMesh && !mageFemaleKeepsBakedTail) {
     if (!maleMageHeadGeo) maleMageHeadGeo = stripMagePonytail(headMesh.geometry);
     if (maleMageHeadGeo) headMesh.geometry = maleMageHeadGeo;
   }
@@ -891,6 +1007,23 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
   // overlay discs rather than an atlas tile retint.
   if (headMesh && useAtlasTones) {
     addEyeDiscs(mesh, headMesh, eyeTone.hex);
+  }
+  // Hair style (TODO 97): procedural ponytail/bun/long meshes anchored to the
+  // head (see addHairMesh above). 'short' is always a no-op here (the rig's
+  // own baked hair, already handled by the strip-vs-keep logic above for the
+  // mage); the female-mage-keeps-its-baked-ponytail case is skipped for the
+  // same reason - there is nothing to add on top of it. Gated to
+  // useAtlasTones same as face shape/eye colour (the Quaternius townsfolk
+  // rigs share none of this head-node layout and are never playable anyway).
+  // Tinted to the SAME hex the baked hair gets so it matches exactly; when no
+  // hair colour has been chosen (hairTone null - old saves/peers, or a player
+  // who never opened the hair swatch) it falls back to a dark-brown default
+  // close to the rigs' own baked hair tone, since an untinted procedural mesh
+  // has no baked texture of its own to fall back to.
+  if (headMesh && useAtlasTones && hairStyle !== 'short' && !mageFemaleKeepsBakedTail) {
+    const hairHex = hairTone ? hairTone.hex : HAIR_TONES[1].hex;
+    const hairGroup = addHairMesh(mesh, headMesh, hairStyle, hairHex);
+    if (hairGroup) mesh.userData.hairStyleMesh = { style: hairStyle, group: hairGroup };
   }
   applyCosmetics(mesh, name, useAtlasTones && skinTone ? skinTone.hex : null, useAtlasTones && hairTone ? hairTone.hex : null);
 
