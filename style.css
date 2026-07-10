@@ -447,12 +447,15 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 #boss-name { font-size: 16px; color: #d9a0ff; text-shadow: 0 1px 2px #000; letter-spacing: 2px; }
 .bar-wrap.boss { height: 16px; margin-top: 4px; }
 
-#hotbar { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: auto; transition: opacity 0.3s ease; }
-/* Ability bar is a dungeon combat tool: hide it (and make it non-interactive)
-   in town on desktop. Touch mode is excluded: there the potion bubble lives
-   INSIDE #hotbar and must stay usable in town, so touch hides only the combat
-   buttons per-button (see the .touch-mode.in-town rules near the cluster). */
-.in-town:not(.touch-mode) #hotbar { opacity: 0; pointer-events: none; }
+/* Base box: fully overridden by the corner-cluster #hotbar rule further down
+   (same specificity, later in the cascade) on every layout - kept only as a
+   position:absolute fallback so the element never renders in normal flow
+   before that rule applies. */
+#hotbar { position: absolute; pointer-events: auto; transition: opacity 0.3s ease; }
+/* Ability bar is a dungeon combat tool: the potion + utility bubbles stay
+   usable in town on every layout, so town hides only the combat buttons
+   per-button (see the .in-town rules near the cluster) rather than the
+   whole #hotbar box. */
 /* Touch action cluster (Wild Rift layout, Emberdeep palette): circular buttons
    in the bottom-right corner - one big BASIC-ATTACK at the thumb pivot, four
    ability buttons fanned in an arc up-and-left of it. Each button is a deep
@@ -471,6 +474,10 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
   touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .act-btn:active { transform: scale(0.94); }
+/* Mouse-only affordance: brighten the rim on hover (touch has no hover state,
+   so this only ever fires for a real pointer, same family as the utility
+   bubbles' hover below). */
+.act-btn:hover { border-color: var(--gold); }
 .act-btn.aiming { box-shadow: 0 0 16px rgba(232,192,90,0.65); }
 .act-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); pointer-events: none; }
 .act-ring-bg { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 6; }
@@ -575,9 +582,10 @@ body:not(.touch-input) #joy-ghost { display: none !important; }
   font-size: 10.5px; letter-spacing: 0.5px;
   paint-order: stroke; stroke: rgba(0,0,0,0.85); stroke-width: 1.8px;
 }
-/* Touch mode: vitals live on the cluster arcs, so the top-left bars retire.
-   Desktop (non touch-mode) keeps its bars exactly as they are. */
-body.touch-mode #hud-topleft .bar-wrap { display: none; }
+/* Vitals live on the cluster's arcs in every layout now, so the top-left
+   HP/resource/XP bars retire everywhere (not just touch-mode) - showing both
+   would just duplicate the same numbers twice on screen. */
+#hud-topleft .bar-wrap { display: none; }
 
 /* ---------- Low-health warning (body.low-hp, set by UI.updateHud) ----------
    Below ~30% HP (with hysteresis so it doesn't flicker at the boundary): the
@@ -612,23 +620,6 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
   0%, 100% { filter: brightness(1) saturate(1); }
   50% { filter: brightness(1.55) saturate(1.35); }
 }
-/* Desktop ability row: the SAME circular buttons as the touch cluster (gold
-   cooldown ring, cooldown seconds, no-resource rim), laid out as a flat
-   bottom-center row instead of the corner arc. No square boxes, no name
-   labels - the hotkey number sits in the corner, the name lives in the hover
-   tooltip. The potion bubble rides at the end of the row. Replaces the old
-   .hotbar-slot squares entirely. */
-#hotbar.desktop-row { align-items: center; gap: 10px; }
-#hotbar.desktop-row .act-btn { position: relative; width: 56px; height: 56px; flex: none; }
-#hotbar.desktop-row .act-btn:hover { border-color: var(--gold); }
-/* No extra margin: the flex `gap: 10px` above already spaces the potion off
-   the last ability by the same amount abilities space off each other, so the
-   row reads as one evenly-spaced family instead of a bubble stranded apart. */
-#hotbar.desktop-row .act-potion { width: 46px; height: 46px; }
-/* drag-to-swap feedback (wireHotbarInput): lifted button dims, target glows */
-#hotbar.desktop-row .act-btn.dragging { opacity: 0.55; }
-#hotbar.desktop-row .act-btn.drop-target { border-color: var(--gold); box-shadow: 0 0 16px rgba(232,192,90,0.8); }
-
 /* Zoltan's mystery-relic reveal modal */
 #relic-reveal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
 #relic-reveal.hidden { display: none; }
@@ -1491,110 +1482,91 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
    .util-icon slot. */
 .drawer-icon { width: 22px; height: 22px; display: block; }
 
-/* Desktop default positions (declared BEFORE the coarse media query so the
-   mobile overrides below win on touch devices): a horizontal row just right
-   of the centered ability hotbar, where the old #action-bar sat - same
-   bubbles, same colorful icons as tablet/phone. */
-/* Desktop row: match the ability/potion gold-ring language (not the flat
-   purple-rim disc used by the touch corner cluster below) and match the
-   potion's 46px exactly, so the whole row - abilities, potion, inventory,
-   mic, settings - reads as one visual family. Scoped to :not(.touch-mode)
-   so the touch cluster's own sizing/positions (further below) are untouched. */
-body:not(.touch-mode) #touch-pause,
-body:not(.touch-mode) #touch-inv,
-body:not(.touch-mode) #touch-mic {
-  width: 46px; height: 46px; font-size: 22px;
-  border: 2px solid rgba(232,192,90,0.75);
-  box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 6px rgba(232,192,90,0.35);
-}
-/* Positions: a consistent 10px gap off the potion's right edge and off each
-   other (the same gap the ability bubbles use), and bottom: 21px so their
-   46px circles vertically center on the same line as the 56px ability/potion
-   row (#hotbar sits at bottom: 16px, tallest child 56px tall). */
-#touch-inv   { left: calc(50% + 165px); right: auto; bottom: 21px; }
-#touch-mic   { left: calc(50% + 221px); right: auto; bottom: 21px; }
 #touch-mic.hidden { display: none !important; }
-#touch-pause { left: calc(50% + 277px); right: auto; bottom: 21px; }
-/* mic hidden on desktop: settings slides left to close the gap */
-body.mic-hidden:not(.touch-mode) #touch-pause { left: calc(50% + 221px); }
+/* Mouse-only hover affordance for the utility bubbles - same brighten
+   language as .act-btn:hover above, so the inner arc reads as one family
+   with the ability cluster on desktop. Unconditional: harmless on touch
+   (no hover state to trigger). */
 #touch-inv:hover, #touch-mic:hover, #touch-pause:hover {
   border-color: #f2d27a; filter: brightness(1.15);
   box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 10px rgba(232,192,90,0.65);
 }
-/* Desktop shows #touch-ui for the utility bubbles only - every touch-specific
-   piece inside it stays off unless the compact/touch layout is active. */
+/* Touch-only pieces of #touch-ui (virtual joystick, its ghost tutorial, the
+   3-step contextual tutorial) stay off unless the compact/touch layout is
+   active - body.touch-mode remains the flag for these touch-specific bits
+   even though the action cluster itself is no longer gated on it. */
 body:not(.touch-mode) #joystick-base, body:not(.touch-mode) #joy-ghost,
 body:not(.touch-mode) #touch-tut { display: none !important; }
 
-/* Mobile layout: left thumb moves, abilities live under the right thumb.
-   Utilities are a smaller INNER ARC of FOUR equal, larger circular bubbles
-   (potion, inventory, mic, settings) concentric with the ability arc but at a
-   smaller radius, sitting in the ring of space between the big basic-attack
-   button and the four ability bubbles - never a separate row that can run
-   into the ability arc or the vitals bars hugging its outside. Always
-   visible - no drawer to open first. Screen rotation is the two-finger twist
-   gesture only (game.js) - there is no rotate button anymore, which is what
-   freed up room to move the potion bubble out of the ability arc and into
-   this inner arc, and to spread the four abilities evenly across the arc
-   they used to share with it.
-   Gated on body.touch-mode (set by core/touch.js's isTouchDevice() check, the
-   same check buildHotbar() uses to pick the wheel) rather than the
-   @media (pointer: coarse) query directly, so the JS layout pick and the CSS
-   never disagree. */
-body.touch-mode {
-  /* Action cluster: the BIG basic-attack button sits at the right thumb's
-     natural pivot (inset from the literal corner so it lands where a thumb
-     rests when gripping the lower-right, not out in the dead corner), and the
-     four ability buttons fan in an arc up-and-to-the-left of it (positions
-     below). #hotbar is a fixed-size click-through anchor box pinned to the
-     bottom-right; only the buttons themselves capture touches, so taps landing
-     in the gaps still reach the tap-to-attack handler. */
-  #hotbar {
-    left: auto; top: auto; right: 14px; bottom: 14px; transform: none;
-    display: block; width: 210px; height: 210px; gap: 0; pointer-events: none;
-  }
-  .act-basic { width: 76px; height: 76px; right: 16px; bottom: 16px; z-index: 2; }
-  .act-ability { width: 58px; height: 58px; }
-  /* arc: 4 abilities EVENLY spaced (radius 115.6 from the basic button's
-     pivot, -90deg to -190deg) now that the potion no longer shares this arc -
-     slot 0 just above the basic, sweeping up-and-left to slot 3. */
-  .act-slot-0 { right: 25px;  bottom: 141px; }
-  .act-slot-1 { right: 88px;  bottom: 122px; }
-  .act-slot-2 { right: 131px; bottom: 71px; }
-  .act-slot-3 { right: 139px; bottom: 5px; }
-  /* Potion moved OUT of the ability arc into the inner utility arc below (the
-     old rotate-button spot), styled identically to #touch-inv/mic/pause: same
-     36px size, same radius-62.3 arc, topmost position (nearest slot 0).
-     act-potion lives INSIDE #hotbar, so unlike the three #touch-ui buttons
-     below its right/bottom are relative to the 210x210 #hotbar box itself,
-     not the viewport - box-relative values here are box value == viewport
-     value minus #hotbar's own 14px right/bottom offset. */
-  .act-potion { width: 36px; height: 36px; right: 20px; bottom: 96px; z-index: 3; }
-  .act-potion .potion-icon { width: 20px; height: 20px; }
-
-  /* Utility inner arc: potion/inventory/mic/settings, FOUR EQUAL 36px bubbles
-     (up from the old 22px rotate-era size - the largest that clears the basic
-     button, every ability bubble and each other with a real safety margin,
-     bbox-verified against the actual rendered rects) on a radius-62.3 arc
-     CONCENTRIC with the ability arc (radius 115.6) around the same pivot (the
-     basic button's center), nested in the annulus between the basic button's
-     edge and the ability bubbles' inner edge - checked at 390x844, 844x390
-     and 1024x768 (see verify screenshots). #touch-pause/inv/mic live outside
-     #hotbar (in #touch-ui, viewport-anchored) since they must stay
-     visible/usable in town too, where the ability arc itself fades out - so
-     these are plain viewport right/bottom values (box value + #hotbar's own
-     14px offset); .act-potion above is inside #hotbar (excluded from the
-     in-town fade via :not(.act-potion) below) but sized/positioned to match. */
-  #touch-inv, #touch-mic, #touch-pause {
-    width: 36px; height: 36px; font-size: 18px; left: auto;
-  }
-  #touch-inv   { right: 81px;  bottom: 104px; } /* next to potion, old rotate-right spot */
-  #touch-mic   { right: 110px; bottom: 66px; }
-  #touch-pause { right: 104px; bottom: 19px; }  /* kept nearest the left/bottom, as before */
-  /* mic hidden (single player / mic off): close the arc gap - settings slides
-     up into the mic slot so the three visible bubbles stay contiguous */
-  body.mic-hidden #touch-pause { right: 110px; bottom: 66px; }
+/* Corner action cluster: left thumb moves (touch) / WASD moves (desktop),
+   abilities live under the right thumb / mouse in the bottom-right corner on
+   EVERY layout now. Utilities are a smaller INNER ARC of FOUR equal, larger
+   circular bubbles (potion, inventory, mic, settings) concentric with the
+   ability arc but at a smaller radius, sitting in the ring of space between
+   the big basic-attack button and the four ability bubbles - never a
+   separate row that can run into the ability arc or the vitals bars hugging
+   its outside. Always visible - no drawer to open first. Screen rotation is
+   the two-finger twist gesture only (game.js, touch input) - there is no
+   rotate button anymore, which is what freed up room to move the potion
+   bubble out of the ability arc and into this inner arc, and to spread the
+   four abilities evenly across the arc they used to share with it.
+   Unconditional (not gated on body.touch-mode): touch and desktop render the
+   identical cluster, per the corner-cluster unification. body.touch-mode
+   still exists and still drives touch-only bits elsewhere (joystick, gesture
+   tutorial), just not this layout. */
+/* Action cluster: the BIG basic-attack button sits at the right thumb's
+   natural pivot (inset from the literal corner so it lands where a thumb
+   rests when gripping the lower-right, not out in the dead corner - the same
+   spot a mouse naturally parks in the corner on desktop), and the four
+   ability buttons fan in an arc up-and-to-the-left of it (positions below).
+   #hotbar is a fixed-size click-through anchor box pinned to the
+   bottom-right; only the buttons themselves capture touches/clicks, so taps
+   landing in the gaps still reach the tap-to-attack handler. */
+#hotbar {
+  left: auto; top: auto; right: 14px; bottom: 14px; transform: none;
+  display: block; width: 210px; height: 210px; gap: 0; pointer-events: none;
 }
+.act-basic { width: 76px; height: 76px; right: 16px; bottom: 16px; z-index: 2; }
+.act-ability { width: 58px; height: 58px; }
+/* arc: 4 abilities EVENLY spaced (radius 115.6 from the basic button's
+   pivot, -90deg to -190deg) now that the potion no longer shares this arc -
+   slot 0 just above the basic, sweeping up-and-left to slot 3. */
+.act-slot-0 { right: 25px;  bottom: 141px; }
+.act-slot-1 { right: 88px;  bottom: 122px; }
+.act-slot-2 { right: 131px; bottom: 71px; }
+.act-slot-3 { right: 139px; bottom: 5px; }
+/* Potion moved OUT of the ability arc into the inner utility arc below (the
+   old rotate-button spot), styled identically to #touch-inv/mic/pause: same
+   36px size, same radius-62.3 arc, topmost position (nearest slot 0).
+   act-potion lives INSIDE #hotbar, so unlike the three #touch-ui buttons
+   below its right/bottom are relative to the 210x210 #hotbar box itself,
+   not the viewport - box-relative values here are box value == viewport
+   value minus #hotbar's own 14px right/bottom offset. */
+.act-potion { width: 36px; height: 36px; right: 20px; bottom: 96px; z-index: 3; }
+.act-potion .potion-icon { width: 20px; height: 20px; }
+
+/* Utility inner arc: potion/inventory/mic/settings, FOUR EQUAL 36px bubbles
+   (up from the old 22px rotate-era size - the largest that clears the basic
+   button, every ability bubble and each other with a real safety margin,
+   bbox-verified against the actual rendered rects) on a radius-62.3 arc
+   CONCENTRIC with the ability arc (radius 115.6) around the same pivot (the
+   basic button's center), nested in the annulus between the basic button's
+   edge and the ability bubbles' inner edge - checked at 390x844, 844x390
+   and 1024x768 (see verify screenshots). #touch-pause/inv/mic live outside
+   #hotbar (in #touch-ui, viewport-anchored) since they must stay
+   visible/usable in town too, where the ability arc itself fades out - so
+   these are plain viewport right/bottom values (box value + #hotbar's own
+   14px offset); .act-potion above is inside #hotbar (excluded from the
+   in-town fade via :not(.act-potion) below) but sized/positioned to match. */
+#touch-inv, #touch-mic, #touch-pause {
+  width: 36px; height: 36px; font-size: 18px; left: auto;
+}
+#touch-inv   { right: 81px;  bottom: 104px; } /* next to potion, old rotate-right spot */
+#touch-mic   { right: 110px; bottom: 66px; }
+#touch-pause { right: 104px; bottom: 19px; }  /* kept nearest the left/bottom, as before */
+/* mic hidden (single player / mic off): close the arc gap - settings slides
+   up into the mic slot so the three visible bubbles stay contiguous */
+body.mic-hidden #touch-pause { right: 110px; bottom: 66px; }
 
 /* First-time 3-step contextual tutorial (Embervale, first touch visit only):
    one small pulsing ring + short label at a time, each sitting right over the
@@ -1768,78 +1740,81 @@ body.touch-mode #chat-title { font-size: 11px; }
      that arc (via a smaller anchor box) and shrink the buttons + tighten the arc
      so all five stay reachable without shifting the grip, and clear of the
      minimap up top. */
-  /* body.touch-mode prefix needed to outrank the nested base rule
-     (body.touch-mode #hotbar) - a bare #hotbar here loses on specificity */
-  body.touch-mode #hotbar { right: 26px; bottom: 22px; width: 172px; height: 172px; }
-  body.touch-mode .act-basic { width: 64px; height: 64px; right: 12px; bottom: 12px; }
-  body.touch-mode .act-ability { width: 48px; height: 48px; }
+  /* Bare selectors are enough to outrank the unconditional base cluster rule
+     above (same specificity, this media query comes later in the file) - no
+     body.touch-mode/body class needed now that the cluster is unconditional. */
+  #hotbar { right: 26px; bottom: 22px; width: 172px; height: 172px; }
+  .act-basic { width: 64px; height: 64px; right: 12px; bottom: 12px; }
+  .act-ability { width: 48px; height: 48px; }
   /* 4 abilities evenly spaced (radius 95.6, same -90..-190 sweep as the base
      layout, scaled to this breakpoint's smaller 172px hotbar). */
-  body.touch-mode .act-slot-0 { right: 20px;  bottom: 116px; }
-  body.touch-mode .act-slot-1 { right: 73px;  bottom: 100px; }
-  body.touch-mode .act-slot-2 { right: 108px; bottom: 58px; }
-  body.touch-mode .act-slot-3 { right: 114px; bottom: 3px; }
+  .act-slot-0 { right: 20px;  bottom: 116px; }
+  .act-slot-1 { right: 73px;  bottom: 100px; }
+  .act-slot-2 { right: 108px; bottom: 58px; }
+  .act-slot-3 { right: 114px; bottom: 3px; }
   /* Potion joins the inner utility arc below (old rotate-button spot); box-
      relative (see base-layout comment above for why). */
-  body.touch-mode .act-potion { width: 28px; height: 28px; right: 17px; bottom: 80px; }
-  body.touch-mode .act-potion .potion-icon { width: 15px; height: 15px; }
+  .act-potion { width: 28px; height: 28px; right: 17px; bottom: 80px; }
+  .act-potion .potion-icon { width: 15px; height: 15px; }
   /* Utility inner arc, short-screen geometry: same concentric-arc idea as the
      base layout, solved the same way (bbox-verified against the real
      rendered act-basic/act-slot-0..3 rects at this breakpoint's smaller
      172px hotbar), 28px bubbles (up from the old 19px rotate-era size) on a
      radius-51.8 arc with a real safety margin against the basic button, every
      ability bubble, and each other. */
-  body.touch-mode #touch-inv, body.touch-mode #touch-mic, body.touch-mode #touch-pause {
+  #touch-inv, #touch-mic, #touch-pause {
     width: 28px; height: 28px; font-size: 14px;
   }
-  body.touch-mode #touch-inv   { right: 82px; bottom: 97px; }
-  body.touch-mode #touch-mic   { right: 104px; bottom: 63px; }
-  body.touch-mode #touch-pause { right: 99px; bottom: 24px; }
-  body.mic-hidden.touch-mode #touch-pause { right: 104px; bottom: 63px; }
-  body.touch-mode .act-basic .act-icon { font-size: 26px; }
-  body.touch-mode .act-icon { font-size: 20px; }
+  #touch-inv   { right: 82px; bottom: 97px; }
+  #touch-mic   { right: 104px; bottom: 63px; }
+  #touch-pause { right: 99px; bottom: 24px; }
+  body.mic-hidden #touch-pause { right: 104px; bottom: 63px; }
+  .act-basic .act-icon { font-size: 26px; }
+  .act-icon { font-size: 20px; }
 }
 /* the cluster container is click-through; only its buttons capture touches, so
    attack taps that fall between the arc buttons still reach the game. */
-.touch-mode #hotbar { pointer-events: none; transition: opacity 0.3s ease; }
-.touch-mode #hotbar .act-btn { pointer-events: auto; }
+#hotbar { pointer-events: none; transition: opacity 0.3s ease; }
+#hotbar .act-btn { pointer-events: auto; }
 /* The FIGHTING buttons (basic attack + 4 abilities) are a dungeon combat tool:
    fade them out in town, and while an interact/descend prompt is up so they
    never sit under that prompt. The potion + utility row (settings, inventory,
    mic) stay visible and usable in town too - per the brief, "town shows the same
    rows, abilities hidden, utilities visible" - so they are excluded from this
-   fade via :not(.act-potion). */
-.touch-mode.show-interact #hotbar > .act-btn:not(.act-potion) { opacity: 0; pointer-events: none; }
+   fade via :not(.act-potion). Unconditional: touch and desktop share the exact
+   same in-town behavior now. */
+.show-interact #hotbar > .act-btn:not(.act-potion) { opacity: 0; pointer-events: none; }
 /* Town hides EVERYTHING in the cluster except the potion - combat buttons AND
    the vitals arcs (which curve around a cluster that is not there in town). */
-.touch-mode.in-town #hotbar > *:not(.act-potion) { opacity: 0; pointer-events: none; }
+.in-town #hotbar > *:not(.act-potion) { opacity: 0; pointer-events: none; }
 /* Town utility cluster: with the combat arc gone the four remaining bubbles
    (potion, inventory, mic, settings) regroup into a quarter-arc fan anchored
    in the bottom-right corner - same cluster language as combat, scaled up to
    46px since they are the only controls. Potion sits at the thumb pivot; the
    other three fan up-and-left on a radius-66 arc around it. Selectors carry
-   body.touch-mode.in-town so they outrank both the base column layout and the
-   compact-arc positions regardless of media query. .act-potion is box-relative
-   to #hotbar (its own right/bottom 14px), the #touch-* bubbles are viewport-
-   anchored, hence the 14px difference between their numbers. */
-body.touch-mode.in-town .act-potion { width: 46px; height: 46px; right: 2px; bottom: 2px; }
-body.touch-mode.in-town .act-potion .potion-icon { width: 24px; height: 24px; }
-body.touch-mode.in-town #touch-inv, body.touch-mode.in-town #touch-mic,
-body.touch-mode.in-town #touch-pause { width: 46px; height: 46px; font-size: 22px; left: auto; }
-body.touch-mode.in-town #touch-inv   { right: 16px; bottom: 82px; }
-body.touch-mode.in-town #touch-mic   { right: 63px; bottom: 63px; }
-body.touch-mode.in-town #touch-pause { right: 82px; bottom: 16px; }
+   .in-town so they outrank both the base column layout and the compact-arc
+   positions regardless of media query, on every layout (touch and desktop).
+   .act-potion is box-relative to #hotbar (its own right/bottom 14px), the
+   #touch-* bubbles are viewport-anchored, hence the 14px difference between
+   their numbers. */
+body.in-town .act-potion { width: 46px; height: 46px; right: 2px; bottom: 2px; }
+body.in-town .act-potion .potion-icon { width: 24px; height: 24px; }
+body.in-town #touch-inv, body.in-town #touch-mic,
+body.in-town #touch-pause { width: 46px; height: 46px; font-size: 22px; left: auto; }
+body.in-town #touch-inv   { right: 16px; bottom: 82px; }
+body.in-town #touch-mic   { right: 63px; bottom: 63px; }
+body.in-town #touch-pause { right: 82px; bottom: 16px; }
 /* mic hidden: settings slides into the diagonal slot so the fan stays contiguous */
-body.mic-hidden.touch-mode.in-town #touch-pause { right: 63px; bottom: 63px; }
+body.mic-hidden.in-town #touch-pause { right: 63px; bottom: 63px; }
 @media (max-height: 540px) {
-  body.touch-mode.in-town .act-potion { width: 40px; height: 40px; right: 0; bottom: 0; }
-  body.touch-mode.in-town .act-potion .potion-icon { width: 21px; height: 21px; }
-  body.touch-mode.in-town #touch-inv, body.touch-mode.in-town #touch-mic,
-  body.touch-mode.in-town #touch-pause { width: 40px; height: 40px; font-size: 19px; }
-  body.touch-mode.in-town #touch-inv   { right: 14px; bottom: 72px; }
-  body.touch-mode.in-town #touch-mic   { right: 55px; bottom: 55px; }
-  body.touch-mode.in-town #touch-pause { right: 72px; bottom: 14px; }
-  body.mic-hidden.touch-mode.in-town #touch-pause { right: 55px; bottom: 55px; }
+  body.in-town .act-potion { width: 40px; height: 40px; right: 0; bottom: 0; }
+  body.in-town .act-potion .potion-icon { width: 21px; height: 21px; }
+  body.in-town #touch-inv, body.in-town #touch-mic,
+  body.in-town #touch-pause { width: 40px; height: 40px; font-size: 19px; }
+  body.in-town #touch-inv   { right: 14px; bottom: 72px; }
+  body.in-town #touch-mic   { right: 55px; bottom: 55px; }
+  body.in-town #touch-pause { right: 72px; bottom: 14px; }
+  body.mic-hidden.in-town #touch-pause { right: 55px; bottom: 55px; }
 }
 /* When any full-screen menu/overlay is open, hide the touch controls so the
    joystick and menu launcher never float on top of the inventory or settings. */
