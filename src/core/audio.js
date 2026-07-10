@@ -273,6 +273,31 @@ export class AudioEngine {
     sh.stop(ct + cdur + 0.02); vib.stop(ct + cdur + 0.02);
   }
 
+  // Paper/parchment rustle (notice board opening, synthesized, no asset): a
+  // handful of quick high-passed noise bursts with staggered random timing and
+  // shifting corner frequencies, mimicking a stiff sheet being unrolled and
+  // smoothed flat. Additive-only (does not touch MUSIC/ambience). Routed
+  // through sfxGain like any other one-shot SFX.
+  parchmentSound(opts = {}) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+    const vol = (opts.volume ?? 1) * 0.55;
+    const out = this.sfxGain || this.ctx.destination;
+    const bursts = 6;
+    for (let i = 0; i < bursts; i++) {
+      const start = t + i * 0.045 + Math.random() * 0.02;
+      const dur = 0.04 + Math.random() * 0.05;
+      const nz = this.ctx.createBufferSource(); nz.buffer = this._noise();
+      const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2000 + Math.random() * 2200;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.18 * vol, start + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+      nz.connect(hp); hp.connect(g); g.connect(out);
+      nz.start(start, Math.random() * 1.5); nz.stop(start + dur + 0.02);
+    }
+  }
+
   // Lazily-built cavern reverb: a ConvolverNode fed a procedurally-synthesized
   // impulse response (exponentially-decaying stereo noise, ~2s) so big moments
   // ring out down the halls. The IR is generated in code (no asset) and cached,
@@ -506,6 +531,8 @@ export class AudioEngine {
     if (name === 'blink') { this.blinkSound(opts); return; }
     // War Cry is synthesized (scary gendered battle yell) rather than sampled.
     if (name === 'war_cry') { this.warCrySound(opts.gender, opts); return; }
+    // Parchment rustle (notice board open) is synthesized, no asset.
+    if (name === 'parchment_rustle') { this.parchmentSound(opts); return; }
     const variants = MANIFEST[name];
     if (!variants) return;
 

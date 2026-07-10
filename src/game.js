@@ -1050,20 +1050,56 @@ export class Game {
     this.ui.openNotices(this.buildNotices());
   }
 
+  // Builds exactly three notices for the board, in priority order: real-world
+  // holiday notices first, then a gameplay event derived from actual save
+  // progress ({playerName} defeated the latest act lord the character has
+  // actually cleared), then the evergreen static notices as filler so the
+  // board always shows three even on a brand-new character with no events.
   buildNotices() {
     const act = Math.min(5, this.actsCleared + 1);
     const boss = ACT_BOSSES[act].name;
+    const romanAct = ['', 'I', 'II', 'III', 'IV', 'V'];
     const flavor = [
       'LOST: one cat, answers to "Whiskers". Last seen entering the dungeon. Do NOT bring back whatever answers to Whiskers now.',
       'Zoltan\'s Mystery Relics: all sales final. Fate offers no refunds. — Z.',
       'RUMOR: travelers\' satchels seen on the strongest fiends below. Cut them open, carry more home.',
       'The well is NOT a portal. Stop jumping in. — the Town',
     ];
-    return [
-      { title: `⚔️ BOUNTY: ${boss}`, text: `By order of Embervale: the lord of Act ${['', 'I', 'II', 'III', 'IV', 'V'][act]} holds the deep seal. Slay it and the way below opens. Reward: the road onward, and whatever it drops.` },
-      { title: '📜 DECREE OF THE STAIRS', text: 'The stair-seals hold until seven of every ten fiends on a floor are cut down AND the crowned elite falls. Pits are exempt. Fall at your own peril.' },
-      { title: '📌 NOTICE', text: flavor[Math.floor(Math.random() * flavor.length)] },
+
+    const dynamic = [];
+
+    // Real calendar holidays (month/day windows, wraps year boundary for NYE).
+    const now = new Date();
+    const md = (now.getMonth() + 1) * 100 + now.getDate(); // MMDD, e.g. 1231, 101
+    if (md >= 1231 || md <= 102) {
+      dynamic.push({ title: 'HAPPY NEW YEAR', icon: 'star', text: 'Embervale raises a cup to the turning year. Every tavern in town pours the first round free, hero — go collect it.' });
+    } else if (md >= 1224 && md <= 1226) {
+      dynamic.push({ title: 'MERRY CHRISTMAS', icon: 'star', text: 'Wreaths on the gate, holly on the notice board itself. Even the dungeon seems to echo a little quieter tonight.' });
+    } else if (md >= 1025 && md <= 1101) {
+      dynamic.push({ title: 'HALLOWS EVE', icon: 'spiral', text: 'The dead walk a little louder this week, and not just the ones downstairs. Mind the fog past the well after dark.' });
+    }
+
+    // Gameplay event: the character's own progress. Boss floors are 10/20/30/
+    // 40/50 (act N clears on floor N*10); clearedFloors marks a full clear, so
+    // the highest cleared boss floor is real, save-derived news, not flavor.
+    const bossFloors = [10, 20, 30, 40, 50];
+    let latestClearedAct = 0;
+    for (const f of bossFloors) if (this.clearedFloors[f]) latestClearedAct = f / 10;
+    if (latestClearedAct > 0) {
+      const fallenName = ACT_BOSSES[latestClearedAct].name;
+      dynamic.push({
+        title: 'VICTORY', icon: 'swords',
+        text: `${this.playerName()} has defeated ${fallenName}, lord of Act ${romanAct[latestClearedAct]}. The seal breaks a little further below.`,
+      });
+    }
+
+    const staticNotices = [
+      { title: `BOUNTY: ${boss}`, icon: 'swords', text: `By order of Embervale: the lord of Act ${romanAct[act]} holds the deep seal. Slay it and the way below opens. Reward: the road onward, and whatever it drops.` },
+      { title: 'DECREE OF THE STAIRS', icon: 'scroll', text: 'The stair-seals hold until seven of every ten fiends on a floor are cut down AND the crowned elite falls. Pits are exempt. Fall at your own peril.' },
+      { title: 'NOTICE', icon: 'scroll', text: flavor[Math.floor(Math.random() * flavor.length)] },
     ];
+
+    return [...dynamic, ...staticNotices].slice(0, 3);
   }
 
   restockFee(vendor) {
@@ -4073,7 +4109,7 @@ export class Game {
     const hits = (this.destructibleWallHits[hitKey] || 0) + 1;
     if (hits >= 3) {
       delete this.destructibleWallHits[hitKey];
-      setWallCellStage(this.dungeonMeshes, this.dungeon, tx, ty, 2);
+      setWallCellStage(this.dungeonMeshes, this.dungeon, tx, ty, 3); // final hit: gone
       (this.destroyedWallsSession[this.floor] ||= new Set()).add(cellKey);
       const w = tileToWorld(tx, ty);
       this.particles.burst(w.x, 1.0, w.z, 16, 0x8a8590, { speed: 4.2, life: 0.5, size: 0.14, up: 1.1 });
@@ -4082,7 +4118,7 @@ export class Game {
       this.shake(0.15);
     } else {
       this.destructibleWallHits[hitKey] = hits;
-      setWallCellStage(this.dungeonMeshes, this.dungeon, tx, ty, hits); // 1 = cracked
+      setWallCellStage(this.dungeonMeshes, this.dungeon, tx, ty, hits); // 1 = cracked, 2 = broken
     }
   }
 

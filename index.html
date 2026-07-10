@@ -252,13 +252,17 @@
     <!-- Touch controls (coarse-pointer devices) -->
     <div id="touch-ui" class="hidden">
       <div id="joystick-base"><div id="joystick-knob"></div></div>
-      <!-- Utility row: four circular bubbles nestled tight against the
-           ability arc (inventory, settings, rotate-left, rotate-right),
-           always rendered - no drawer/toggle to open first. Rotate bubbles
-           require a held press (~1s, see touch.js bindRotate) before they
-           start rotating; a hold-progress ring (SVG stroke, same technique as
-           the ability cooldown rings) fills while held. The potion bubble
-           lives in the ability arc itself (ui.js _buildPotionBubble). -->
+      <!-- Utility inner arc: four small circular bubbles concentric with the
+           ability arc but at a smaller radius, nested between the basic-attack
+           button and the ability bubbles (rotate-left, rotate-right, mic,
+           settings) - always rendered, no drawer/toggle to open first. Icons
+           are injected by touch.js from icons.js (colorful, matching the
+           ability-icon art style) into the .util-icon placeholder in each.
+           Rotate bubbles require a held press (~1s, see touch.js bindRotate)
+           before they start rotating; a hold-progress ring (SVG stroke, same
+           technique as the ability cooldown rings) fills while held. The
+           potion bubble lives in the ability arc itself (ui.js
+           _buildPotionBubble); inventory lives in Settings on this layout. -->
       <button id="touch-inv" aria-label="Inventory">
         <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>
@@ -267,35 +271,22 @@
         </svg>
       </button>
       <button id="touch-mic" class="hidden" aria-label="Push to talk">
-        <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="9" y="3" width="6" height="10" rx="3"/>
-          <path d="M6 11a6 6 0 0 0 12 0"/>
-          <path d="M12 17v3"/>
-        </svg>
+        <span class="util-icon"></span>
       </button>
       <button id="touch-pause" aria-label="Settings">
-        <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="3.2"/>
-          <path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4 5.3 5.3"/>
-        </svg>
+        <span class="util-icon"></span>
       </button>
       <button id="touch-rotl" aria-label="Hold to rotate camera left">
         <svg class="hold-ring" viewBox="0 0 100 100" aria-hidden="true">
           <circle class="hold-ring-fg" cx="50" cy="50" r="45" stroke-dasharray="282.74" stroke-dashoffset="282.74"></circle>
         </svg>
-        <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4 5v5h5"/>
-          <path d="M4 10a8 8 0 1 1-1.5 4.7"/>
-        </svg>
+        <span class="util-icon"></span>
       </button>
       <button id="touch-rotr" aria-label="Hold to rotate camera right">
         <svg class="hold-ring" viewBox="0 0 100 100" aria-hidden="true">
           <circle class="hold-ring-fg" cx="50" cy="50" r="45" stroke-dasharray="282.74" stroke-dashoffset="282.74"></circle>
         </svg>
-        <svg class="drawer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M20 5v5h-5"/>
-          <path d="M20 10a8 8 0 1 0 1.5 4.7"/>
-        </svg>
+        <span class="util-icon"></span>
       </button>
       <!-- First-time joystick ghost: fades in if the player has not moved
            within a few seconds of entering the world (first three entries at
