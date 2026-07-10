@@ -314,7 +314,11 @@ class NeuralVoice {
   // rate: optional playback-rate multiplier applied to the DECODED buffer at
   // play time only (never affects the cached PCM or the generate() call), so
   // per-character pitch shaping (deep boss, squeaky imp) is free on cache hits.
-  async speak(text, { voice = 'af_heart', speed = 1, anchor = null, rate = 1 } = {}) {
+  // onStart: optional callback fired the MOMENT audible playback actually begins
+  // (right after the AudioBufferSourceNode's start() call in _playPcm below) --
+  // this is the exact point captions should swap in for, on both the cache-hit
+  // (near-instant) and fresh-generate paths.
+  async speak(text, { voice = 'af_heart', speed = 1, anchor = null, rate = 1, onStart = null } = {}) {
     // ready === status 'ready' even after an idle release (tts is null then), so
     // gate on the status, not on tts: a released model is reloaded below.
     if (!this.ready) return false;
@@ -326,7 +330,7 @@ class NeuralVoice {
     // This is what makes repeated barks/vendor lines feel snappy. Re-arm the
     // idle timer so a steady stream of cached lines still counts as activity.
     const cached = this._cache.get(key);
-    if (cached) { this._armIdleRelease(); return this._playPcm(cached.audio, cached.sr, rate); }
+    if (cached) { this._armIdleRelease(); return this._playPcm(cached.audio, cached.sr, rate, onStart); }
 
     // A fresh line needs a real generate() call. Skip it (rather than pile onto
     // an already-heavy fight) if the fight is heavy right now; the next calm
@@ -355,7 +359,7 @@ class NeuralVoice {
       const result = await this.tts.generate(clean, { voice, speed });
       this._cache.set(key, { audio: result.audio, sr: result.sampling_rate });
       if (this._cache.size > 80) this._cache.delete(this._cache.keys().next().value);
-      return this._playPcm(result.audio, result.sampling_rate, rate);
+      return this._playPcm(result.audio, result.sampling_rate, rate, onStart);
     } catch (err) {
       console.warn('[neural-tts] generate failed', err);
       return false;
@@ -427,7 +431,10 @@ class NeuralVoice {
   // rate: playbackRate on the buffer source -- a cheap per-character pitch/tempo
   // shift (dragons/golems slowed+deepened, imps sped+raised) applied at the
   // moment of playback so it works identically for fresh and cached audio.
-  _playPcm(audioData, sr, rate = 1) {
+  // onStart: fired right after src.start() -- the exact moment audible output
+  // begins, so callers (roaster.js) can swap a "loading" indicator for the
+  // caption at precisely the right instant instead of guessing.
+  _playPcm(audioData, sr, rate = 1, onStart = null) {
     this.stop();
     if (!audio.ctx) return false;
     const buf = audio.ctx.createBuffer(1, audioData.length, sr);
@@ -442,6 +449,7 @@ class NeuralVoice {
     src.start();
     this._current = src;
     src.onended = () => { if (this._current === src) this._current = null; };
+    try { onStart?.(); } catch { /* caption hook is best-effort */ }
     return true;
   }
 

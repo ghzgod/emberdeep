@@ -132,8 +132,7 @@ export class Wanderer {
     if (this.speakCooldown > 0) return;
     this.speakCooldown = 2.5;
     const line = this.composeLine(game);
-    game.ui.showSubtitle('Old Fenwick', line, 5000);
-    roaster.speakAs(line, CAST, this.pos);
+    roaster.sayGated(game, 'Old Fenwick', line, CAST, this.pos, { durationMs: 5000 });
   }
 
   // Dynamic dialogue built from the player's actual state and habits.
