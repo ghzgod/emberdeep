@@ -834,13 +834,27 @@ export class Game {
     return stock;
   }
 
+  // Zoltan: at most 3 gamble purchases per rolling window (10 minutes,
+  // session-only - not saved/persisted, resets on reload). Returns the epoch
+  // ms (performance.now() scale) the NEXT purchase becomes legal, or 0 if
+  // one is allowed right now. this._gambleWindowMs defaults to 10 minutes
+  // but can be overridden (e.g. by a test) to shrink the window.
+  gambleReadyAt() {
+    const windowMs = this._gambleWindowMs ?? 10 * 60 * 1000;
+    const buys = (this._gambleBuys || []).filter((t) => performance.now() - t < windowMs);
+    this._gambleBuys = buys;
+    const windowReadyAt = buys.length >= 3 ? buys[0] + windowMs : 0;
+    return Math.max(this._gambleReadyAt || 0, windowReadyAt);
+  }
+
   buyFromVendor(vendor, entry) {
     const p = this.player;
     const remaining = entry.qty != null ? entry.qty : (entry.sold ? 0 : 1);
     if (remaining <= 0 || p.gold < entry.price) return;
-    // Zoltan's gamble has a short cooldown so it can't be spammed.
+    // Zoltan's gamble has a short spam-guard (6s) AND a 3-per-10-minute cap;
+    // whichever is stricter blocks the buy.
     if (entry.kind === 'gamble') {
-      const left = Math.ceil(((this._gambleReadyAt || 0) - performance.now()) / 1000);
+      const left = Math.ceil((this.gambleReadyAt() - performance.now()) / 1000);
       if (left > 0) { this.ui.floaters.spawn(p.pos, `Fate must rest — ${left}s`, 'player-dmg'); return; }
     }
     // items that land in the pack need a free slot first
@@ -878,7 +892,8 @@ export class Game {
         this.particles.burst(p.pos.x, 1.2, p.pos.z, 40, 0xa03bd9, { speed: 5, life: 1 });
         this.shake(0.4);
       }
-      this._gambleReadyAt = performance.now() + 6000; // fate must rest
+      this._gambleReadyAt = performance.now() + 6000; // fate must rest (spam guard)
+      (this._gambleBuys ||= []).push(performance.now()); // 3-per-10-min tracker
       this.ui.showRelicReveal(item); // pop up what fate handed over
     }
     // remember what the player bought here so a later greeting can ask about it
@@ -1980,8 +1995,14 @@ export class Game {
     if (mesh.userData.gearVisual) { mesh.remove(mesh.userData.gearVisual); mesh.userData.gearVisual = null; }
     // The rogue's hood is its default headgear (split off from the head mesh so
     // it can toggle). A helmet covers the same crown, so hide the hood when one
-    // is equipped and show it again when it comes off.
-    if (mesh.userData.hood) mesh.userData.hood.visible = !equipped.helmet;
+    // is equipped and show it again when it comes off - but ONLY for classes
+    // that actually have a baked replacement (mesh.userData.bakedHat). The
+    // ranger model has no baked hat/helmet mesh of its own (see bakedHat
+    // detection in heroModel.js), so hiding its hood on "helmet" equip would
+    // leave a bare head with nothing shown; instead its hood stays up and gets
+    // a feathered decoration below (see the ranger block after the helmet/hat
+    // branch).
+    if (mesh.userData.hood) mesh.userData.hood.visible = !(equipped.helmet && mesh.userData.bakedHat);
     const grp = new THREE.Group();
     const mat = (rarity) => {
       const c = RARITIES[rarity]?.color ?? 0x8a8a8a;
@@ -1993,6 +2014,11 @@ export class Game {
     // A second independent 0..1 roll from the same id (mix the hash differently)
     // so shape-branching decisions don't all key off the same number as size/height.
     const rof2 = (item) => { let h = 84696351; const s = String(item.id); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 2654435761); h ^= h >>> 13; } return (h >>> 0) / 4294967296; };
+    // A third independent roll (yet another hash mix) reserved for headgear
+    // SILHOUETTE branching (mage hood-vs-hat, knight horns/crest/faceguard
+    // choice) so those style picks don't correlate with the size/height (r)
+    // or palette/robe-style (r2) rolls above.
+    const rof3 = (item) => { let h = 738813; const s = String(item.id) + '#shape'; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 2246822519); h ^= h >>> 15; } return (h >>> 0) / 4294967296; };
     const elaborate = (rarity) => rarity === 'legendary' || rarity === 'epic'; // extra trim/gems/layers at high rarity
     // Physics refs collected below: hat tips / robe hems / cloak corners that
     // get a subtle per-frame sway in animateAuras. Reset each rebuild.
@@ -2005,7 +2031,7 @@ export class Game {
       // around. We just recolour it (clone its material once per rebuild)
       // and add a small per-item scale/tilt variance so different helmet
       // items still read as slightly different, without ever risking clip.
-      const it = equipped.helmet, r = rof(it), r2 = rof2(it);
+      const it = equipped.helmet, r = rof(it), r2 = rof2(it), r3 = rof3(it);
       const hat = mesh.userData.bakedHat;
       hat.visible = true;
       if (!hat.userData.origMat) hat.userData.origMat = hat.material;
@@ -2026,6 +2052,61 @@ export class Game {
       hat.scale.set(s, s, s);
       hat.rotation.z = (r - 0.5) * 0.1; // tiny per-item tilt variance
       if (classId === 'mage') {
+        // Mage cloaked hood: when BOTH a helmet-slot item and the chest robe
+        // are worn, hood-flavored helmet items (seeded on r3, independent of
+        // the hat's own height/palette rolls below) render a cloth hood
+        // instead of the baked pointy hat, so the mage reads as a hooded
+        // robe rather than a hat sitting awkwardly over a robe collar. If no
+        // robe is worn, always fall back to the hat (a floating cloth cone
+        // with no robe collar to meet would look like a mistake, not a
+        // style). Built from the shared MAGE_ROBE_COLLAR seam (also used by
+        // the robe's own collar torus in the equipped.chest/mage block
+        // below) so the hood's hem meets the robe collar with no gap. It is
+        // two-tone by design: the hood tints from the HELMET item's own
+        // rarity colour while the robe keeps its own tint from the chest
+        // item - a real hooded-robe often uses a contrast lining, not the
+        // exact same dye lot as the robe body.
+        const anchor = mesh.userData.headAnchor;
+        const isHoodStyle = !!(anchor && equipped.chest && r3 < 0.45);
+        if (isHoodStyle) {
+          hat.visible = false; // baked pointy-hat mesh stays hidden for this style
+          const hoodColor = RARITIES[it.rarity]?.color ?? 0x8a8a8a;
+          const hoodHot = it.rarity === 'legendary' || it.rarity === 'epic';
+          const hoodMat = new THREE.MeshStandardMaterial({ color: hoodColor, metalness: 0.05, roughness: 0.85, emissive: hoodHot ? hoodColor : 0x000000, emissiveIntensity: it.rarity === 'legendary' ? 0.28 : it.rarity === 'epic' ? 0.16 : 0, side: THREE.DoubleSide });
+          const topY = anchor.top + 0.05; // small peak above the crown
+          // A round DOME (partial sphere, stretched in Y) rather than a
+          // straight-taper cone - these hero heads are big chibi-proportioned
+          // spheres, and a linear cone narrows too fast near the top to
+          // actually enclose that roundness, leaving the real head poking
+          // through above the hood (a cone's radius shrinks linearly toward
+          // its point; a head's widest point is at its equator, not its
+          // base). A sphere segment bulges at the equator like a real skull,
+          // so scaling it to the head's real radius keeps it fully enclosed
+          // at every height. thetaLength stops short of the south pole,
+          // leaving the neck opening (open, no bottom cap) at that rim.
+          const domeR = Math.max(0.22, anchor.r) * 1.18; // enclosure radius, a modest margin over the real head
+          const domeThetaLen = Math.PI * 0.92;
+          const rawSpan = domeR * (1 - Math.cos(domeThetaLen)); // unscaled top-to-rim height
+          const hoodHeight = Math.max(0.2, topY - MAGE_ROBE_COLLAR.y);
+          const yScale = hoodHeight / rawSpan; // squash/stretch to span exactly crown-to-collar
+          const hood = new THREE.Mesh(new THREE.SphereGeometry(domeR, 12, 8, 0, Math.PI * 2, 0, domeThetaLen), hoodMat);
+          hood.scale.y = yScale;
+          hood.position.set(anchor.cx, topY - domeR * yScale, anchor.cz + MAGE_ROBE_COLLAR.z * 0.5);
+          grp.add(hood);
+          // Hem ring at the shared collar seam, sized to the dome's own open
+          // rim radius (the sphere naturally narrows again near that
+          // rim - see domeThetaLen), so there is no visible gap or step
+          // where the hood meets the robe collar.
+          const rimR = domeR * Math.sin(domeThetaLen);
+          const hoodHem = new THREE.Mesh(new THREE.TorusGeometry(rimR, 0.025, 6, 12), hoodMat);
+          hoodHem.rotation.x = Math.PI / 2;
+          hoodHem.position.set(anchor.cx, MAGE_ROBE_COLLAR.y, anchor.cz + MAGE_ROBE_COLLAR.z);
+          grp.add(hoodHem);
+          // The dome's own crown IS the peaked hood tip; reusing the hat's
+          // single sway slot (see the shared sway.hat assignment and
+          // animateGearSway) so it still sways gently in the idle breeze.
+          sway.hat = { obj: hood, baseZ: hood.rotation.z, baseX: hood.rotation.x, amp: 0.03 + r * 0.02 };
+        } else {
         // The authored Mage_Hat brim is wide enough to curtain the whole face at
         // the game's slightly-zoomed camera. Squash ONLY the brim radius (local
         // X/Z) so at least the lower half of the face clears it, while keeping
@@ -2034,6 +2115,12 @@ export class Game {
         // touch them.
         hat.scale.x = s * 0.68;
         hat.scale.z = s * 0.68;
+        // Height variance: seeded per item so the same item always renders the
+        // same silhouette, but different items read as genuinely taller/shorter
+        // pointed hats rather than only differing by colour. Scaling the whole
+        // hat's Y (crown + brim together) keeps the brim seated on the head.
+        const heightMul = 0.78 + r * 0.55; // ~0.78 (short, stubby) .. 1.33 (tall, pointed)
+        hat.scale.y = s * heightMul;
         // Cloth hat: pick from a real colour palette (seeded per item, not
         // always the rarity colour) so hats vary hue instead of every
         // legendary being flat orange. Rarity nudges richness/saturation.
@@ -2059,6 +2146,22 @@ export class Game {
         const buckle = new THREE.Mesh(new THREE.BoxGeometry(hatR * 0.1, hatR * 0.07, hatR * 0.03), new THREE.MeshStandardMaterial({ color: 0xc9c2a8, roughness: 0.35, metalness: 0.6 }));
         buckle.position.set(0, hatR * 0.28, hatR * 0.42);
         hat.add(buckle);
+        // Curled tip: for roughly half of items (seeded on r3, independent of
+        // height/palette) bend the very point of the hat over to one side with
+        // a small extra cone, so hats vary in STYLE (curled vs. straight
+        // point), not only height/colour. Parented to the hat mesh itself so
+        // it inherits the hat's own existing sway physics (see
+        // animateGearSway/sway.hat) for free, without a second sway target.
+        if (r3 > 0.5) {
+          if (!hat.userData._bbox) { hat.geometry.computeBoundingBox(); hat.userData._bbox = hat.geometry.boundingBox.clone(); }
+          const tipY = hat.userData._bbox.max.y;
+          const side = r3 > 0.75 ? 1 : -1;
+          const curl = new THREE.Mesh(new THREE.ConeGeometry(hatR * 0.16, tipY * (0.35 + r * 0.25), 7), hat.material);
+          curl.position.set(side * hatR * 0.12, tipY * 0.9, 0);
+          curl.rotation.z = side * (0.85 + r * 0.5); // bend the point over sideways
+          hat.add(curl);
+        }
+        }
       } else {
         // Metal helmet (knight): the base colour stays STEEL/GUNMETAL GREY -
         // real metal reads by reflection/specular, not a saturated diffuse
@@ -2082,15 +2185,97 @@ export class Game {
         // town/dungeon into scene.environment) rather than a strong reflection.
         hat.material.envMapIntensity = 0.55;
         if (hat.material.emissive) { hat.material.emissive.set(hot ? SHEEN[it.rarity] : 0x000000); hat.material.emissiveIntensity = it.rarity === 'legendary' ? 0.14 : it.rarity === 'epic' ? 0.08 : 0; }
+        // Procedural embellishments layered on the baked helmet mesh so
+        // different knight helmets read as distinct SHAPES (domed / horned /
+        // crested / great-helm), not just a flat colour swap. Seeded on r3
+        // (independent of the sheen/tilt rolls above) so the same item always
+        // gets the same silhouette; rarity raises how many embellishments
+        // stack, so a plain domed look is the common-rarity baseline and
+        // legendaries can carry horns + crest + faceguard together. All
+        // pieces share the helmet's own freshly-tinted material so they read
+        // as part of the same steel, and are parented to the hat mesh so
+        // they inherit its existing sway (see sway.hat below) for free.
+        // Measured from the helmet's OWN local geometry bounding box (cached
+        // once) rather than guessed proportions - the baked Knight_Helmet's
+        // real local height/width are unknown ahead of time, and guessing
+        // wrong buries add-ons inside the dome or floats them off in space.
+        if (!hat.userData._bbox) { hat.geometry.computeBoundingBox(); hat.userData._bbox = hat.geometry.boundingBox.clone(); }
+        const hbb = hat.userData._bbox;
+        const hTop = hbb.max.y, hMidY = (hbb.min.y + hbb.max.y) / 2, hMidZ = (hbb.min.z + hbb.max.z) / 2;
+        const hW = (hbb.max.x - hbb.min.x) / 2;
+        const fancy = elaborate(it.rarity);
+        const wantsHorns = fancy || r3 > 0.72;
+        const wantsCrest = it.rarity !== 'common' && (r3 < 0.35 || fancy);
+        const wantsFaceGuard = fancy && r3 > 0.4 && r3 < 0.85;
+        if (wantsHorns) {
+          for (const sx of [-1, 1]) {
+            const horn = new THREE.Mesh(new THREE.ConeGeometry(hW * 0.14, hTop * (0.3 + r2 * 0.25), 6), hat.material);
+            horn.position.set(sx * hW * 0.55, hTop * 0.9, hMidZ);
+            horn.rotation.z = sx * (0.4 + r2 * 0.3);
+            horn.rotation.x = -0.2;
+            hat.add(horn);
+          }
+        }
+        if (wantsCrest) {
+          const crestLen = hbb.max.z - hbb.min.z;
+          const crest = new THREE.Mesh(new THREE.BoxGeometry(hW * 0.16, hTop * (0.22 + r2 * 0.18), crestLen * 0.95), hat.material);
+          crest.position.set(0, hTop * 1.04, hMidZ);
+          hat.add(crest);
+        }
+        if (wantsFaceGuard) {
+          const guard = new THREE.Mesh(new THREE.BoxGeometry(hW * 0.14, (hMidY - hbb.min.y) * 0.95, hW * 0.14), hat.material);
+          guard.position.set(0, hMidY * 0.65, hbb.max.z * 0.95);
+          hat.add(guard);
+        }
       }
       // Gentle sway target: the baked hat mesh itself (its own pivot is
       // already at the head/seat, authored by KayKit), so oscillating it
-      // reads as the point/brim swaying without any separate piece.
-      sway.hat = { obj: hat, baseZ: hat.rotation.z, baseX: 0, amp: 0.035 + r * 0.02 };
+      // reads as the point/brim swaying without any separate piece. Skipped
+      // if the mage hood branch above already claimed sway.hat for the
+      // procedural hood instead (the hat itself stays hidden in that case).
+      if (!sway.hat) sway.hat = { obj: hat, baseZ: hat.rotation.z, baseX: 0, amp: 0.035 + r * 0.02 };
     } else if (mesh.userData.bakedHat) {
       // No helmet equipped: keep the baked hat hidden (bare head / default
       // hood, per each class's own default-look logic above).
       mesh.userData.bakedHat.visible = false;
+    }
+    // Ranger: this class has no baked hat/helmet mesh of its own (the
+    // Rogue_Hooded model ships no _Hat/_Helmet-suffixed mesh, so bakedHat is
+    // always null - see heroModel.js), so it never enters the
+    // equipped.helmet && bakedHat branch above at all. Its hood therefore
+    // stays up regardless of the helmet slot (see the hood-visibility line
+    // near the top of this method) and an equipped "helmet" item instead
+    // decorates that SAME hood with a seeded feather (or a small cluster at
+    // higher rarity) tucked into the hood's band, varying feather
+    // count/length/tilt per item so rangers read as feathered hoods rather
+    // than only a colour change.
+    if (classId === 'ranger' && mesh.userData.hood) {
+      const hood = mesh.userData.hood;
+      for (let i = hood.children.length - 1; i >= 0; i--) hood.remove(hood.children[i]);
+      if (equipped.helmet) {
+        const it = equipped.helmet, r = rof(it), r2 = rof2(it), fancy = elaborate(it.rarity);
+        const anchor = mesh.userData.headAnchor;
+        const hR = anchor ? Math.max(0.18, anchor.r) : 0.3;
+        const featherColor = RARITIES[it.rarity]?.color ?? 0x8a8a8a;
+        const hot = it.rarity === 'legendary' || it.rarity === 'epic';
+        const featherMat = new THREE.MeshStandardMaterial({ color: featherColor, roughness: 0.65, metalness: 0.05, emissive: hot ? featherColor : 0x000000, emissiveIntensity: it.rarity === 'legendary' ? 0.25 : it.rarity === 'epic' ? 0.14 : 0, side: THREE.DoubleSide });
+        const count = fancy ? (it.rarity === 'legendary' ? 3 : 2) : 1;
+        const baseX = (anchor ? anchor.cx : 0) + hR * 0.4;
+        const baseY = (anchor ? anchor.top : 0.6) * 0.62;
+        const baseZ = (anchor ? anchor.cz : 0) - hR * 0.3;
+        for (let i = 0; i < count; i++) {
+          const len = hR * (1.1 + r * 0.7) * (1 - i * 0.16);
+          // A flattened, tapered cone reads as a slim feather/quill blade
+          // rather than a round spike (scale.z squashes it into a plane).
+          const feather = new THREE.Mesh(new THREE.ConeGeometry(hR * 0.14, len, 3, 1, false), featherMat);
+          feather.scale.z = 0.14;
+          const spread = (i - (count - 1) / 2) * 0.4;
+          feather.position.set(baseX + spread * 0.12, baseY + len * 0.35, baseZ);
+          feather.rotation.z = 0.55 + r2 * 0.4 + spread;
+          feather.rotation.x = -0.3;
+          hood.add(feather);
+        }
+      }
     }
     if (equipped.chest) {
       const it = equipped.chest, m = mat(it.rarity), r = rof(it), r2 = rof2(it), fancy = elaborate(it.rarity);
