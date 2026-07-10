@@ -893,6 +893,7 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
   width: 64px; height: 64px; border: 2px solid var(--panel-border); border-radius: 8px;
   background: var(--panel); display: flex; align-items: center; justify-content: center;
   font-size: 28px; cursor: pointer; position: relative;
+  touch-action: none; /* drag-to-equip needs raw pointermove, not page-pan gestures */
 }
 .inv-slot.equip { width: 74px; height: 74px; }
 .inv-slot .slot-label { position: absolute; bottom: -18px; left: 0; right: 0; font-size: 11px; opacity: 0.6; }
@@ -909,6 +910,11 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
 .inv-slot.equip.fillable:hover { border-color: var(--gold); box-shadow: 0 0 8px rgba(232,192,90,0.3); }
 /* items marked for destruction */
 .inv-slot.marked { border-color: #e04444 !important; box-shadow: 0 0 10px rgba(224,68,68,0.6); }
+/* inventory drag-and-drop (bag <-> equip slots): dim the item being dragged,
+   gold-highlight a valid drop target, red-highlight an invalid one. */
+.inv-slot.dragging { opacity: 0.4; }
+.inv-slot.drop-target { border-color: var(--gold) !important; box-shadow: 0 0 16px rgba(232,192,90,0.8); }
+.inv-slot.drop-invalid { border-color: #e04444 !important; box-shadow: 0 0 10px rgba(224,68,68,0.6); }
 /* red trash mark in the corner of a slot queued for destruction (data-uri
    copy of icons.js's trash glyph, tinted #e04444 - ::after cannot host DOM) */
 .inv-slot.marked::after {

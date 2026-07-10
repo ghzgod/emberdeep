@@ -47,6 +47,7 @@ export class UI {
     this.buildClassCards();
     this.initChat();
     this.addUiSounds();
+    this.wireInventoryDragGlobal();
   }
 
   // Minimap: barely-visible by default so it doesn't clutter the view, tap to
@@ -1007,6 +1008,47 @@ export class UI {
     this.renderShop(vendor);
     this.show('shop');
     audio.play('ui_open');
+    this._startShopTick();
+  }
+
+  // Live ticker for the shop screen (nothing in the normal HUD update loop
+  // runs while state === 'shop' - the world freezes - so Zoltan's "fate
+  // rests" countdown needs its own small interval). Self-clears the moment
+  // the shop screen is no longer visible, so closeShop() (in game.js, off
+  // limits here) needs no matching teardown call.
+  _startShopTick() {
+    clearInterval(this._shopTickId);
+    this._shopTickId = setInterval(() => {
+      if (!this.screens.shop.classList.contains('visible')) { clearInterval(this._shopTickId); this._shopTickId = null; return; }
+      const pend = this._pendingBuy;
+      if (pend && pend.entry.kind === 'gamble' && !$('buy-confirm').classList.contains('hidden')) {
+        this.refreshGambleCountdown();
+      }
+    }, 500);
+  }
+
+  // M:SS, used for Zoltan's rolling-window cooldown (can run past a minute).
+  formatMMSS(totalSeconds) {
+    const s = Math.max(0, Math.round(totalSeconds));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  // Refreshes just the confirm button's label/disabled state against the
+  // live gamble cooldown, without re-running the whole showBuyConfirm build
+  // (which would also re-flash the rarity glow etc every tick).
+  refreshGambleCountdown() {
+    const buyBtn = $('btn-buy-confirm');
+    const left = Math.ceil((this.game.gambleReadyAt() - performance.now()) / 1000);
+    if (left > 0) {
+      buyBtn.disabled = true;
+      buyBtn.textContent = `Fate rests (${this.formatMMSS(left)})`;
+      return;
+    }
+    const p = this.game.player;
+    const entry = this._pendingBuy.entry;
+    const broke = p.gold < entry.price;
+    buyBtn.disabled = broke;
+    buyBtn.textContent = broke ? 'Not enough gold' : 'Buy';
   }
 
   renderShop(vendor) {
@@ -2195,10 +2237,11 @@ export class UI {
     const broke = p.gold < entry.price;
     buyBtn.disabled = broke;
     buyBtn.textContent = broke ? 'Not enough gold' : 'Buy';
-    // mystery relics rest between draws — tell the player how long
+    // mystery relics rest between draws (6s spam guard) AND cap at 3 buys
+    // per rolling 10 minutes — tell the player how long either way
     if (entry.kind === 'gamble') {
-      const left = Math.ceil(((this.game._gambleReadyAt || 0) - performance.now()) / 1000);
-      if (left > 0) { buyBtn.disabled = true; buyBtn.textContent = `Fate rests (${left}s)`; }
+      const left = Math.ceil((this.game.gambleReadyAt() - performance.now()) / 1000);
+      if (left > 0) { buyBtn.disabled = true; buyBtn.textContent = `Fate rests (${this.formatMMSS(left)})`; }
     }
     $('buy-confirm').classList.remove('hidden');
   }
@@ -2433,6 +2476,89 @@ export class UI {
     this._invPrev = null;
   }
 
+  // ---------- inventory drag-and-drop ----------
+  // One pointer-based drag session, bound ONCE on window (elements themselves
+  // are torn down and rebuilt every renderInventory() call, so per-element
+  // listeners can't own the move/up lifecycle). Mirrors wireHotbarInput's
+  // tap-vs-drag split: a quick press-release is a click (stats card / equip-
+  // best / multi-select toggle, all unchanged); a press that moves past
+  // DRAG_PX becomes a real drag, tracked via this._invDrag and resolved by
+  // whatever is under the pointer at release (document.elementFromPoint).
+  // Two directions only, matching what the data model actually supports:
+  // bag item -> matching equip slot (equip(), which already swaps the worn
+  // item back into the pack), or equipped item -> anywhere in the bag grid
+  // (unequip()). Bag-to-bag reordering isn't a thing the inventory array
+  // exposes, so it's not offered as a drop target.
+  wireInventoryDragGlobal() {
+    const DRAG_PX = 18; // matches the action-cluster tap-vs-swipe threshold
+    const clearHighlights = () => {
+      document.querySelectorAll('#equip-slots .inv-slot, #inv-grid .inv-slot')
+        .forEach((s) => s.classList.remove('drop-target', 'drop-invalid'));
+    };
+    const targetAt = (x, y) => document.elementFromPoint(x, y)?.closest('.inv-slot') || null;
+    window.addEventListener('pointermove', (e) => {
+      const d = this._invDrag;
+      if (!d || d.pointerId !== e.pointerId) return;
+      if (!d.dragging) {
+        const moved = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
+        if (moved <= DRAG_PX) return;
+        d.dragging = true;
+        clearTimeout(d.longPressTimer);
+        d.el.classList.add('dragging');
+        this.hideTooltip();
+      }
+      clearHighlights();
+      const target = targetAt(e.clientX, e.clientY);
+      if (!target || target === d.el) return;
+      target.classList.add(this._invDropValid(d, target) ? 'drop-target' : 'drop-invalid');
+    });
+    const finish = (e) => {
+      const d = this._invDrag;
+      if (!d || d.pointerId !== e.pointerId) return;
+      clearTimeout(d.longPressTimer);
+      this._invDrag = null;
+      d.el.classList.remove('dragging');
+      clearHighlights();
+      if (d.dragging) {
+        // A real drag happened, so the trailing click (if any) is not a tap.
+        // The browser only fires that click when down/up land on the SAME
+        // element (dropped back where it started) - if the drop landed
+        // elsewhere, no click ever comes to consume this flag, so clear it
+        // on the next tick rather than leaving it armed to silently eat the
+        // player's next unrelated tap.
+        this._suppressClick = true;
+        setTimeout(() => { this._suppressClick = false; }, 0);
+        const target = targetAt(e.clientX, e.clientY);
+        if (target && target !== d.el && this._invDropValid(d, target)) this._invDropExecute(d);
+        this.renderInventory();
+      }
+    };
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  }
+
+  // Valid drop targets: bag item -> the ONE equip slot matching its gear
+  // slot AND respecting class-lock; equipped item -> any bag grid cell, as
+  // long as the bag has room (unequip() itself refuses when full).
+  _invDropValid(d, target) {
+    const p = this.game.player;
+    if (d.origin === 'bag') {
+      if (!target.classList.contains('equip')) return false;
+      if (target.dataset.slot !== d.item.slot) return false;
+      if (d.item.forClass && d.item.forClass !== p.classId) return false;
+      return true;
+    }
+    // origin === 'equip': drop anywhere in the bag grid (not another equip slot)
+    if (target.classList.contains('equip')) return false;
+    if (target.closest('#inv-grid') == null) return false;
+    return p.inventory.length < p.invSize;
+  }
+
+  _invDropExecute(d) {
+    if (d.origin === 'bag') this.game.equip(d.item);
+    else this.game.unequip(d.fromSlot);
+  }
+
   renderInventory() {
     const p = this.game.player;
     const equipWrap = $('equip-slots');
@@ -2449,7 +2575,14 @@ export class UI {
         el.onmouseenter = (e) => this.showTooltip(item, e, true);
         el.onmouseleave = () => this.hideTooltip();
         // stats panel first; unequipping is a button on that panel
-        el.onclick = () => this.selectItem(item, slotName);
+        el.onclick = () => {
+          if (this._suppressClick) { this._suppressClick = false; return; }
+          this.selectItem(item, slotName);
+        };
+        // drag an equipped item back out to the bag to unequip it
+        el.onpointerdown = (e) => {
+          this._invDrag = { origin: 'equip', item, fromSlot: slotName, el, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dragging: false };
+        };
       } else {
         // One-tap fill: click an empty slot to equip the best-scoring eligible
         // item from the pack for that slot (respecting class-lock rules).
@@ -2457,7 +2590,10 @@ export class UI {
         if (best) {
           el.classList.add('fillable');
           el.title = `Equip best: ${best.name}`;
-          el.onclick = () => { this.game.equip(best); this.renderInventory(); };
+          el.onclick = () => {
+            if (this._suppressClick) { this._suppressClick = false; return; }
+            this.game.equip(best); this.renderInventory();
+          };
         }
       }
       equipWrap.appendChild(el);
@@ -2500,13 +2636,27 @@ export class UI {
           if (e.ctrlKey || e.metaKey || e.shiftKey || this.destroySel.size > 0) toggleMark();
           else this.selectItem(item);
         };
-        // touch: press-and-hold enters multi-select. Suppress both the follow-up
-        // click AND the stats card while the hold is being recognised.
+        // touch: press-and-hold (with no real drag) enters multi-select, same
+        // as before. Any pointer type also starts tracking a potential drag
+        // to an equip slot - if it crosses the drag threshold first, the
+        // window-level handler in wireInventoryDragGlobal cancels this timer
+        // and takes over, so a real drag never also triggers multi-select.
+        // Suppressed entirely once multi-select is already active, so the
+        // existing tap-to-mark picker flow is untouched.
         el.onpointerdown = (e) => {
-          if (e.pointerType !== 'touch') return;
-          this._holdT = setTimeout(() => { this._suppressClick = true; this.hideTooltip(); toggleMark(); }, 450);
+          if (this.destroySel.size > 0) return;
+          this._invDrag = { origin: 'bag', item, el, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dragging: false };
+          if (e.pointerType === 'touch') {
+            this._invDrag.longPressTimer = setTimeout(() => {
+              if (this._invDrag && this._invDrag.pointerId === e.pointerId && !this._invDrag.dragging) {
+                this._invDrag = null;
+                this._suppressClick = true;
+                this.hideTooltip();
+                toggleMark();
+              }
+            }, 450);
+          }
         };
-        el.onpointerup = el.onpointerleave = () => clearTimeout(this._holdT);
         el.oncontextmenu = (e) => { e.preventDefault(); this.game.dropItem(item); this.renderInventory(); this.hideTooltip(); };
       }
       grid.appendChild(el);
