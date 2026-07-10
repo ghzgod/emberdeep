@@ -2391,10 +2391,26 @@ export class UI {
   startInvPreview() {
     const canvas = $('inv-preview-canvas');
     if (!canvas) return;
-    let renderer;
-    try {
-      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    } catch { return; } // no WebGL: the panel still works without the preview
+    // ROOT CAUSE of the intermittent blank preview (TODO 686): stopInvPreview
+    // used to call renderer.dispose() + renderer.forceContextLoss() on THIS
+    // SAME, REUSED canvas element every time the inventory closed. Once a
+    // canvas's WebGL context is explicitly lost via forceContextLoss(), the
+    // browser will never grant that canvas a new context again - the first
+    // open of a session works (virgin context), but the very next
+    // getContext() call on the SECOND open returns null/a dead context
+    // forever after, so every reopen from then on renders nothing. This
+    // reproduced 100% of the time from the 2nd open onward (verified via
+    // Playwright: startInvPreview() ran to completion with no thrown error,
+    // yet this._invPrev stayed unset because the renderer's context was
+    // already permanently dead). Fix: create the renderer ONCE and cache it
+    // on the ui instance for the life of the page; every open/close cycle
+    // reuses that same live context instead of killing and recreating it.
+    let renderer = this._invPrevRenderer;
+    if (!renderer || renderer.getContext()?.isContextLost?.()) {
+      try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); }
+      catch { return; } // no WebGL: the panel still works without the preview
+      this._invPrevRenderer = renderer;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     const w = canvas.clientWidth || 190, h = canvas.clientHeight || 260;
     renderer.setSize(w, h, false);
@@ -2427,25 +2443,34 @@ export class UI {
     const loop = () => {
       if (this._invPrev !== P) return;
       P.raf = requestAnimationFrame(loop);
-      const now = performance.now();
-      const dt = Math.min(0.05, (now - P.lastT) / 1000);
-      P.lastT = now;
-      // Paused (but still ticking the clock above) while the item-actions
-      // card is open: it's a full-screen overlay that fully hides the doll,
-      // so rendering behind it would be wasted GPU work every frame.
-      if (!$('item-actions')?.classList.contains('hidden')) return;
-      const cw = P.canvas.clientWidth, ch = P.canvas.clientHeight;
-      if (cw && ch && (cw !== P.w || ch !== P.h)) {
-        P.w = cw; P.h = ch;
-        P.renderer.setSize(cw, ch, false);
-        P.camera.aspect = cw / ch;
-        P.camera.updateProjectionMatrix();
+      // A throw anywhere below (bad gear signature, mixer on a disposed
+      // bone, etc.) used to fall out of this function and silently end the
+      // RAF chain forever - the canvas just stayed blank with no visible
+      // error. Now the loop survives: skip this one frame, log once (not
+      // per-frame, to avoid console spam), keep ticking next frame.
+      try {
+        const now = performance.now();
+        const dt = Math.min(0.05, (now - P.lastT) / 1000);
+        P.lastT = now;
+        // Paused (but still ticking the clock above) while the item-actions
+        // card is open: it's a full-screen overlay that fully hides the doll,
+        // so rendering behind it would be wasted GPU work every frame.
+        if (!$('item-actions')?.classList.contains('hidden')) return;
+        const cw = P.canvas.clientWidth, ch = P.canvas.clientHeight;
+        if (cw && ch && (cw !== P.w || ch !== P.h)) {
+          P.w = cw; P.h = ch;
+          P.renderer.setSize(cw, ch, false);
+          P.camera.aspect = cw / ch;
+          P.camera.updateProjectionMatrix();
+        }
+        P.turntable.rotation.y += dt * 0.7;
+        if (P.anim) this.game.updateHeroGear(P.mesh, this.game.player.equipped, this.game.player.classId);
+        if (P.anim) { P.anim.setLocomotion(0, dt, false); P.anim.mixer.update(dt); }
+        if (P.gait) P.gait(dt, 0, false);
+        P.renderer.render(P.scene, P.camera);
+      } catch (err) {
+        if (!P.loggedError) { P.loggedError = true; console.warn('[invPreview] frame error (recovering):', err); }
       }
-      P.turntable.rotation.y += dt * 0.7;
-      if (P.anim) this.game.updateHeroGear(P.mesh, this.game.player.equipped, this.game.player.classId);
-      if (P.anim) { P.anim.setLocomotion(0, dt, false); P.anim.mixer.update(dt); }
-      if (P.gait) P.gait(dt, 0, false);
-      P.renderer.render(P.scene, P.camera);
     };
     loop();
   }
@@ -2467,8 +2492,11 @@ export class UI {
         }
       }
     });
-    P.renderer.dispose();
-    P.renderer.forceContextLoss?.();
+    // NOTE: deliberately does NOT call renderer.dispose()/forceContextLoss()
+    // here (see the long comment in startInvPreview) - the renderer and its
+    // WebGL context are cached on this.game.ui and reused for every future
+    // open of this panel. Only the scene-owned mesh/material/texture
+    // resources built by THIS open are freed above.
     this._invPrev = null;
   }
 
