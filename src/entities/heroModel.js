@@ -60,6 +60,88 @@ let mageHoodMesh = null;
 // target anchor at build time (see the mageHoodMesh clone block below).
 const MAGE_HOOD_SOURCE_ANCHOR = { top: 1.8809, cx: 0, cz: 0.075, r: 0.549 };
 
+// Mage hood BACK DRAPE (Obsidian 705): from BEHIND, the extracted hood mesh
+// alone reads as "half a cut egg" - a smooth dome sitting on the head with a
+// visible gap down to the chest robe's collar, disconnected from the cape.
+// Direct measurement of the authored geometry (public/models/mage_hood.glb,
+// same raw coordinate space as MAGE_HOOD_SOURCE_ANCHOR/MAGE_HOOD_CROWN_HOLE_LOOP
+// above) found why: its back hem (vertices with z < -0.1, the rear half) is a
+// genuinely jagged boundary loop, swinging between y=1.40 and y=1.85 as x
+// goes from the centreline (x=0, z~-0.46) out to the sides (x~0.42, z~-0.28)
+// - a real "zigzag hem", not a rendering artifact - that stops well above
+// MAGE_ROBE_COLLAR.y (1.34, game.js). That constant lives in the SAME raw
+// rig-space as this hood: both the chest robe's grp and this hood's group are
+// parented directly under the hero root before its overall TARGET_HEIGHT
+// scale is applied, so their local y values are directly comparable, and the
+// ~0.3-0.5 unit gap between the hood's back hem and 1.34 is real, not a
+// units mismatch. MAGE_HOOD_DRAPE_ROWS below is an ADDITIONAL back-only cloth
+// panel (not part of the authored mesh) built in that exact raw space: its
+// top row (y=1.65) tucks up INTO the jagged hem band (pulled BEHIND the
+// dome's own back surface in z, not just overlapping in y, so it isn't
+// hidden inside the shell - see MAGE_HOOD_DRAPE_CURVE below for why), and it
+// tapers/flares down to a bottom row (y=1.36) kept shy of both
+// MAGE_ROBE_COLLAR.y and the robe torso's own top surface (also ~1.34) so it
+// never clips the cape, with a per-vertex droop (MAGE_HOOD_DRAPE_HEM_DROOP)
+// on that bottom row so the lower edge reads as irregular cloth, not a
+// machine-straight cut. See buildMageHoodDrapeGeometry and its call site in
+// the mageHoodMesh clone block below (added into the SAME hoodGroup, sharing
+// hoodMesh's own per-instance material so it picks up the same tint).
+const MAGE_HOOD_DRAPE_ROWS = [
+  { y: 1.65, z: -0.52, halfW: 0.30 }, // top: overlaps the hem band, pulled BEHIND the dome's own back surface (z<-0.475 at that height) so it isn't hidden inside the shell
+  { y: 1.52, z: -0.60, halfW: 0.34 }, // widest/most-protruding point: mid-back bulge
+  { y: 1.42, z: -0.55, halfW: 0.30 },
+  { y: 1.36, z: -0.45, halfW: 0.25 }, // bottom hem: curves back in toward the body, shy of the collar/torso-top line
+];
+const MAGE_HOOD_DRAPE_HEM_DROOP = [0.000, 0.022, -0.010, 0.016, -0.018, 0.012, -0.006];
+const MAGE_HOOD_DRAPE_COLS = MAGE_HOOD_DRAPE_HEM_DROOP.length;
+
+// Curvature (Obsidian 705 follow-up): a perfectly FLAT back panel is only
+// visible dead-on from directly behind - from a 3/4 back-left/right angle it
+// turns nearly edge-on and vanishes behind the (fully 3D, domed) hood mesh it
+// rides under. Sweeping each row's columns across an ANGLE (sin for x, a
+// cosine falloff pulling the edges' z back toward the head) instead of a
+// flat x gives the panel real cross-section curvature - a shallow half-pipe
+// wrapping the nape/shoulders like real cloth - so it keeps a visible face
+// toward the camera through the back-left/back-right verification angles too.
+const MAGE_HOOD_DRAPE_HALF_ANGLE = 0.95; // radians swept from centre to each edge
+const MAGE_HOOD_DRAPE_CURVE = 0.16; // how far the edges pull back in toward the head
+
+// Builds the back-drape strip described above: a small (4 row x 7 col)
+// tapered, curved sheet, cheap enough to build fresh per mage instance (no
+// shared-geometry cache needed, unlike the authored hood mesh it rides
+// alongside).
+function buildMageHoodDrapeGeometry() {
+  const rows = MAGE_HOOD_DRAPE_ROWS;
+  const positions = [];
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    const isBottom = r === rows.length - 1;
+    for (let c = 0; c < MAGE_HOOD_DRAPE_COLS; c++) {
+      const t = (c / (MAGE_HOOD_DRAPE_COLS - 1)) * 2 - 1; // -1..1, centreline at c's midpoint
+      const angle = t * MAGE_HOOD_DRAPE_HALF_ANGLE;
+      const x = Math.sin(angle) * row.halfW;
+      const zCurve = (1 - Math.cos(angle)) * MAGE_HOOD_DRAPE_CURVE;
+      const y = row.y - (isBottom ? MAGE_HOOD_DRAPE_HEM_DROOP[c] : 0);
+      positions.push(x, y, row.z + zCurve);
+    }
+  }
+  const indices = [];
+  for (let r = 0; r < rows.length - 1; r++) {
+    for (let c = 0; c < MAGE_HOOD_DRAPE_COLS - 1; c++) {
+      const a = r * MAGE_HOOD_DRAPE_COLS + c;
+      const b = a + 1;
+      const d = (r + 1) * MAGE_HOOD_DRAPE_COLS + c;
+      const e = d + 1;
+      indices.push(a, d, b, b, d, e);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 // Known crown-seam artifact (TODO 93 verification): the extracted hood mesh
 // has two small (7-vertex) genuine holes - not just an unwelded-vertex crack,
 // mergeVertices alone did not close them - punched through its back/crown
@@ -1222,6 +1304,17 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
     hoodMesh.position.set(-MAGE_HOOD_SOURCE_ANCHOR.cx, -MAGE_HOOD_SOURCE_ANCHOR.top, -MAGE_HOOD_SOURCE_ANCHOR.cz);
     const hoodGroup = new THREE.Group();
     hoodGroup.add(hoodMesh);
+    // Back drape (Obsidian 705, see MAGE_HOOD_DRAPE_ROWS's comment above):
+    // built in the SAME raw coordinate space as hoodMesh's own authored
+    // geometry, so it takes the identical position offset and rides inside
+    // this same group/scale/head-bone anchor. Shares hoodMesh's own
+    // per-instance material object (not mageHoodMesh's shared source
+    // material) so updateHeroGear's single tint of hoodMesh.material
+    // (game.js) colors the drape too - one hood, one tint, one garment.
+    const drapeMesh = new THREE.Mesh(buildMageHoodDrapeGeometry(), hoodMesh.material);
+    drapeMesh.castShadow = false; drapeMesh.receiveShadow = false; drapeMesh.frustumCulled = false;
+    drapeMesh.position.copy(hoodMesh.position);
+    hoodGroup.add(drapeMesh);
     hoodGroup.scale.setScalar(scale);
     hoodGroup.position.set(anchor.cx, anchor.top, anchor.cz);
     hoodGroup.visible = false; // shown by updateHeroGear only for hood-named helmet + robe
