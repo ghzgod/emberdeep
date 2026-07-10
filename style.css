@@ -233,7 +233,8 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 .bar.boss { background: linear-gradient(180deg, #a03bd9, #4d1e8b); }
 .bar-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; text-shadow: 0 1px 1px #000; }
 #hud-stats { display: flex; gap: 14px; font-size: 14px; text-shadow: 0 1px 2px #000; align-items: center; }
-#hud-stats > span { display: inline-flex; align-items: center; gap: 4px; line-height: 1; }
+#hud-stats > span { display: inline-flex; align-items: center; gap: 4px; line-height: 1; white-space: nowrap; }
+#hud-stats { flex-wrap: nowrap; }
 #hud-players { color: #8ac8ff; }
 #hud-gold { color: var(--gold); }
 #hud-potions { color: #e87a7a; }
@@ -1788,11 +1789,13 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
      42vw resp.) but stay capped with a safety gap between the two blocks and
      the minimap, bbox-checked at 390x844, 844x390 and 1024x768 (all three hit
      this query, the last two via pointer:coarse touch emulation). */
-  #hud-topleft { width: 44vw; max-width: 190px; }
+  /* size to content so 'Lv 7 (star)2' + gold + potions sit on ONE row and
+     never wrap internally; capped so it can't reach the top-right block */
+  #hud-topleft { width: auto; max-width: 58vw; }
   #hud-topleft .bar-wrap { height: 21px; }
   #hud-topleft .bar-wrap.small { height: 16px; }
   #hud-topleft .bar-text { font-size: 13px; }
-  #hud-stats { font-size: 19px; gap: 12px; }
+  #hud-stats { font-size: 18px; gap: 10px; }
   #hud-topright { max-width: 46vw; align-items: flex-end; }
   #hud-topright > div {
     max-width: 42vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;
