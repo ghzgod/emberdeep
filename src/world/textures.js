@@ -530,3 +530,42 @@ export function makeTavernSignTexture() {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
+
+// The tavern's OUTDOOR hanging sign (hung over the street from a bracket) —
+// distinct from the interior wall plaque above: this one carries the
+// building's actual name so it reads from a distance in the town square.
+export function makeExteriorSignTexture() {
+  const w = 256, h = 256;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  x.fillStyle = '#5a3c22';
+  x.fillRect(0, 0, w, h);
+  for (let i = 0; i < 8; i++) {
+    x.fillStyle = `rgba(30,18,8,${0.1 + Math.random() * 0.12})`;
+    x.fillRect(0, (i / 8) * h, w, 2);
+  }
+  x.strokeStyle = '#d8b04a';
+  x.lineWidth = 7;
+  x.strokeRect(9, 9, w - 18, h - 18);
+  // a golden mug, the tavern's mark
+  x.fillStyle = '#d8b04a';
+  x.beginPath();
+  x.roundRect(w / 2 - 22, h * 0.22, 44, 46, 6);
+  x.fill();
+  x.strokeStyle = '#d8b04a';
+  x.lineWidth = 5;
+  x.beginPath();
+  x.arc(w / 2 + 26, h * 0.22 + 23, 14, -Math.PI / 2.4, Math.PI / 2.4);
+  x.stroke();
+  // lettering
+  x.fillStyle = '#e8d08a';
+  x.textAlign = 'center';
+  x.font = 'bold 30px serif';
+  x.fillText('EMBERVILLE', w / 2, h * 0.66);
+  x.font = 'bold 26px serif';
+  x.fillText('TAVERN', w / 2, h * 0.66 + 34);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}

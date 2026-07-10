@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { FLOOR, WALL, DOOR, PIT, BRIDGE, RUBBLE, CHASM } from './dungeon.js';
-import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture, makeBannerTexture, makeGlowTexture, makeRuneTexture, floorRng, jitterAccentHue } from './textures.js';
+import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture, makeBannerTexture, makeGlowTexture, makeRuneTexture, makeExteriorSignTexture, floorRng, jitterAccentHue } from './textures.js';
 import { buildPortal } from './portal.js';
 import { buildAnimatedHero } from '../entities/heroModel.js';
 
@@ -671,7 +671,11 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   // tavern windows, vendor lanterns): each entry records its base colour +
   // night emissive strength so game.js can fade it on at night, off by day.
   const townGlows = [];
-  if (town) buildTownDecor(group, dungeon, smokePuffs, townGlows);
+  // Shared breakables list: town market crates/tavern barrel (pushed inside
+  // buildTownDecor) and dungeon barrels/crates/pots/pews (pushed below) both
+  // land here, so game.js's single breakNear() sweep covers either context.
+  const breakables = [];
+  if (town) buildTownDecor(group, dungeon, smokePuffs, townGlows, breakables);
 
   // --- Doors ---
   const doorMeshes = new Map();
@@ -1215,7 +1219,7 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   // --- Dungeon decoration: wall-hugging themed props ---
   // (Room-center "rug" rings were removed — their faint ring outline read as a
   //  stray portal ring in every large room. The only ring is the real portal.)
-  const breakables = (!town && dungeon.props?.length) ? buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, floorAccent, frng) : [];
+  if (!town && dungeon.props?.length) buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, floorAccent, frng, breakables);
   // --- Cathedral archetype dressing: pew benches (breakable) + altar ---
   if (!town && dungeon.archetype === 'cathedral' && dungeon.naveRoom) {
     buildCathedralDressing(group, dungeon, theme, torchPositions, breakables);
@@ -1277,7 +1281,7 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
 }
 
 // ---------------- Embervale decor ----------------
-function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
+function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables = []) {
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 1 });
   const greens = [0x3f6b34, 0x4a7a3c, 0x57883f, 0x35592c];
 
@@ -1493,34 +1497,33 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
     group.add(board);
   }
 
-  // market crates + sacks scattered near the square. Box crates swap to the
-  // modeled CC0 crate (instanced) once it loads; sacks stay procedural.
+  // market crates + sacks scattered near the square. Each crate gets its own
+  // holder group (not a shared InstancedMesh) so it can swap to the modeled
+  // CC0 crate AND still be smashed individually by breakNear(); sacks stay
+  // procedural decoration (not breakable, same as the dungeon's own sacks).
   if (dungeon.crates?.length) {
     const crateGeo = new THREE.BoxGeometry(0.42, 0.42, 0.42);
     const sackMat = new THREE.MeshStandardMaterial({ color: 0xa89468, roughness: 1 });
     const crateMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 });
-    const crateT = [];
-    const proceduralCrates = new THREE.Group();
     for (const c of dungeon.crates) {
       const w = tileToWorld(c.x, c.y);
-      let mesh;
       if (c.kind === 'crate') {
-        mesh = new THREE.Mesh(crateGeo, crateMat);
+        const holder = new THREE.Group();
+        const mesh = new THREE.Mesh(crateGeo, crateMat);
         mesh.position.y = 0.21;
-        crateT.push({ x: w.x, z: w.z, ry: c.r, s: 0.44 });
+        holder.add(mesh);
+        holder.position.set(w.x, 0, w.z);
+        holder.rotation.y = c.r;
+        group.add(holder);
+        swapInModel(holder, mesh, ['crate'], ([tpl]) => (tpl ? buildModelMesh(tpl, 0.44) : null));
+        breakables.push({ mesh: holder, x: w.x, z: w.z, kind: 'crate' });
       } else {
-        mesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), sackMat);
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), sackMat);
         mesh.scale.y = 0.85;
-        mesh.position.y = 0.22;
+        mesh.rotation.y = c.r;
+        mesh.position.set(w.x, 0.22, w.z);
+        group.add(mesh);
       }
-      mesh.rotation.y = c.r;
-      mesh.position.x = w.x;
-      mesh.position.z = w.z;
-      (c.kind === 'crate' ? proceduralCrates : group).add(mesh);
-    }
-    group.add(proceduralCrates);
-    if (crateT.length) {
-      swapInModel(group, proceduralCrates, ['crate'], ([tpl]) => (tpl ? buildModelInstances(tpl, crateT) : null));
     }
   }
 
@@ -1653,26 +1656,44 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
         smokePuffs.push({ mesh: puff, baseY, phase: (i / 5) * Math.PI * 2, speed: 0.35 + i * 0.05, kind: 'smoke' });
       }
     }
-    // warm windows: INSET into the plaster (behind the timber frame layer)
-    // and sized to sit between the beams — facade layers never overlap:
-    // plaster face < window (+0.01) < timber beams (+0.06)
+    // warm windows: framed + mullioned, INSET into the plaster (behind the
+    // timber frame layer) and sized to sit between the beams — facade layers
+    // never overlap: plaster face < window (+0.01) < mullions/frame (+0.02+).
+    // Added directly to `tavern` (not `shell`) so they survive the modeled
+    // CC0 inn swap too — the model's own baked windows are unlit glass, so
+    // these glowing panes are what actually gives the facade a lived-in,
+    // warm-at-night look either way.
     const glow = new THREE.MeshBasicMaterial({ color: 0xffb45e });
     const frontFace = D / 2 - 0.2; // plaster front plane
-    const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.46), glow);
-    win.position.set(-W * 0.28, 1.32, frontFace + 0.01);
-    shell.add(win);
-    const winFrame = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.05), timber);
-    winFrame.position.set(-W * 0.28, 1.08, frontFace + 0.02); // sill
-    shell.add(winFrame);
-    // side window flush with the side wall
+    const mkWindow = (x, z, roty) => {
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.46), glow.clone());
+      win.position.set(x, 1.32, z);
+      win.rotation.y = roty;
+      tavern.add(win);
+      // wood frame around the pane
+      const frame = new THREE.Group();
+      const top = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.05), timber); top.position.y = 0.26;
+      const bot = top.clone(); bot.position.y = -0.26;
+      const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.58, 0.05), timber); l.position.x = -0.27;
+      const r = l.clone(); r.position.x = 0.27;
+      frame.add(top, bot, l, r);
+      frame.position.copy(win.position);
+      frame.rotation.y = roty;
+      tavern.add(frame);
+      // mullions: a cross dividing the pane into four small lights
+      const mV = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.46, 0.03), timber);
+      const mH = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.03), timber);
+      mV.position.copy(win.position); mV.rotation.y = roty;
+      mH.position.copy(win.position); mH.rotation.y = roty;
+      tavern.add(mV, mH);
+      // each pane has its own cloned material, so each needs its own
+      // townGlows entry — the day/night driver walks the list per-mesh.
+      townGlows.push({ mesh: win, base: new THREE.Color(0xffb45e), kind: 'basic' });
+      return win;
+    };
+    mkWindow(-W * 0.28, frontFace + 0.01, 0);
     const sideFace = (W - 0.4) / 2;
-    const sideWin = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.46), glow);
-    sideWin.position.set(-sideFace - 0.01, 1.32, 0);
-    sideWin.rotation.y = -Math.PI / 2;
-    shell.add(sideWin);
-    // both tavern windows share one basic material: warm glow at night, dim by
-    // day. Register the shared material once (via the front window mesh).
-    townGlows.push({ mesh: win, base: new THREE.Color(0xffb45e), kind: 'basic' });
+    mkWindow(-sideFace - 0.01, 0, -Math.PI / 2);
     // door frame + door + step
     const frameMat = timber;
     const frameTop = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.14), frameMat);
@@ -1685,28 +1706,47 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
     const door = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.5, 0.1), timber);
     door.position.set(W * 0.28, 0.75, D / 2 - 0.12);
     shell.add(door);
+    // door handle/knob — on the procedural fallback door AND, since the
+    // modeled inn's own baked door has no handle at all, a second one added
+    // directly to `tavern` at the same doorstep-aligned spot so a real
+    // handle reads on the door either way.
+    const handleMat = new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.35 });
+    const doorHandle = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), handleMat);
+    doorHandle.position.set(W * 0.28 + 0.22, 0.85, D / 2 - 0.06);
+    shell.add(doorHandle);
+    const modelDoorHandle = doorHandle.clone();
+    modelDoorHandle.position.set(W * 0.28 + 0.22, 0.85, D / 2 + 0.02);
+    tavern.add(modelDoorHandle);
     const step = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.14, 0.4), new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.95 }));
     step.position.set(W * 0.28, 0.07, D / 2 + 0.25);
     tavern.add(step);
-    // hanging sign with a golden mug
-    const signArm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.06), timber);
-    signArm.position.set(W * 0.28 + 0.85, 2.2, D / 2 + 0.15);
-    const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.05), new THREE.MeshStandardMaterial({ color: 0x5a4028 }));
-    signBoard.position.set(W * 0.28 + 1.05, 1.9, D / 2 + 0.15);
-    const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.12, 8), new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.4 }));
-    mug.position.set(W * 0.28 + 1.05, 1.9, D / 2 + 0.2);
-    tavern.add(signArm, signBoard, mug);
-    // barrel + bench outside, near the door (barrel swaps to the modeled one)
+    // hanging sign: an iron bracket bolted above the door, two chains, and a
+    // real wooden board reading "Emberville Tavern" (was a blank plank with
+    // a stray mug and a bare beam floating against the wall — replaced with
+    // a proper hung sign).
+    const ironMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.55, roughness: 0.5 });
+    const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.7), ironMat);
+    bracket.position.set(W * 0.28 + 0.85, 2.35, D / 2 + 0.15);
+    const chainL = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.3, 5), ironMat);
+    chainL.position.set(W * 0.28 + 0.85, 2.18, D / 2 - 0.1);
+    const chainR = chainL.clone();
+    chainR.position.z = D / 2 + 0.4;
+    const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.9),
+      new THREE.MeshStandardMaterial({ map: makeExteriorSignTexture(), roughness: 0.85 }));
+    signBoard.position.set(W * 0.28 + 0.85, 1.95, D / 2 + 0.15);
+    tavern.add(bracket, chainL, chainR, signBoard);
+    // barrel + bench outside, near the door (barrel swaps to the modeled one).
+    // Held in its own subgroup (not loose in `tavern`) so breakNear() can
+    // smash just the barrel without touching the rest of the building.
+    const barrelHolder = new THREE.Group();
+    barrelHolder.position.set(-W * 0.4, 0, D / 2 + 0.35);
+    tavern.add(barrelHolder);
     const barrelMat = new THREE.MeshStandardMaterial({ color: 0x6b4c30, roughness: 0.85 });
     const outsideBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.55, 10), barrelMat);
-    outsideBarrel.position.set(-W * 0.4, 0.28, D / 2 + 0.35);
-    tavern.add(outsideBarrel);
-    swapInModel(tavern, outsideBarrel, ['barrel'], ([tpl]) => {
-      if (!tpl) return null;
-      const node = buildModelMesh(tpl, 0.6);
-      node.position.set(-W * 0.4, 0, D / 2 + 0.35);
-      return node;
-    });
+    outsideBarrel.position.y = 0.28;
+    barrelHolder.add(outsideBarrel);
+    swapInModel(barrelHolder, outsideBarrel, ['barrel'], ([tpl]) => (tpl ? buildModelMesh(tpl, 0.6) : null));
+    breakables.push({ mesh: barrelHolder, x: cw.x + barrelHolder.position.x, z: cw.z + barrelHolder.position.z, kind: 'barrel' });
     const benchMat = new THREE.MeshStandardMaterial({ color: 0x5a4028, roughness: 0.9 });
     const benchSeat = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.3), benchMat);
     benchSeat.position.set(-W * 0.05, 0.32, D / 2 + 0.5);
@@ -1829,10 +1869,10 @@ function buildCathedralDressing(group, dungeon, theme, torchPositions, breakable
 
 // Wall-hugging themed clutter. Braziers/candelabra register as torch lights so
 // they glow and flicker via the game's pooled-light loop.
-function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, floorAccent, frng) {
+function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, floorAccent, frng, breakables) {
   const SETS = {
     'The Old Halls':      ['barrel', 'crate', 'bones', 'cobweb', 'banner', 'pot'],
-    'The Rotting Depths': ['mushroom', 'bones', 'pot', 'cobweb', 'barrel', 'skull'],
+    'The Rotting Depths': ['thicket', 'bones', 'pot', 'cobweb', 'barrel', 'skull'],
     'The Ember Vaults':   ['brazier', 'crate', 'skull', 'banner', 'pot', 'bones'],
     'The Sunless Court':  ['sarcophagus', 'candelabra', 'bones', 'banner', 'cobweb', 'skull'],
     'The Abyssal Throne': ['sarcophagus', 'skull', 'brazier', 'banner', 'bones', 'cobweb'],
@@ -1853,7 +1893,6 @@ function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, fl
   };
   const accent = new THREE.Color(floorAccent);
   const C = { WOOD: 0x54402c, IRON: 0x3f3f47, BONE: 0xcfc6a6, STONE: 0x5e5766, TERRA: 0x8a4b33, accent };
-  const breakables = [];
   for (const p of dungeon.props) {
     const kind = pickKind(p.roll);
     const w = tileToWorld(p.x, p.y);
@@ -1890,7 +1929,6 @@ function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, fl
     // containers can be smashed by attacks that land near them
     if (kind === 'barrel' || kind === 'crate' || kind === 'pot') breakables.push({ mesh: node, x: px, z: pz, kind });
   }
-  return breakables;
 }
 
 // A cobweb anchored to real surfaces. The quarter circle fan texture's radial
@@ -1998,8 +2036,26 @@ function buildProp(kind, C, torchPositions, smokePuffs, px, pz, theme) {
     const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 1.9), std(C.STONE)); base.position.y = 0.25; g.add(base);
     const lid = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.16, 2.0), std(0x6b6474)); lid.position.y = 0.56; lid.rotation.y = 0.04; g.add(lid);
     const face = new THREE.Mesh(new THREE.CircleGeometry(0.22, 12), new THREE.MeshStandardMaterial({ color: C.accent.clone().multiplyScalar(0.5), roughness: 1 })); face.rotation.x = -Math.PI / 2; face.position.set(0, 0.65, -0.5); g.add(face);
-  } else if (kind === 'mushroom') {
-    for (let i = 0; i < 3; i++) { const h = 0.2 + Math.random() * 0.3; const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, h, 6), std(0xd8d0c0)); const ox = (Math.random() - 0.5) * 0.5, oz = (Math.random() - 0.5) * 0.5; stem.position.set(ox, h / 2, oz); g.add(stem); const cap = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), glow(C.accent)); cap.position.set(ox, h, oz); g.add(cap); }
+  } else if (kind === 'thicket') {
+    // A small clump of rocks tucked against the wall (the old glowing
+    // toadstool prop — an orange cap on curved stems that read as a stray
+    // mushroom/spider — is gone). Procedural pebbles are the fallback; the
+    // modeled CC0 rock swaps in once its GLB loads, same pattern as the
+    // town's meadow rocks.
+    const rockMat = std(0x5e5a52);
+    const fallback = new THREE.Group();
+    for (let i = 0; i < 3; i++) {
+      const s = 0.14 + Math.random() * 0.12;
+      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rockMat);
+      rock.position.set((Math.random() - 0.5) * 0.5, s * 0.5, (Math.random() - 0.5) * 0.5);
+      rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+      fallback.add(rock);
+    }
+    g.add(fallback);
+    swapInModel(g, fallback, ['rockA', 'rockB'], ([a, b]) => {
+      const tpl = a || b;
+      return tpl ? buildModelMesh(tpl, 0.42 + Math.random() * 0.18) : null;
+    });
   }
   return g;
 }

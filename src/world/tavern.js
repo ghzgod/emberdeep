@@ -68,12 +68,19 @@ export function buildTavernInterior() {
     wt.repeat.set(horizontal ? w / TILE : d / TILE, 1);
     const wainMat = new THREE.MeshStandardMaterial({ map: wt, roughness: 0.85 });
     const panelT = 0.08; // panel thickness (along the wall's short axis)
+    // Clearance off the wall's inner face: without this the panel's outer
+    // face and the wall's inner face land on the exact same plane, which
+    // z-fights (shimmers/moires when the camera zooms in) wherever a
+    // wainscot backs onto the wall — most visibly behind the bar. A few cm
+    // of real standoff (not a coplanar polygon-offset trick) fixes it for
+    // good at any zoom/angle.
+    const WALL_GAP = 0.03;
     const wain = new THREE.Mesh(
       new THREE.BoxGeometry(horizontal ? w : panelT, wainH, horizontal ? panelT : d), wainMat);
     // seat the panel just proud of the wall's inner face, toward room center
     const dir = horizontal ? Math.sign((H * TILE) / 2 - z) : Math.sign((W * TILE) / 2 - x);
-    if (horizontal) wain.position.set(x, wainH / 2, z + dir * (d / 2 - panelT / 2));
-    else wain.position.set(x + dir * (d / 2 - panelT / 2), wainH / 2, z);
+    if (horizontal) wain.position.set(x, wainH / 2, z + dir * (d / 2 - panelT / 2 + WALL_GAP));
+    else wain.position.set(x + dir * (d / 2 - panelT / 2 + WALL_GAP), wainH / 2, z);
     group.add(wain);
   };
   mkWall(W * TILE, TILE, (W * TILE) / 2, TILE / 2, true);
