@@ -4177,16 +4177,31 @@ export class Game {
     const camDist = rawDist + Math.max(0, MIN_CLOSE_DIST - rawDist) * eyeBlend;
     const camX = target.x + Math.sin(this.camYaw) * camDist;
     const camZ = target.z + Math.cos(this.camYaw) * camDist;
-    this.camera.position.x += (camX - this.camera.position.x) * Math.min(1, 8 * dt);
-    this.camera.position.y += (camYTarget - this.camera.position.y) * Math.min(1, 8 * dt);
-    this.camera.position.z += (camZ - this.camera.position.z) * Math.min(1, 8 * dt);
+    // Frame-rate-independent smoothing (1 - e^-kt), applied IDENTICALLY to the
+    // camera position and the look target. The old scheme eased position with
+    // a linear min(1, 8*dt) factor but aimed lookAt at the player's EXACT spot
+    // every frame - so any dt variance stepped the position unevenly while the
+    // orientation stayed pinned, converting frame-time noise into camera
+    // ROTATION noise around the hero: the hero looked smooth (lookAt pins them
+    // on screen) while the whole world jittered left/right - the exact TODO-8
+    // symptom, worst while moving or rotating with Q/E. Easing both ends with
+    // the same coefficient makes them lag coherently, so dt noise cancels out
+    // of the camera-to-target direction instead of shaking the view.
+    const k = 1 - Math.exp(-8 * dt);
+    this.camera.position.x += (camX - this.camera.position.x) * k;
+    this.camera.position.y += (camYTarget - this.camera.position.y) * k;
+    this.camera.position.z += (camZ - this.camera.position.z) * k;
+    if (!this._camLook) this._camLook = new THREE.Vector3(target.x, lookY, target.z);
+    this._camLook.x += (target.x - this._camLook.x) * k;
+    this._camLook.y += (lookY - this._camLook.y) * k;
+    this._camLook.z += (target.z - this._camLook.z) * k;
     if (this.shakeAmount > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.shakeAmount;
       this.camera.position.y += (Math.random() - 0.5) * this.shakeAmount * 0.6;
       this.camera.position.z += (Math.random() - 0.5) * this.shakeAmount;
       this.shakeAmount *= 1 - 7 * dt;
     }
-    this.camera.lookAt(target.x, lookY, target.z);
+    this.camera.lookAt(this._camLook.x, this._camLook.y, this._camLook.z);
   }
 
   updateZones(dt) {
