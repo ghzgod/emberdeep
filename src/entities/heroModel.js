@@ -287,16 +287,27 @@ export function hairStyleById(id) {
 // three playable rigs (Knight/Mage/Rogue_Hooded) are each a different height
 // and head size.
 //
-// Parented to the hero ROOT (`mesh`), not the head bone: the headMesh's own
-// geometry (and therefore this bounding box) is authored in the rig's overall
-// bind-pose model space, which is the same space the root's direct children
-// live in - NOT the head bone's own local space (the bone's local origin sits
-// at the neck joint, so reusing these same numbers as a bone-local offset
-// double-counts the neck-to-crown distance and floats the discs off the top
-// of the screen - caught via a projected-to-screen-space check during manual
-// verification). This is the same tradeoff the (disabled) procedural mage
-// hood took: it does not track head-only animation (idle bob), only the
-// whole rig's root motion, which reads fine at this game's camera distance.
+// Positioned in bind-pose model space (the space the head geometry/bbox is
+// authored in), then re-parented onto the HEAD BONE via anchorToHeadBone so
+// the discs ride the walk/idle head animation. The first version left them
+// parented to the root: the head bobbed away mid-walk while the static discs
+// stayed at the bind pose - "brown circles float off my eyes when I move"
+// (user bug report). Object3D.attach() does the world-transform-preserving
+// reparent, so none of the bind-space numbers here change.
+// Re-parents `obj` (placed in bind-pose root space as a child of `mesh`)
+// onto the rig's head bone WITHOUT moving it: attach() preserves the world
+// transform across the reparent, converting position/rotation/scale into
+// bone-local terms. After this the object follows every head-bone animation
+// (walk bob, glance, attack squash) exactly like the baked hats do. No-ops
+// (leaves root parenting) when the rig has no named head bone.
+function anchorToHeadBone(mesh, obj) {
+  let bone = null;
+  mesh.traverse((o) => { if (!bone && o.isBone && /^head$/i.test(o.name)) bone = o; });
+  if (!bone) return;
+  mesh.updateMatrixWorld(true);
+  bone.attach(obj);
+}
+
 function addEyeDiscs(mesh, headMesh, hex) {
   if (!headMesh) return;
   headMesh.geometry.computeBoundingBox();
@@ -310,10 +321,12 @@ function addEyeDiscs(mesh, headMesh, hex) {
   // face surface at eye height/width is not as far forward as the bounding
   // box's overall max (that peak belongs to the nose/chin) - sitting exactly
   // at or under that surface let the baked face z-fight/occlude the discs.
-  const eyeY = bb.max.y - h * 0.5;
+  const eyeY = bb.max.y - h * 0.56; // ON the baked eye line (0.5 sat at the brow)
   const eyeZ = bb.max.z + d * 0.03;
-  const eyeX = w * 0.22;
-  const geo = new THREE.CircleGeometry(Math.max(0.014, w * 0.06), 10);
+  const eyeX = w * 0.15; // centered ON the baked pupils (0.22 sat at the outer corners)
+  // ~35% smaller than the first pass: at w*0.06 the discs read as stickers
+  // pasted over the whole eye socket rather than irises inside it.
+  const geo = new THREE.CircleGeometry(Math.max(0.012, w * 0.05), 10);
   const mat = new THREE.MeshBasicMaterial({ color: hex });
   for (const side of [-1, 1]) {
     const disc = new THREE.Mesh(geo, mat);
@@ -321,6 +334,7 @@ function addEyeDiscs(mesh, headMesh, hex) {
     disc.renderOrder = 2;
     disc.frustumCulled = false;
     mesh.add(disc);
+    anchorToHeadBone(mesh, disc); // ride the head animation (see helper above)
   }
 }
 
@@ -409,6 +423,7 @@ function addHairMesh(mesh, headMesh, style, hex) {
   if (!group.children.length) return null;
   group.frustumCulled = false;
   mesh.add(group);
+  anchorToHeadBone(mesh, group); // hair rides the head animation too
   return group;
 }
 
