@@ -36,6 +36,13 @@ Per-act music tracks were re-encoded with ffmpeg to keep download weight low (mo
 
 Enemy models and textures are procedurally generated in-engine.
 
+# Icon Credits
+
+| Pack | Author | License | Used for |
+|---|---|---|---|
+| [game-icons.net](https://game-icons.net) | Lorc, Delapouite, Willdabeast | [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/) | Inventory/equipment item icon silhouettes (sword, wizard staff, crystal wand, bow, visored helm, hood, breastplate, mail shirt, greaves, gauntlet, gloves, ring, gem pendant, crown, dice, heart, round shield, book cover, crystal ball, quiver, old lantern, totem head), colored in-engine per rarity (`src/entities/itemIconPaths.js`) |
+
+
 # Technology
 
 - [Three.js](https://threejs.org) — rendering
