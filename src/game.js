@@ -2084,7 +2084,12 @@ export class Game {
         // item - a real hooded-robe often uses a contrast lining, not the
         // exact same dye lot as the robe body.
         const anchor = mesh.userData.headAnchor;
-        const isHoodStyle = !!(anchor && equipped.chest && r3 < 0.45);
+        // Hood style DISABLED (TODO 671): the procedural sphere-dome cowl read
+        // as "a turban", not a hood, from most angles - even with an open
+        // face. Every mage helmet renders the authored pointy hat (with the
+        // per-item height/palette variance below) until a real modeled hood
+        // mesh exists to do TODO 93 justice.
+        const isHoodStyle = false && !!(anchor && equipped.chest && r3 < 0.45);
         if (isHoodStyle) {
           hat.visible = false; // baked pointy-hat mesh stays hidden for this style
           const hoodColor = RARITIES[it.rarity]?.color ?? 0x8a8a8a;
@@ -2106,8 +2111,16 @@ export class Game {
           const rawSpan = domeR * (1 - Math.cos(domeThetaLen)); // unscaled top-to-rim height
           const hoodHeight = Math.max(0.2, topY - MAGE_ROBE_COLLAR.y);
           const yScale = hoodHeight / rawSpan; // squash/stretch to span exactly crown-to-collar
-          const hood = new THREE.Mesh(new THREE.SphereGeometry(domeR, 12, 8, 0, Math.PI * 2, 0, domeThetaLen), hoodMat);
+          // Open-FACE hood: sweep phi around the back/sides only, leaving a
+          // ~115-degree window at the front (+z is the rig's facing) so the
+          // face shows inside the cowl. A full 360 sweep enclosed the whole
+          // head in a featureless ball that read as "a turban", not a hood
+          // (user report, TODO 671).
+          const faceGap = 1.0; // half-angle (rad) of the face opening each side of +z
+          const hood = new THREE.Mesh(
+            new THREE.SphereGeometry(domeR, 14, 8, Math.PI / 2 + faceGap, Math.PI * 2 - faceGap * 2, 0, domeThetaLen), hoodMat);
           hood.scale.y = yScale;
+          hood.scale.z = 1.1; // slight backward drape so the cowl reads deeper than the skull
           hood.position.set(anchor.cx, topY - domeR * yScale, anchor.cz + MAGE_ROBE_COLLAR.z * 0.5);
           grp.add(hood);
           // Hem ring at the shared collar seam, sized to the dome's own open
