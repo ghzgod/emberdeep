@@ -220,6 +220,35 @@ export class Game {
     this.ui = new UI(this);
     this.touch = new TouchControls(this);
 
+    // Movement fail-safe: input.js already clears keys/mouse.down on blur and
+    // touch.js already clears its joystick/attack latch on blur, but neither
+    // knows about the player's OWN transient movement state - a dash/whirl in
+    // flight, a live drag-to-aim override, or moveDir itself - so a focus loss
+    // mid-gesture (alt-tab, a native dialog stealing focus, etc.) could leave
+    // the hero still holding a movement vector with nothing left pressed to
+    // clear it. Zero everything movement-related here too, from both signals
+    // (blur fires on focus loss even when the tab stays "visible"; hidden
+    // covers tab-switch/minimize) so whichever fires first wins.
+    const failsafeStopMovement = () => {
+      this.input.keys.clear();
+      this.input.mouse.down = false;
+      this.input.mouse.rightDown = false;
+      this.touch.joyActive = false;
+      this.touch.attacking = false;
+      this.touch.move.x = 0; this.touch.move.z = 0;
+      this.touch.rotDir = 0;
+      const p = this.player;
+      if (p) {
+        p.moveDir.x = 0; p.moveDir.z = 0;
+        p.dash = null;
+        if (p.whirl) { p.whirl = null; audio.stopWhirl(); }
+        if (p.glideVel) { p.glideVel.x = 0; p.glideVel.z = 0; }
+        p.aimOverride = null;
+      }
+    };
+    window.addEventListener('blur', failsafeStopMovement);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) failsafeStopMovement(); });
+
     this.state = 'loading';
     this.player = null;
     this.enemies = [];
@@ -3184,7 +3213,12 @@ export class Game {
       if (this.state === 'shop' && this.player) this.updateCameraFollow(dt);
       if (net.active) this.netFrozenTick(dt);
       if (this.state === 'chatlog' && this.input.wasPressed('Escape')) { this.state = 'playing'; this.ui.hideAll(); }
-      if (this.state === 'inventory' && (this.input.wasPressed('Tab') || this.input.wasPressed('Escape') || this.input.wasPressed('KeyI'))) {
+      if (this.state === 'inventory' && this.input.wasPressed('Escape') && this.ui.selectedItem) {
+        // an item's stats/actions card is open on top of the inventory - the
+        // first Escape dismisses just that card, the inventory stays open;
+        // a second Escape (falling to the branch below) then closes it.
+        this.ui.closeItemActions();
+      } else if (this.state === 'inventory' && (this.input.wasPressed('Tab') || this.input.wasPressed('Escape') || this.input.wasPressed('KeyI'))) {
         this.state = 'playing';
         this.ui.closeInventory();
       }
@@ -3299,22 +3333,38 @@ export class Game {
     p.moveDir.z = -mx * sy + mz * cy;
     // anti-cheat penalty: frozen in place until the lockout expires
     if (this.cheatLockUntil && performance.now() < this.cheatLockUntil) { p.moveDir.x = 0; p.moveDir.z = 0; }
+    // belt-and-braces: if the window isn't focused this frame, no input source
+    // should be driving movement, blur listener or not (races between focus
+    // loss and the events that are supposed to clear key/joystick state are
+    // exactly how "walking into a wall with nothing held" bugs happen).
+    if (!document.hasFocus()) { p.moveDir.x = 0; p.moveDir.z = 0; }
 
-    // ---- input: aim via mouse raycast to ground ----
-    this._mouseNdc.set(
-      (input.mouse.x / window.innerWidth) * 2 - 1,
-      -(input.mouse.y / window.innerHeight) * 2 + 1
-    );
-    this.raycaster.setFromCamera(this._mouseNdc, this.camera);
-    if (this.raycaster.ray.intersectPlane(this.groundPlane, this._aimTarget)) {
-      p.cursor.x = this._aimTarget.x;
-      p.cursor.z = this._aimTarget.z;
-      const dx = this._aimTarget.x - p.pos.x;
-      const dz = this._aimTarget.z - p.pos.z;
-      const alen = Math.hypot(dx, dz) || 1;
-      p.aimAngle = Math.atan2(dz, dx);
-      p.aimDir.x = dx / alen;
-      p.aimDir.z = dz / alen;
+    // ---- input: aim via mouse raycast to ground (desktop only) ----
+    // Touch devices never fire mousemove, so input.mouse.x/y sits frozen at
+    // its (0,0) default. Running this raycast unconditionally overwrote the
+    // aimAngle/aimDir a tap on the corner cluster had just set (auto-aim at
+    // the nearest enemy) on the very next frame, snapping facing back toward
+    // that stale top-left ground point before the hero could turn to face
+    // its target - the tapped melee swing landed (meleeAttack reads aimAngle
+    // synchronously at cast time) but visually never faced/tracked the enemy.
+    // Gate this to desktop so touch aim stays whatever clusterTap/clusterSwipe
+    // (or the mobile aim-assist below) last set it to.
+    if (!this.touch.enabled) {
+      this._mouseNdc.set(
+        (input.mouse.x / window.innerWidth) * 2 - 1,
+        -(input.mouse.y / window.innerHeight) * 2 + 1
+      );
+      this.raycaster.setFromCamera(this._mouseNdc, this.camera);
+      if (this.raycaster.ray.intersectPlane(this.groundPlane, this._aimTarget)) {
+        p.cursor.x = this._aimTarget.x;
+        p.cursor.z = this._aimTarget.z;
+        const dx = this._aimTarget.x - p.pos.x;
+        const dz = this._aimTarget.z - p.pos.z;
+        const alen = Math.hypot(dx, dz) || 1;
+        p.aimAngle = Math.atan2(dz, dx);
+        p.aimDir.x = dx / alen;
+        p.aimDir.z = dz / alen;
+      }
     }
 
     // facing rule: aim only counts while attack input is held
