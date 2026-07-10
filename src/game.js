@@ -127,15 +127,7 @@ export class Game {
         e.touches[0].clientY - e.touches[1].clientY),
     });
     window.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) {
-        this._twist = twistSample(e);
-        // Two fingers down with the joystick idle = gesture territory (twist
-        // or pinch): the second thumb must never register as an attack tap,
-        // and any attack the first finger started is cancelled. When the
-        // joystick IS steering, two fingers are move+attack play - untouched.
-        const t = this.touch;
-        if (t && !t.joyActive) { t.attacking = false; t._aimId = null; t.gestureLock = true; }
-      }
+      if (e.touches.length === 2) this._twist = twistSample(e);
     }, { passive: true });
     window.addEventListener('touchmove', (e) => {
       if (this.state !== 'playing' || e.touches.length !== 2 || !this._twist) return;
@@ -157,7 +149,6 @@ export class Game {
     }, { passive: true });
     window.addEventListener('touchend', (e) => {
       this._twist = null;
-      if (e.touches.length < 2 && this.touch) this.touch.gestureLock = false;
     }, { passive: true });
 
     // lights
@@ -232,8 +223,8 @@ export class Game {
     this.touch = new TouchControls(this);
 
     // Movement fail-safe: input.js already clears keys/mouse.down on blur and
-    // touch.js already clears its joystick/attack latch on blur, but neither
-    // knows about the player's OWN transient movement state - a dash/whirl in
+    // touch.js already clears its joystick latch on blur, but neither knows
+    // about the player's OWN transient movement state - a dash/whirl in
     // flight, a live drag-to-aim override, or moveDir itself - so a focus loss
     // mid-gesture (alt-tab, a native dialog stealing focus, etc.) could leave
     // the hero still holding a movement vector with nothing left pressed to
@@ -245,7 +236,6 @@ export class Game {
       this.input.mouse.down = false;
       this.input.mouse.rightDown = false;
       this.touch.joyActive = false;
-      this.touch.attacking = false;
       this.touch.move.x = 0; this.touch.move.z = 0;
       this.touch.rotDir = 0;
       const p = this.player;
@@ -1050,12 +1040,14 @@ export class Game {
       'The bard quit. Said the dungeon "hummed in the wrong key". So it\'s just the fire and me.',
     );
     const body = bodies[Math.floor(Math.random() * bodies.length)];
-    const memory = this.vendorMemory['Barlow the Barkeep'] || {};
+    const memory = this.vendorMemory['Magda the Barkeep'] || {};
     const line = roaster.composeVendorLine('barkeep', { playerName: n, memory, body });
-    if (!memory.met) { this.vendorMemory['Barlow the Barkeep'] = { met: true }; this.requestSave(); }
+    if (!memory.met) { this.vendorMemory['Magda the Barkeep'] = { met: true }; this.requestSave(); }
     const b = this.dungeonMeshes.barkeepPos;
-    this.ui.showSubtitle('Barlow the Barkeep', line);
-    roaster.speakAs(line, { female: false, vi: 5, pitch: 0.8, rate: 0.95, kokoro: 'am_liam', kSpeed: 0.95 });
+    this.ui.showSubtitle('Magda the Barkeep', line);
+    // Female voice, unused elsewhere: af_kore (not shared with Maribel/af_bella,
+    // the sober patron/af_sarah, or any enemy/boss cast in roaster.js).
+    roaster.speakAs(line, { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 });
   }
 
   patronChat(pm) {
@@ -3016,9 +3008,9 @@ export class Game {
   playerIsAttacking() { return !!(this.player && (this.player.aiming || this.player.attackAnim > 0.05)); }
 
   // Point the player's aim (aimAngle/aimDir) at the nearest living enemy.
-  // The single source of aim-assist for both the held touch attack and a
-  // TAP on any corner-cluster action button (tap = auto-aim nearest). Returns
-  // the chosen enemy, or null if none is in range.
+  // The single source of aim-assist for a TAP on any corner-cluster action
+  // button (tap = auto-aim nearest, see clusterTap). Returns the chosen
+  // enemy, or null if none is in range.
   aimAtNearestEnemy(p, maxDist = 9) {
     let best = null, bestD = maxDist;
     for (const e of this.enemies) {
@@ -3055,7 +3047,7 @@ export class Game {
     if (!p || this.inTown || this.state !== 'playing') return;
     this.aimAtNearestEnemy(p);
     p.faceAimTimer = Math.max(p.faceAimTimer, 0.25);
-    if (slot < 0) p.tryBasicAttack(this);
+    if (slot < 0) { p.tryBasicAttack(this); this.touch?._advanceTut?.('attack'); }
     else p.tryAbility(slot, this);
   }
 
@@ -3067,7 +3059,7 @@ export class Game {
     if (!p || this.inTown || this.state !== 'playing') return;
     this.aimInDirection(p, dirX, dirZ);
     p.faceAimTimer = Math.max(p.faceAimTimer, 0.25);
-    if (slot < 0) p.tryBasicAttack(this);
+    if (slot < 0) { p.tryBasicAttack(this); this.touch?._advanceTut?.('attack'); }
     else p.tryAbility(slot, this);
   }
 
@@ -3940,7 +3932,7 @@ export class Game {
     // its target - the tapped melee swing landed (meleeAttack reads aimAngle
     // synchronously at cast time) but visually never faced/tracked the enemy.
     // Gate this to desktop so touch aim stays whatever clusterTap/clusterSwipe
-    // (or the mobile aim-assist below) last set it to.
+    // last set it to.
     if (!this.touch.enabled) {
       this._mouseNdc.set(
         (input.mouse.x / window.innerWidth) * 2 - 1,
@@ -3959,14 +3951,9 @@ export class Game {
       }
     }
 
-    // facing rule: aim only counts while attack input is held
-    p.aiming = !this.inTown && (input.mouse.down || this.touch.attacking);
-
-    // mobile aim assist: while attacking by touch, snap aim to the nearest
-    // living enemy in range — thumbs aren't mice
-    if (this.touch.enabled && this.touch.attacking && !this.inTown) {
-      this.aimAtNearestEnemy(p);
-    }
+    // facing rule: hover/hold only steers facing, it never fires an attack -
+    // attacks are button/cluster-only now (TODO 684).
+    p.aiming = !this.inTown && input.mouse.down;
 
     // live directional aim indicator: while a cluster button is held and
     // dragged (see ui.js), keep the ground arrow/cone pointing where the drag
@@ -3977,7 +3964,10 @@ export class Game {
     // clicking a co-op hero opens their inspect panel and eats the click
     const inspected = this.tryInspectClick();
     if (!this.inTown && !inspected) {
-      if (input.mouse.down || this.touch.attacking) p.tryBasicAttack(this);
+      // NOTE: basic attack is NEVER triggered by a raw canvas click/tap here -
+      // only .act-basic / ability buttons (clusterTap/clusterSwipe) can fire
+      // it (TODO 684). Digit1-4 remain keyboard shortcuts for the four
+      // ability slots, unaffected by this rule (they're not the basic attack).
       if (input.wasPressed('Digit1')) p.tryAbility(0, this);
       if (input.wasPressed('Digit2')) p.tryAbility(1, this);
       if (input.wasPressed('Digit3')) p.tryAbility(2, this);
@@ -4477,8 +4467,7 @@ export class Game {
     // this mainly serves desktop, where no tutorial exists). Shown once.
     if (!localStorage.getItem('emberdeep-attack-tip')) {
       localStorage.setItem('emberdeep-attack-tip', '1');
-      const tip = this.touch?.touchInput ? 'Tap the screen to attack' : 'Click the mouse to attack';
-      setTimeout(() => this.ui.showFloorBanner?.(tip, 'Slay your way to the stairs', true), 1600);
+      setTimeout(() => this.ui.showFloorBanner?.('Tap the attack button to fight', 'Slay your way to the stairs', true), 1600);
     }
     audio.play('stairs', { volume: 0.8 });
     if (net.active && !net.isHost) {
@@ -4836,7 +4825,7 @@ export class Game {
         if (near(w.x, w.z + 0.6, 1.6)) candidate = { label: 'Step outside', icon: '🚪', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTown({ fromTavern: true }); } };
       }
       if (!candidate && this.dungeonMeshes.barkeepPos && near(this.dungeonMeshes.barkeepPos.x, this.dungeonMeshes.barkeepPos.z, 2.4)) {
-        candidate = { label: 'Talk to Barlow', icon: '🍺', talk: true, action: () => this.barkeepChat() };
+        candidate = { label: 'Talk to Magda', icon: '🍺', talk: true, action: () => this.barkeepChat() };
       }
       if (!candidate) {
         for (const pm of this.dungeonMeshes.patronMeshes || []) {

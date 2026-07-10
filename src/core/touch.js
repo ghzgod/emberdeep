@@ -22,10 +22,11 @@ export function isCompactLayout() {
     || location.search.includes('touch');
 }
 
-// Touch controls: virtual joystick (left half) + hold-to-attack aim (right half)
-// on touch-capable devices, plus the compact layout's always-visible utility
-// row and tutorial hints on ANY compact viewport (mouse included). Force touch
-// input with ?touch in the URL for testing.
+// Touch controls: virtual joystick (left half) on touch-capable devices, plus
+// the compact layout's always-visible utility row and tutorial hints on ANY
+// compact viewport (mouse included). Force touch input with ?touch in the URL
+// for testing. Attacks never fire from a raw canvas tap/hold - only the
+// .act-basic button and ability bubbles (wired in ui.js) can swing (TODO 684).
 export class TouchControls {
   constructor(game) {
     this.game = game;
@@ -40,11 +41,9 @@ export class TouchControls {
     document.body.classList.toggle('touch-input', this.touchInput);
     this.move = { x: 0, z: 0 };
     this.joyActive = false;
-    this.attacking = false;
     this.rotDir = 0; // legacy field read by game.js's camera-rotate check; always 0 now that rotation is twist-gesture only
     this.fadeTimer = 4; // touch buttons dim after a few idle seconds
     this._joyId = null;
-    this._aimId = null;
 
     // body.touch-mode is the flag both CSS and JS key off; re-evaluated below
     // on resize/orientationchange so a mid-session viewport change (tablet
@@ -60,7 +59,7 @@ export class TouchControls {
     window.addEventListener('orientationchange', () => this._reevaluate());
 
     const canvas = game.canvas;
-    // Canvas gestures (joystick / hold-to-aim) need real touch; everything
+    // Canvas gestures (joystick only - see onDown) need real touch; everything
     // below them (utility row, tutorial, hotbar taps) works with a mouse too
     // and the compact layout needs it on any device.
     if (this.touchInput) {
@@ -69,10 +68,10 @@ export class TouchControls {
       canvas.addEventListener('pointermove', (e) => this.onMove(e));
       canvas.addEventListener('pointerup', (e) => this.onUp(e));
       canvas.addEventListener('pointercancel', (e) => this.onUp(e));
-      // failsafe: a blur mid-gesture must never leave attack/joystick latched
+      // failsafe: a blur mid-gesture must never leave the joystick latched
       window.addEventListener('blur', () => {
-        this._joyId = null; this._aimId = null;
-        this.joyActive = false; this.attacking = false;
+        this._joyId = null;
+        this.joyActive = false;
         this.move.x = 0; this.move.z = 0;
         if (this.joyBase) this.joyBase.style.display = 'none';
       });
@@ -168,6 +167,10 @@ export class TouchControls {
 
   onDown(e) {
     if (e.pointerType === 'mouse' && !location.search.includes('touch')) return;
+    // Only the joystick half of the canvas does anything: a bare tap/hold
+    // anywhere else (including a hold-swipe) is offensively inert (TODO 684).
+    // Attacks fire only from .act-basic / ability buttons, wired separately
+    // in ui.js's wireActionButton.
     if (e.clientX < window.innerWidth * 0.42 && this._joyId === null) {
       this._joyId = e.pointerId;
       this.joyActive = true;
@@ -178,15 +181,6 @@ export class TouchControls {
       this.joyKnob.style.transform = 'translate(-50%,-50%)';
       this._advanceTut?.('move');
       this.dismissJoyGhost(true);
-    } else if (this._aimId === null && !this.gestureLock) {
-      // gestureLock: two idle-joystick fingers are a twist/pinch gesture, so
-      // the second thumb must not start an attack (set/cleared in game.js's
-      // touchstart/touchend gesture tracking).
-      this._aimId = e.pointerId;
-      this.attacking = true;
-      this.game.input.mouse.x = e.clientX;
-      this.game.input.mouse.y = e.clientY;
-      this._advanceTut?.('attack');
     }
   }
 
@@ -203,9 +197,6 @@ export class TouchControls {
       this.move.x = nx * (cl / max);
       this.move.z = ny * (cl / max);
       this.joyKnob.style.transform = `translate(calc(-50% + ${nx * cl}px), calc(-50% + ${ny * cl}px))`;
-    } else if (e.pointerId === this._aimId) {
-      this.game.input.mouse.x = e.clientX;
-      this.game.input.mouse.y = e.clientY;
     }
   }
 
@@ -215,9 +206,6 @@ export class TouchControls {
       this.joyActive = false;
       this.move.x = 0; this.move.z = 0;
       this.joyBase.style.display = 'none';
-    } else if (e.pointerId === this._aimId) {
-      this._aimId = null;
-      this.attacking = false;
     }
   }
 
