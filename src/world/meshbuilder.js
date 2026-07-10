@@ -2214,27 +2214,33 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     // halfW = half the building's real width (X); frontZ = the real
     // south/door-facing wall's outer surface (+Z); sideSpan = half the
     // building's real depth, used to spread windows along the east/west walls.
-    function buildFacade(halfW, frontZ, sideSpan) {
+    function buildFacade(halfW, frontZ, sideSpan, scale = 1) {
       const myGen = facadeGen;
       const objs = [];
       const glowEntries = [];
+      const S = scale; // uniform size multiplier for the fixed-size overlay
+      // dressing (door/windows/sign/step) — independent of halfW/frontZ/
+      // sideSpan, which already track the model's real measured extent.
+      // Positions derived from those measured extents (doorX, sideZ,
+      // sideInset, frontZ itself) are left untouched: only each element's
+      // OWN size and its offset from the doorway/wall grow with the model.
       const add = (...m) => { objs.push(...m); tavern.add(...m); };
       const mkWindow = (x, z, roty) => {
-        const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.46), glow.clone());
-        win.position.set(x, 1.32, z);
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5 * S, 0.46 * S), glow.clone());
+        win.position.set(x, 1.32 * S, z);
         win.rotation.y = roty;
         // wood frame around the pane
         const frame = new THREE.Group();
-        const top = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.05), timber); top.position.y = 0.26;
-        const bot = top.clone(); bot.position.y = -0.26;
-        const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.58, 0.05), timber); l.position.x = -0.27;
-        const r = l.clone(); r.position.x = 0.27;
+        const top = new THREE.Mesh(new THREE.BoxGeometry(0.6 * S, 0.06 * S, 0.05 * S), timber); top.position.y = 0.26 * S;
+        const bot = top.clone(); bot.position.y = -0.26 * S;
+        const l = new THREE.Mesh(new THREE.BoxGeometry(0.06 * S, 0.58 * S, 0.05 * S), timber); l.position.x = -0.27 * S;
+        const r = l.clone(); r.position.x = 0.27 * S;
         frame.add(top, bot, l, r);
         frame.position.copy(win.position);
         frame.rotation.y = roty;
         // mullions: a cross dividing the pane into four small lights
-        const mV = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.46, 0.03), timber);
-        const mH = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.03), timber);
+        const mV = new THREE.Mesh(new THREE.BoxGeometry(0.03 * S, 0.46 * S, 0.03 * S), timber);
+        const mH = new THREE.Mesh(new THREE.BoxGeometry(0.5 * S, 0.03 * S, 0.03 * S), timber);
         mV.position.copy(win.position); mV.rotation.y = roty;
         mH.position.copy(win.position); mH.rotation.y = roty;
         add(win, frame, mV, mH);
@@ -2253,7 +2259,7 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // a window between it and that corner at all — in that case both
       // flanking windows go on the side that actually has room, rather than
       // cramming one into (or past) the doorway's own archway.
-      const doorHalfW = 0.6; // matches the door assembly's half-width, defined below
+      const doorHalfW = 0.6 * S; // matches the door assembly's half-width, defined below
       const eastMargin = halfW - (doorX + doorHalfW);
       const westMargin = (doorX - doorHalfW) + halfW;
       if (eastMargin > 0.9) {
@@ -2280,17 +2286,24 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // baked door art at the real wall plane, a closed timber leaf sits
       // just proud of it, the KayKit doorway arch frames the opening, and a
       // single handle finishes it — no duplicated layers.
-      const doorH = 1.9, doorW = 1.2;
-      const mask = new THREE.Mesh(new THREE.PlaneGeometry(doorW + 0.5, doorH + 0.5), plaster);
-      mask.position.set(doorX, doorH / 2 - 0.05, frontZ + 0.005);
-      const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.1, doorH - 0.1, 0.08), timber);
-      doorLeaf.position.set(doorX, doorH / 2, frontZ + 0.04);
+      // doorH/doorW are the overlay's OWN fixed design size, scaled by S: at
+      // S=1 the door read barely taller than the 1.6-unit hero (user report,
+      // TODO 692) because these were flat constants that never grew with the
+      // model's node.scale bump. Since the mask fully covers the model's own
+      // baked door art, this overlay IS the door the player sees, so scaling
+      // it directly (rather than trying to coax the baked geometry taller)
+      // is what actually makes it read ~2.2x hero height.
+      const doorH = 1.9 * S, doorW = 1.2 * S;
+      const mask = new THREE.Mesh(new THREE.PlaneGeometry(doorW + 0.5 * S, doorH + 0.5 * S), plaster);
+      mask.position.set(doorX, doorH / 2 - 0.05 * S, frontZ + 0.005 * S);
+      const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.1 * S, doorH - 0.1 * S, 0.08 * S), timber);
+      doorLeaf.position.set(doorX, doorH / 2, frontZ + 0.04 * S);
       const handleMat = new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.35 });
-      const doorHandle = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), handleMat);
-      doorHandle.position.set(doorX + 0.22, doorH / 2 - 0.05, frontZ + 0.09);
+      const doorHandle = new THREE.Mesh(new THREE.SphereGeometry(0.045 * S, 8, 8), handleMat);
+      doorHandle.position.set(doorX + 0.22 * S, doorH / 2 - 0.05 * S, frontZ + 0.09 * S);
       add(mask, doorLeaf, doorHandle);
-      const step = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.14, 0.4), new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.95 }));
-      step.position.set(doorX, 0.07, frontZ + 0.3);
+      const step = new THREE.Mesh(new THREE.BoxGeometry(1.1 * S, 0.14 * S, 0.4 * S), new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.95 }));
+      step.position.set(doorX, 0.07 * S, frontZ + 0.3 * S);
       add(step);
       // the KayKit doorway arch (same asset used for dungeon door archways)
       // frames the opening; loaded (and cached) async, so it's added in
@@ -2298,9 +2311,9 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // pass that's since been cleared can't re-add itself after the fact.
       loadDungeonTemplate('doorArch').then((doorT) => {
         if (myGen !== facadeGen || !doorT || tavern.parent !== group) return;
-        const sx = doorW / doorT.size.x, sy = doorH / doorT.size.y, sz = 0.4 / doorT.size.z;
+        const sx = doorW / doorT.size.x, sy = doorH / doorT.size.y, sz = (0.4 * S) / doorT.size.z;
         const doorGroup = buildArchInstances(tintTemplate(doorT, timber.color, 0.35), [
-          { x: doorX, y: 0, z: frontZ + 0.1, ry: 0, sx, sy, sz },
+          { x: doorX, y: 0, z: frontZ + 0.1 * S, ry: 0, sx, sy, sz },
         ]);
         add(doorGroup);
       });
@@ -2308,15 +2321,15 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // hanging sign: an iron bracket bolted above the door, two chains, and
       // a real wooden board reading "Emberville Tavern".
       const ironMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.55, roughness: 0.5 });
-      const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.7), ironMat);
-      bracket.position.set(doorX + 0.85, 2.35, frontZ + 0.2);
-      const chainL = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.3, 5), ironMat);
-      chainL.position.set(doorX + 0.85, 2.18, frontZ - 0.05);
+      const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.06 * S, 0.06 * S, 0.7 * S), ironMat);
+      bracket.position.set(doorX + 0.85 * S, 2.35 * S, frontZ + 0.2 * S);
+      const chainL = new THREE.Mesh(new THREE.CylinderGeometry(0.014 * S, 0.014 * S, 0.3 * S, 5), ironMat);
+      chainL.position.set(doorX + 0.85 * S, 2.18 * S, frontZ - 0.05 * S);
       const chainR = chainL.clone();
-      chainR.position.z = frontZ + 0.45;
-      const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.9),
+      chainR.position.z = frontZ + 0.45 * S;
+      const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.06 * S, 0.5 * S, 0.9 * S),
         new THREE.MeshStandardMaterial({ map: makeExteriorSignTexture(), roughness: 0.85 }));
-      signBoard.position.set(doorX + 0.85, 1.95, frontZ + 0.2);
+      signBoard.position.set(doorX + 0.85 * S, 1.95 * S, frontZ + 0.2 * S);
       add(bracket, chainL, chainR, signBoard);
 
       facadeState = { objs, glowEntries };
@@ -2347,18 +2360,26 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     // Slightly non-uniform scale fills the tavern's wide plot without making
     // the building tower over the square; the enter-trigger world point in
     // game.js (doorstep on the south face) is untouched.
-    // The Y scale is taller than the original (4.6 -> 5.8): measured against a
-    // 1.6-unit hero marker, the model's own door opening is a small fraction of
-    // its total height, so at 4.6 the door read as barely half the hero's
-    // height (a doll-house door next to the player). Scaling Y further still
-    // doesn't fully clear 1.6 at the door without stretching the whole
-    // building unnaturally tall and gaunt, so this is the tallest Y that still
-    // reads as a cottage rather than a tower; the door is now much closer to
-    // hero height instead of roughly half of it.
+    // TODO 692 ("tavern too small"): at the previous scale (6.2, 5.8, 5.4) the
+    // door read barely taller than the 1.6-unit hero and the whole building
+    // read dollhouse-scale. Bumping node.scale alone doesn't fix the DOOR,
+    // though: doorH/doorW in buildFacade below are fixed-size constants that
+    // never tracked node.scale, so the overlay door (which fully masks the
+    // model's own baked door art — see buildFacade) stayed pinned at the same
+    // absolute size no matter how big the building got. The real fix is two
+    // parts: FACADE_SCALE grows every overlay element (door/windows/sign/
+    // step) so the door itself reads ~2.2x hero height, and X/Y (width/
+    // height) are bumped 1.8x so the building reads two-story. Z (depth) is
+    // deliberately left unbumped: the south wall's world Z position (frontZ,
+    // measured below) is exactly what the fixed enter-trigger world point in
+    // game.js was calibrated against, and Z-depth is the only axis that
+    // would move that wall — growing it would desync the trigger from the
+    // real doorstep without a matching game.js edit (out of scope here).
+    const FACADE_SCALE = 1.8;
     swapInModel(tavern, shell, ['inn'], ([tpl]) => {
       if (!tpl) return null;
       const node = buildModelMesh(tpl, 1);
-      node.scale.set(6.2, 5.8, 5.4);
+      node.scale.set(6.2 * FACADE_SCALE, 5.8 * FACADE_SCALE, 5.4);
       // Measure the model's REAL world-space extent (after scaling) instead
       // of trusting the procedural shell's W/D, and rebuild the facade
       // dressing flush against it — this is what fixes windows/door/sign
@@ -2369,7 +2390,7 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       const sideSpan = Math.max(Math.abs(box.min.z), Math.abs(box.max.z));
       const frontZ = box.max.z; // south wall — same side the doorstep trigger faces
       clearFacade();
-      buildFacade(halfW, frontZ, sideSpan);
+      buildFacade(halfW, frontZ, sideSpan, FACADE_SCALE);
       return node;
     });
 
