@@ -1,3 +1,5 @@
+import { svgIcon } from '../ui/icons.js';
+
 // Single source of truth for INPUT capability: "can this device touch". Gates
 // the virtual joystick, hold-to-aim gestures and tap hints - never the layout.
 export function isTouchDevice() {
@@ -81,6 +83,16 @@ export class TouchControls {
 
     this.joyBase = document.getElementById('joystick-base');
     this.joyKnob = document.getElementById('joystick-knob');
+
+    // Colorful hand-drawn icons for the utility inner-arc bubbles (rotate/
+    // mic/settings), matching the ability-icon art style (see icons.js) -
+    // injected here rather than baked into index.html so icons.js stays the
+    // single source of truth for every glyph in the game.
+    const utilIcons = { 'touch-rotl': 'rotate_left', 'touch-rotr': 'rotate_right', 'touch-mic': 'mic_color', 'touch-pause': 'gear_color' };
+    for (const [id, key] of Object.entries(utilIcons)) {
+      const slot = document.getElementById(id)?.querySelector('.util-icon');
+      if (slot) slot.innerHTML = svgIcon(key);
+    }
 
     // touch buttons
     const bind = (id, fn) => {

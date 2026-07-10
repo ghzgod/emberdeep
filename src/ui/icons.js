@@ -170,6 +170,28 @@ const COLOR = {
     '<path fill="#e6dcc2" stroke="#6a4a2a" stroke-width="1" stroke-linejoin="round" d="M12 6.3C10.4 4.9 8.3 4.2 5.6 4.2c-.8 0-1.5.1-2.1.2v14.1c.6-.1 1.3-.2 2.1-.2 2.7 0 4.8.7 6.4 2.1 1.6-1.4 3.7-2.1 6.4-2.1.8 0 1.5.1 2.1.2V4.4c-.6-.1-1.3-.2-2.1-.2-2.7 0-4.8.7-6.4 2.1Z"/>' +
     '<path fill="none" stroke="#6a4a2a" stroke-width="1" d="M12 6.3v14.2"/>' +
     '<g fill="none" stroke="#a08a5a" stroke-width="0.9" stroke-linecap="round"><path d="M5.8 8.2h3.8M5.8 11h3.8M14.4 8.2h3.8M14.4 11h3.8"/></g>',
+
+  // ---- touch cluster inner-arc utilities (rotate/mic/settings): colorful
+  // hand-drawn variants matching the ability-icon art style, replacing the
+  // old flat monochrome STROKE glyphs so the utility bubbles read as part of
+  // the same family as the ability bubbles around them.
+  rotate_left:
+    '<path fill="none" stroke="#e8c05a" stroke-width="2.2" stroke-linecap="round" d="M4.5 12a7.5 7.5 0 1 0 2.4-5.4"/>' +
+    '<path fill="#e8c05a" stroke="#8a5f14" stroke-width="0.9" stroke-linejoin="round" d="M7.7 3.2 3.2 5.8l4.3 2.2.2-4.8Z"/>' +
+    '<path fill="none" stroke="#f7e2a0" stroke-width="1.2" stroke-linecap="round" d="M15.3 15.6a4.6 4.6 0 0 0 .6-4.6"/>',
+  rotate_right:
+    '<path fill="none" stroke="#e8c05a" stroke-width="2.2" stroke-linecap="round" d="M19.5 12a7.5 7.5 0 1 1-2.4-5.4"/>' +
+    '<path fill="#e8c05a" stroke="#8a5f14" stroke-width="0.9" stroke-linejoin="round" d="M16.3 3.2 20.8 5.8l-4.3 2.2-.2-4.8Z"/>' +
+    '<path fill="none" stroke="#f7e2a0" stroke-width="1.2" stroke-linecap="round" d="M8.7 15.6a4.6 4.6 0 0 1-.6-4.6"/>',
+  mic_color:
+    '<rect x="9" y="3" width="6" height="10" rx="3" fill="#c8342f" stroke="#7a1f1c" stroke-width="1"/>' +
+    '<ellipse cx="10.6" cy="6.4" rx="1" ry="1.6" fill="#ff8f7a" opacity="0.8"/>' +
+    '<path fill="none" stroke="#e8c05a" stroke-width="1.6" stroke-linecap="round" d="M6 11a6 6 0 0 0 12 0"/>' +
+    '<path fill="none" stroke="#e6dcc2" stroke-width="1.6" stroke-linecap="round" d="M12 17v3"/>',
+  gear_color:
+    '<path fill="none" stroke="#c3cbd8" stroke-width="2.4" stroke-linecap="round" d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8M18.4 18.4l-1.8-1.8M7.4 7.4 5.6 5.6"/>' +
+    '<circle cx="12" cy="12" r="3.4" fill="#8fa9cf" stroke="#3a4150" stroke-width="1"/>' +
+    '<circle cx="12" cy="12" r="1.3" fill="#e8c05a" stroke="#8a5f14" stroke-width="0.6"/>',
 };
 
 // ---- flat-stroke chrome icons (inherit currentColor) ----
