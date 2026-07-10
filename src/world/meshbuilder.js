@@ -1459,11 +1459,15 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       // only the look. If the GLB isn't loaded, buildNpcModel returns null and
       // the box keeper built above stays visible as the fallback.
       const VENDOR_NPC = {
-        // Vendors use the townsfolk-only bodies (Barbarian / unhooded Rogue,
-        // same KayKit pack) so they can never mirror the player's own hero.
-        potions: { cls: 'villager', gender: 'female', skin: 'fair', name: v.name || 'Maribel' },
+        // Vendors use the townsfolk-only bodies so they can never mirror the
+        // player's own hero AND so no two townsfolk share a silhouette: each
+        // of the 6 town NPCs (3 vendors, Barlow, 2 patrons) gets one of 6
+        // distinct bodies drawn from two separate CC0 packs (KayKit
+        // Adventurers' Barbarian/villager-Rogue, plus Quaternius "RPG
+        // Characters" cleric/monk/scout/drifter) - see MODEL_FILES.
+        potions: { cls: 'scout', gender: 'female', skin: 'fair', name: v.name || 'Maribel' },
         gear: { cls: 'barbarian', gender: 'male', skin: 'tan', name: v.name || 'Torvald' },
-        mystery: { cls: 'villager', gender: 'male', skin: 'deep', name: v.name || 'Zoltan' },
+        mystery: { cls: 'monk', gender: 'male', skin: 'deep', name: v.name || 'Zoltan' },
       };
       const vcfg = VENDOR_NPC[v.type] || VENDOR_NPC.gear;
       const npc = buildNpcModel(vcfg.cls, vcfg.name, { gender: vcfg.gender, skinTone: vcfg.skin });
