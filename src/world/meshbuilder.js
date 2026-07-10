@@ -341,6 +341,7 @@ const DUNGEON_MODEL_FILES = {
   torch: 'models/dungeon/torch_mounted.gltf.glb',
   rubbleHalf: 'models/dungeon/rubble_half.gltf.glb',
   rubbleLarge: 'models/dungeon/rubble_large.gltf.glb',
+  hatchLid: 'models/dungeon/floor_tile_big_grate.gltf.glb',
 };
 const dungeonLoader = new GLTFLoader();
 const _dungeonTplCache = new Map();
@@ -444,12 +445,12 @@ function buildArchInstances(tpl, placements) {
 // blocks or delays the box fallback already visible in `group`.
 function dressDungeonArchitecture(group, dungeon, theme, floor, ctx) {
   const { grid } = dungeon;
-  const { floorMesh, floorRenderTiles, wallMesh, wallDecorMeshes, renderWalls, sconceMeshes, torchPositions } = ctx;
+  const { floorMesh, floorRenderTiles, wallMesh, wallDecorMeshes, renderWalls, sconceMeshes, torchPositions, stairsMesh } = ctx;
   const wallColor = new THREE.Color(theme.wall);
   const floorColor = new THREE.Color(theme.floor);
 
-  const keys = ['floorLarge', 'floorRocky', 'floorBrokenA', 'floorBrokenB', 'wall', 'wallCracked', 'wallBroken', 'pillar', 'doorArch', 'torch', 'rubbleHalf', 'rubbleLarge'];
-  Promise.all(keys.map(loadDungeonTemplate)).then(([floorLarge, floorRocky, floorBrokenA, floorBrokenB, wallT, wallCracked, wallBroken, pillarT, doorArchT, torchT, rubbleHalf, rubbleLarge]) => {
+  const keys = ['floorLarge', 'floorRocky', 'floorBrokenA', 'floorBrokenB', 'wall', 'wallCracked', 'wallBroken', 'pillar', 'doorArch', 'torch', 'rubbleHalf', 'rubbleLarge', 'hatchLid'];
+  Promise.all(keys.map(loadDungeonTemplate)).then(([floorLarge, floorRocky, floorBrokenA, floorBrokenB, wallT, wallCracked, wallBroken, pillarT, doorArchT, torchT, rubbleHalf, rubbleLarge, hatchLidT]) => {
     if (floorMesh.parent !== group) return; // dungeon torn down/rebuilt meanwhile
 
     // --- Floors: variant + 90-degree rotation per cell ---
@@ -559,6 +560,32 @@ function dressDungeonArchitecture(group, dungeon, theme, floor, ctx) {
         byTpl.get(tpl).push({ x: w.x + jx, y: 0, z: w.z + jz, ry: rot, sx: scale, sy: scale, sz: scale });
       }
       for (const [tpl, placements] of byTpl) group.add(buildArchInstances(tintTemplate(tpl, wallColor, 0.2), placements));
+    }
+
+    // --- Stairs hatch lid: swap the plain box lid for KayKit's iron floor
+    // grate, same square footprint, still hinged the same way. Only the box
+    // mesh living inside lidPivot is touched -- stairsMesh, the lidPivot
+    // (userData.stairsLid, which game.js rotates open/closed) and the gold
+    // light puddle (which game.js tints/brightens directly) are never
+    // replaced, so open timing, the sealed/unlocked glow and the descend
+    // interact prompt all keep working exactly as before; this is cosmetic.
+    if (hatchLidT && stairsMesh) {
+      const lidPivot = stairsMesh.children.find((ch) => ch.userData?.stairsLid);
+      const oldLid = lidPivot?.children[0];
+      if (lidPivot && oldLid) {
+        const HATCH = oldLid.geometry.parameters.width; // must match the box lid's own side length
+        const sx = HATCH / hatchLidT.size.x, sz = HATCH / hatchLidT.size.z;
+        const sy = sx * 0.5; // squash the model's under-floor mounting collar so it clears the coping rim while swinging open
+        // gltfToArchTemplate drops the model's BASE to y=0 (not its top), so
+        // the grate's flush-with-floor plane sits one native unit above that
+        // base; shift down by that (scaled) unit to land it where the box
+        // lid's own top face sat.
+        const placement = [{ x: 0, y: -1 * sy, z: HATCH / 2, ry: 0, sx, sy, sz }];
+        const node = buildArchInstances(tintTemplate(hatchLidT, wallColor, 0.15), placement);
+        lidPivot.remove(oldLid);
+        oldLid.geometry.dispose();
+        lidPivot.add(node);
+      }
     }
   });
 }
@@ -1729,7 +1756,7 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
   // --- Modeled dungeon architecture: async swap-in over the box fallback above ---
   if (!town) {
     dressDungeonArchitecture(group, dungeon, theme, floor, {
-      floorMesh, floorRenderTiles, wallMesh, wallDecorMeshes, renderWalls, sconceMeshes, torchPositions,
+      floorMesh, floorRenderTiles, wallMesh, wallDecorMeshes, renderWalls, sconceMeshes, torchPositions, stairsMesh,
     });
   }
 
@@ -2174,6 +2201,27 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     const modelDoorHandle = doorHandle.clone();
     modelDoorHandle.position.set(W * 0.28 + 0.22, 0.85, D / 2 + 0.02);
     tavern.add(modelDoorHandle);
+    // Modeled door + frame, proud of the facade: the inn.glb model's own
+    // baked door only reaches ~0.98x hero height (a baked proportion cap in
+    // the source model, not fixable by scaling the whole building further
+    // without making it gaunt), so a real, correctly-scaled entrance is
+    // layered in front of it here -- the same KayKit doorway asset already
+    // used for dungeon door archways (public/models/dungeon/wall_doorway.glb),
+    // just scaled to a ~1.9-unit-tall opening for a human-height cottage door
+    // instead of a 3-unit dungeon wall cell. Added directly to `tavern` (not
+    // `shell`), so it stands in front of the procedural fallback AND the
+    // modeled inn either way. Purely additive: if the GLB fails to load,
+    // nothing is removed, so the sign/windows/knob and whichever building
+    // shell is showing still read fine on their own.
+    loadDungeonTemplate('doorArch').then((doorT) => {
+      if (!doorT || tavern.parent !== group) return; // town torn down/rebuilt meanwhile
+      const doorH = 1.9, doorW = 1.2, doorThick = 0.4;
+      const sx = doorW / doorT.size.x, sy = doorH / doorT.size.y, sz = doorThick / doorT.size.z;
+      const doorGroup = buildArchInstances(tintTemplate(doorT, timber.color, 0.35), [
+        { x: W * 0.28, y: 0, z: D / 2 + 0.08, ry: 0, sx, sy, sz },
+      ]);
+      tavern.add(doorGroup);
+    });
     const step = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.14, 0.4), new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.95 }));
     step.position.set(W * 0.28, 0.07, D / 2 + 0.25);
     tavern.add(step);
