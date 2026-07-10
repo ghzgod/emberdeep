@@ -18,6 +18,10 @@ function numToWords(n) {
 const ABBR = { HP: 'hit points', XP: 'experience', AoE: 'area', Lvl: 'level', Lv: 'level', vs: 'versus', NPC: 'character' };
 export function normalizeForTTS(text) {
   let t = String(text || '');
+  // strip *action* asides (*sighs*, *sword clangs*) entirely -- same fix as
+  // roaster.js's normalizeForSpeech (Web Speech path); Kokoro would otherwise
+  // phonemize the literal asterisks
+  t = t.replace(/\*[^*]+\*/g, ' ');
   // strip emoji / pictographs / symbols (and their variation selectors / ZWJ)
   // that Kokoro would otherwise read aloud
   t = t.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200D}]/gu, ' ');
