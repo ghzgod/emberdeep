@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 
 // Modeled enemy visuals: CC0 GLB creatures (KayKit Skeletons + Quaternius
@@ -92,7 +91,6 @@ const TYPE_CLIP_SET = {
 
 // url -> Promise<GLTF>, shared across every instance so a type's GLB is only
 // ever fetched+parsed once no matter how many of that mob spawn.
-const gltfCache = new Map();
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
 
@@ -108,13 +106,32 @@ loader.setMeshoptDecoder(MeshoptDecoder);
 // ever have one live instance: they mount the pristine gltf.scene directly.
 const SINGLETON_MODEL_KEYS = new Set(['bossAct5']);
 
-function loadGltf(url) {
-  let p = gltfCache.get(url);
+// Per-INSTANCE parse instead of SkeletonUtils.clone. The dragon proved that
+// cloning these meshopt/quantized skinned rigs can produce meshes that measure
+// correctly but render NOTHING (GPU bone texture never populated) - and the
+// same failure hits regular mob clones on some player GPUs: the overhead HP
+// bar (a Sprite on the same group) draws while the creature body does not.
+// A pristine parsed scene always renders, so each instance gets its own parse
+// from a cached ArrayBuffer. Slightly more memory per live enemy; floors load
+// behind the async loading screen, so the extra parse time is absorbed there.
+const glbBufferCache = new Map(); // url -> Promise<ArrayBuffer>
+
+function loadGlbBuffer(url) {
+  let p = glbBufferCache.get(url);
   if (!p) {
-    p = loader.loadAsync(import.meta.env.BASE_URL + url);
-    gltfCache.set(url, p);
+    p = fetch(import.meta.env.BASE_URL + url).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+      return r.arrayBuffer();
+    });
+    glbBufferCache.set(url, p);
   }
   return p;
+}
+
+function parseGltfInstance(url) {
+  return loadGlbBuffer(url).then(
+    (buf) => new Promise((resolve, reject) => loader.parse(buf, '', resolve, reject))
+  );
 }
 
 export function bossModelKey(act) {
@@ -133,7 +150,10 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
   if (!file) return null;
   let gltf;
   try {
-    gltf = await loadGltf(file);
+    // every instance is a pristine parse - never a SkeletonUtils.clone (see
+    // parseGltfInstance above for why; the clone path rendered invisible
+    // bodies on some GPUs). Covers the bossAct5 singleton case too.
+    gltf = await parseGltfInstance(file);
   } catch (err) {
     console.warn(`Enemy model failed to load (${file}); box fallback stays.`, err);
     return null;
@@ -143,7 +163,7 @@ export async function attachEnemyModel(group, modelKey, opts = {}) {
   // fetch was in flight; userData.dead is set by the caller in that case.
   if (group.userData.detached) return null;
 
-  const scene = SINGLETON_MODEL_KEYS.has(modelKey) ? gltf.scene : skeletonClone(gltf.scene);
+  const scene = gltf.scene;
   // Degenerate-scene guard: a GLB can resolve yet yield nothing renderable (no
   // mesh, empty geometry, or a zero-size bounding box, e.g. a bad export or a
   // clone that dropped its skinned geometry). If we cleared the box placeholder
