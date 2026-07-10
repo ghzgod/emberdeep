@@ -1758,38 +1758,16 @@ export class UI {
     this.vitals = null;
     this.potionBtn = null;
     const order = player.abilityOrder || [0, 1, 2, 3];
-    // Compact viewports (narrow window, portrait aspect, or any coarse-pointer
-    // session) render the abilities as a Wild Rift-style cluster of circular
-    // buttons in the bottom-right corner: one big BASIC-ATTACK button at the
-    // thumb pivot and the four abilities fanned in an arc up-and-to-the-left.
-    // Wide desktop gets the SAME circular buttons laid out as a flat
-    // bottom-center row (no square boxes, no name labels - the hotkey number
-    // sits in the corner and the name lives in the hover tooltip). Uses the
-    // same isCompactLayout() check that drives body.touch-mode (see
-    // core/touch.js) so the JS layout choice and the CSS never disagree.
-    const compact = isCompactLayout();
-    document.body.classList.toggle('touch-mode', compact);
-    bar.classList.toggle('desktop-row', !compact);
-    if (compact) {
-      this.buildActionCluster(player, order);
-      return;
-    }
-    // Desktop row: the cluster's circular buttons (gold cooldown ring,
-    // parchment cooldown seconds, blood-red no-resource rim) in a centered
-    // row, plus the potion bubble at the end. updateActionCluster drives all
-    // of them, same as the touch cluster.
-    this.cluster = [];
-    order.forEach((abIndex, i) => {
-      const ab = player.classDef.abilities[abIndex];
-      const b = this._makeActionButton(i, i + 1, svgIcon(ab.icon), `act-ability act-slot-${i}`);
-      b.iconKey = ab.icon;
-      b.el.title = `${ab.name} (${ab.cost} ${player.classDef.resource.name}): ${ab.desc}`;
-      bar.appendChild(b.el);
-      this.cluster.push(b);
-      this.hotbarSlots.push(b.el);
-    });
-    this._buildPotionBubble(bar);
-    this.wireHotbarInput(player);
+    // Every layout renders the SAME Wild Rift-style corner cluster: one big
+    // BASIC-ATTACK button at the bottom-right thumb pivot, the four ability
+    // buttons fanned in an arc up-and-to-the-left of it, the vitals arcs
+    // hugging its outside (_buildTouchVitals), and the potion bubble tucked
+    // into the arc. body.touch-mode is still set from the same
+    // isCompactLayout() check (core/touch.js) so touch-only bits elsewhere
+    // (joystick, gesture tutorial) keep working, but it no longer chooses
+    // between a row and a cluster - the cluster is unconditional.
+    document.body.classList.toggle('touch-mode', isCompactLayout());
+    this.buildActionCluster(player, order);
   }
 
   // Build one circular action button (a div with a gold cooldown ring drawn by
@@ -1819,26 +1797,32 @@ export class UI {
     };
   }
 
-  // Touch/coarse-pointer abilities as a Wild Rift-style cluster of CIRCULAR
-  // buttons in the bottom-right corner: one large BASIC-ATTACK button at the
-  // thumb pivot, and the four ability buttons fanned in an arc up-and-left of
-  // it (their screen positions come from CSS). Each button supports TAP
-  // (auto-aim nearest) and HOLD+SWIPE (directional cast); see wireActionButton.
+  // Wild Rift-style cluster of CIRCULAR buttons in the bottom-right corner,
+  // shared by every layout (touch and desktop alike): one large BASIC-ATTACK
+  // button at the pivot, and the four ability buttons fanned in an arc
+  // up-and-left of it (their screen positions come from CSS). Each button
+  // supports TAP/click (auto-aim nearest) and HOLD+SWIPE/drag (directional
+  // cast); see wireActionButton - it handles mouse and touch identically.
   buildActionCluster(player, order) {
     const bar = $('hotbar');
     this.cluster = [];
     // vitals arcs first so the buttons paint above them
     this._buildTouchVitals(bar);
-    // big basic-attack at the corner pivot (slot -1); crossed-swords glyph
+    // big basic-attack at the corner pivot (slot -1); crossed-swords glyph.
+    // The title only matters on desktop (mouse hover); touch never shows it.
     const basic = this._makeActionButton(-1, '', svgIcon('swords'), 'act-basic');
+    basic.el.title = 'Basic Attack';
     bar.appendChild(basic.el);
     this.wireActionButton(basic, player);
     this.cluster.push(basic);
-    // four abilities fanned in the arc, slot 0..3
+    // four abilities fanned in the arc, slot 0..3 - numbered gold chips double
+    // as both the touch label and the desktop keybind hint (Digit1-4, see
+    // game.js), and the tooltip carries the full name/cost/desc for mouse hover.
     order.forEach((abIndex, i) => {
       const ab = player.classDef.abilities[abIndex];
       const b = this._makeActionButton(i, i + 1, svgIcon(ab.icon), `act-ability act-slot-${i}`);
       b.iconKey = ab.icon;
+      b.el.title = `${ab.name} (${ab.cost} ${player.classDef.resource.name}): ${ab.desc} [${i + 1}]`;
       bar.appendChild(b.el);
       this.wireActionButton(b, player);
       this.cluster.push(b);
@@ -1848,8 +1832,10 @@ export class UI {
   }
 
   // Health / resource / XP as curved arc bars hugging the OUTSIDE of the
-  // action cluster (touch layout only; desktop keeps its top-left bars). One
-  // SVG in a fixed 210x210 viewBox, CSS-scaled to the #hotbar box in both
+  // action cluster (both touch and desktop layouts now - the desktop
+  // top-left bars retire in favor of these, see body.touch-mode removal on
+  // #hud-topleft .bar-wrap in style.css). One SVG in a fixed 210x210
+  // viewBox, CSS-scaled to the #hotbar box in both
   // orientations, centered on the basic-attack pivot. Living inside #hotbar
   // means every rule that fades or hides the cluster covers the vitals too.
   // updateActionCluster drives the dash offsets each frame.
@@ -2078,71 +2064,6 @@ export class UI {
       b.cdEl.textContent = onCd ? Math.ceil(cd).toString() : '';
       if (b.iconKey !== ab.icon) { b.iconKey = ab.icon; b.iconEl.innerHTML = svgIcon(ab.icon); }
     }
-  }
-
-  // One pointer-based interaction path covers both mouse and touch: a quick
-  // tap/click casts, a small mouse drag (or a touch long-press then drag)
-  // picks a slot up and dropping it on another swaps the two. This avoids a
-  // finger's natural jitter being mistaken for a drag on touch.
-  wireHotbarInput(player) {
-    const LONG_PRESS_MS = 450, DRAG_PX = 6;
-    const clearHighlights = () => this.hotbarSlots.forEach((s) => s.classList.remove('drop-target'));
-    const slotAt = (x, y) => {
-      const el = document.elementFromPoint(x, y)?.closest('#hotbar .act-ability');
-      return el ? this.hotbarSlots.indexOf(el) : -1;
-    };
-    this.hotbarSlots.forEach((slot, i) => {
-      slot.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        const isTouch = e.pointerType !== 'mouse';
-        const drag = { fromSlot: i, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dragging: false, isTouch };
-        this._hotbarDrag = drag;
-        if (isTouch) {
-          drag.longPressTimer = setTimeout(() => {
-            if (this._hotbarDrag === drag) { drag.dragging = true; slot.classList.add('dragging'); }
-          }, LONG_PRESS_MS);
-        }
-      });
-      slot.addEventListener('pointermove', (e) => {
-        const drag = this._hotbarDrag;
-        if (!drag || drag.pointerId !== e.pointerId) return;
-        if (!drag.isTouch && !drag.dragging) {
-          const moved = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY);
-          if (moved > DRAG_PX) { drag.dragging = true; slot.classList.add('dragging'); }
-        }
-        if (drag.dragging) {
-          clearHighlights();
-          const overIdx = slotAt(e.clientX, e.clientY);
-          if (overIdx !== -1 && overIdx !== drag.fromSlot) this.hotbarSlots[overIdx].classList.add('drop-target');
-        }
-      });
-      const finish = (e) => {
-        const drag = this._hotbarDrag;
-        if (!drag || drag.pointerId !== e.pointerId) return;
-        clearTimeout(drag.longPressTimer);
-        slot.classList.remove('dragging');
-        clearHighlights();
-        this._hotbarDrag = null;
-        if (drag.dragging) {
-          const toSlot = slotAt(e.clientX, e.clientY);
-          if (toSlot !== -1 && toSlot !== drag.fromSlot) {
-            this.game.player?.swapAbilitySlots(drag.fromSlot, toSlot);
-            this.buildHotbar(this.game.player);
-            this.game.requestSave();
-          }
-        } else if (this.game.state === 'playing') {
-          this.game.player?.tryAbility(drag.fromSlot, this.game);
-        }
-      };
-      slot.addEventListener('pointerup', finish);
-      slot.addEventListener('pointercancel', () => {
-        const drag = this._hotbarDrag;
-        if (drag) clearTimeout(drag.longPressTimer);
-        this._hotbarDrag = null;
-        slot.classList.remove('dragging');
-        clearHighlights();
-      });
-    });
   }
 
   flashNoResource(slot) {
@@ -2558,7 +2479,7 @@ export class UI {
   // ---------- inventory drag-and-drop ----------
   // One pointer-based drag session, bound ONCE on window (elements themselves
   // are torn down and rebuilt every renderInventory() call, so per-element
-  // listeners can't own the move/up lifecycle). Mirrors wireHotbarInput's
+  // listeners can't own the move/up lifecycle). Mirrors wireActionButton's
   // tap-vs-drag split: a quick press-release is a click (stats card / equip-
   // best / multi-select toggle, all unchanged); a press that moves past
   // DRAG_PX becomes a real drag, tracked via this._invDrag and resolved by
