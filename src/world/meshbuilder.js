@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { FLOOR, WALL, DOOR, PIT, BRIDGE, RUBBLE, CHASM } from './dungeon.js';
 import { makeFloorTexture, makeWallTexture, makeWoodTexture, makeGrassTexture, makeCobbleTexture, makeCobwebTexture, makeBannerTexture, makeGlowTexture, makeRuneTexture, floorRng, jitterAccentHue } from './textures.js';
 import { buildPortal } from './portal.js';
@@ -146,6 +148,174 @@ export function pushNpcAnimDriver(smokePuffs, npc, getTarget) {
     },
   };
   smokePuffs.push(driver);
+}
+
+// ---------------- Modeled world assets (CC0 packs via poly.pizza) ----------------
+// Static nature/prop GLBs (Quaternius nature packs, see CREDITS.md) replacing
+// the procedural primitive trees, grass, bushes and market props. Same
+// load-once cache idea as heroModel/enemyModel, but for UNskinned meshes: each
+// GLB is parsed once into a lightweight template (world-baked geometry merged
+// per material, normalized to unit height with its base at y=0), and every use
+// site draws it through InstancedMesh (many placements, one draw call per
+// material) or a couple of shared-geometry Meshes for one-off props. Nothing
+// here is skinned, so no SkeletonUtils cloning is involved anywhere (skinned
+// clones render invisible on some GPUs; static geometry has no such problem).
+//
+// Every REPLACED placement keeps its procedural primitive build as the
+// fallback: the swap only happens after a GLB resolves and yields renderable
+// geometry, so a failed or missing model never leaves a gap in the town.
+// Purely ADDITIVE dressing (grass tufts, meadow rocks) simply does not appear
+// if its model fails, which leaves the town exactly as it was before.
+const WORLD_MODEL_FILES = {
+  treeBirch: 'models/world/tree_birch.glb',
+  treeOak: 'models/world/tree_oak.glb',
+  treeWillow: 'models/world/tree_willow.glb',
+  pine: 'models/world/pine_tree.glb',
+  grassA: 'models/world/grass_a.glb',
+  grassB: 'models/world/grass_b.glb',
+  bush: 'models/world/bush.glb',
+  rockA: 'models/world/rock_a.glb',
+  rockB: 'models/world/rock_b.glb',
+  barrel: 'models/world/barrel.glb',
+  crate: 'models/world/crate.glb',
+  stall: 'models/world/stall.glb',
+  inn: 'models/world/inn.glb',
+};
+
+const worldLoader = new GLTFLoader();
+// key -> Promise<template|null>; a failed load caches null so the procedural
+// fallback stays and the file is never re-fetched in a loop.
+const _worldTplCache = new Map();
+
+// Parse a loaded GLB into { pieces: [{ geometry, material }] }: every mesh's
+// world transform is baked into a cloned geometry, geometries sharing a
+// material are merged into one, and the whole model is normalized so its base
+// sits at y=0, its XZ center at the origin, and its height is exactly 1 world
+// unit. A per-instance scale is therefore simply the desired world height.
+function gltfToTemplate(gltf) {
+  const scene = gltf.scene;
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  if (!Number.isFinite(size.y) || size.y < 1e-5) return null;
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  const s = 1 / size.y;
+  const norm = new THREE.Matrix4().makeScale(s, s, s)
+    .multiply(new THREE.Matrix4().makeTranslation(-center.x, -box.min.y, -center.z));
+  const byMat = new Map();
+  scene.traverse((o) => {
+    if (!o.isMesh || !(o.geometry?.getAttribute?.('position')?.count > 0)) return;
+    const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+    const geo = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(norm, o.matrixWorld));
+    if (!byMat.has(mat)) byMat.set(mat, []);
+    byMat.get(mat).push(geo);
+  });
+  if (!byMat.size) return null;
+  const pieces = [];
+  for (const [mat, geos] of byMat) {
+    const merged = geos.length > 1 ? (mergeGeometries(geos) || geos[0]) : geos[0];
+    // The source packs export metalness ~0.4, which renders as dark glass
+    // under the game's point lights (metals need an environment map to read
+    // right). Clamp to a plain matte look matching the town's own materials.
+    const m = mat.clone();
+    if ('metalness' in m) m.metalness = 0;
+    if ('roughness' in m) m.roughness = Math.max(m.roughness ?? 1, 0.9);
+    pieces.push({ geometry: merged, material: m });
+  }
+  return { pieces };
+}
+
+function loadWorldTemplate(key) {
+  let p = _worldTplCache.get(key);
+  if (!p) {
+    const file = WORLD_MODEL_FILES[key];
+    p = worldLoader.loadAsync(import.meta.env.BASE_URL + file)
+      .then((gltf) => gltfToTemplate(gltf))
+      .catch((err) => {
+        console.warn(`World model failed to load (${file}); procedural build stays.`, err);
+        return null;
+      });
+    _worldTplCache.set(key, p);
+  }
+  return p;
+}
+
+// One InstancedMesh per template piece, so N placements of a model cost one
+// draw call per material no matter how large N is. `transforms` entries are
+// { x, z, s, ry, y? }: world position, uniform scale (world height, thanks to
+// the unit-height normalization above), yaw, optional base height.
+function buildModelInstances(tpl, transforms) {
+  const group = new THREE.Group();
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sv = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  for (const piece of tpl.pieces) {
+    const im = new THREE.InstancedMesh(piece.geometry, piece.material, transforms.length);
+    transforms.forEach((t, i) => {
+      q.setFromAxisAngle(up, t.ry || 0);
+      sv.setScalar(t.s || 1);
+      p.set(t.x, t.y || 0, t.z);
+      m.compose(p, q, sv);
+      im.setMatrixAt(i, m);
+    });
+    im.instanceMatrix.needsUpdate = true;
+    // The shared geometry's bounds cover one unit-height model, not the whole
+    // spread of instances, so default frustum culling would wrongly hide the
+    // set whenever the origin instance leaves the view.
+    im.frustumCulled = false;
+    group.add(im);
+  }
+  return group;
+}
+
+// A one-off (non-instanced) placement: plain Meshes sharing the template's
+// geometry and material, scaled to the given world height. `tints` optionally
+// maps a source material NAME to a color: those pieces get a cloned material
+// lerped toward the color (used to color-code the vendor stall canopies).
+function buildModelMesh(tpl, height, tints) {
+  const g = new THREE.Group();
+  for (const piece of tpl.pieces) {
+    let mat = piece.material;
+    const tint = tints && tints[mat.name];
+    if (tint != null && mat.color) {
+      mat = mat.clone();
+      mat.color.lerp(new THREE.Color(tint), 0.85);
+    }
+    g.add(new THREE.Mesh(piece.geometry, mat));
+  }
+  g.scale.setScalar(height);
+  return g;
+}
+
+// Swap a procedural fallback for its modeled build once the GLB templates
+// resolve. `build(tpls)` receives the templates (entries may be null on load
+// failure) and returns the replacement node or null to keep the fallback.
+// Passing fallback=null makes it purely additive dressing. Only geometries of
+// the removed fallback are disposed; materials may be shared with props that
+// stay (wood/trunk materials), so they are left alone.
+function swapInModel(parent, fallback, keys, build) {
+  Promise.all(keys.map(loadWorldTemplate)).then((tpls) => {
+    if (fallback && fallback.parent !== parent) return; // town was rebuilt/unloaded meanwhile
+    if (tpls.every((t) => !t)) return;
+    const node = build(tpls);
+    if (!node) return;
+    if (fallback) {
+      parent.remove(fallback);
+      fallback.traverse((o) => o.geometry?.dispose?.());
+    }
+    parent.add(node);
+  });
+}
+
+// Seeded LCG for model placement/rotation, mirroring the srand pattern town
+// generation uses (dungeon.js) so co-op guests scatter identical grass.
+function worldRng(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0x100000000;
+  };
 }
 
 // Built once per theme (cheap; avoids regenerating the canvas per banner prop).
@@ -543,7 +713,15 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
     const flameGeo = new THREE.SphereGeometry(0.13, 8, 6);
     const flameMat = new THREE.MeshBasicMaterial({ color: floorAccent });
     for (const t of dungeon.torches) {
-      const w = tileToWorld(t.fx, t.fy);
+      // Clamp the sconce to the ROOM side of the wall face: the generator's
+      // 0.6-tile offset from the floor tile put the flame center about 0.2
+      // world units inside the masonry, burying sconce and flame (only the
+      // pooled point light survived). 0.42 tiles keeps it wall-hugging but
+      // clear of the face, flame fully visible.
+      const ox = t.fx - t.x, oy = t.fy - t.y;
+      const olen = Math.hypot(ox, oy);
+      const k = olen > 1e-6 ? Math.min(1, 0.42 / olen) : 1;
+      const w = tileToWorld(t.x + ox * k, t.y + oy * k);
       const sconce = new THREE.Mesh(sconceGeo, sconceMat);
       sconce.position.set(w.x, 1.6, w.z);
       group.add(sconce);
@@ -648,7 +826,20 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       const canopyColor = v.type === 'potions' ? 0xb03a4a : v.type === 'mystery' ? 0x6a2a9a : 0x3a5ab0;
       const canopy = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.08, 1.0), new THREE.MeshStandardMaterial({ color: canopyColor, roughness: 0.7 }));
       canopy.position.set(0, 2.2, -0.1);
-      stall.add(counter, poleL, poleR, canopy);
+      // stall structure lives in its own subgroup so the modeled CC0 market
+      // stand can swap in for JUST the architecture (counter/poles/canopy),
+      // leaving keeper, lantern, wares and side props exactly where they are.
+      // The stand's roof-tile canopy is tinted to the vendor's color so the
+      // three shops stay tellable apart at a glance.
+      const structure = new THREE.Group();
+      structure.add(counter, poleL, poleR, canopy);
+      stall.add(structure);
+      swapInModel(stall, structure, ['stall'], ([tpl]) => {
+        if (!tpl) return null;
+        const node = buildModelMesh(tpl, 2.25, { RoofTiles_Red: canopyColor });
+        node.position.set(0, 0, -0.15);
+        return node;
+      });
 
       // --- shopkeeper: readable face + real character per vendor, built to
       // read from the overhead camera (big eyes, head tipped up, hands on the
@@ -832,13 +1023,27 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       }
       stall.add(ware);
 
-      // crates/barrels beside the stall for extra detail
+      // crates/barrels beside the stall for extra detail; each swaps to its
+      // modeled CC0 version once the GLB loads (same spot, visual only)
       const crate = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 }));
       crate.position.set(-1.05, 0.2, 0.35);
       crate.rotation.y = 0.3;
       const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.5, 10), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 }));
       barrel.position.set(1.05, 0.25, 0.35);
       stall.add(crate, barrel);
+      swapInModel(stall, crate, ['crate'], ([tpl]) => {
+        if (!tpl) return null;
+        const node = buildModelMesh(tpl, 0.44);
+        node.position.set(-1.05, 0, 0.35);
+        node.rotation.y = 0.3;
+        return node;
+      });
+      swapInModel(stall, barrel, ['barrel'], ([tpl]) => {
+        if (!tpl) return null;
+        const node = buildModelMesh(tpl, 0.56);
+        node.position.set(1.05, 0, 0.35);
+        return node;
+      });
 
       // Torvald's small anvil beside the stall
       if (v.type === 'gear') {
@@ -1065,11 +1270,22 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 1 });
   const greens = [0x3f6b34, 0x4a7a3c, 0x57883f, 0x35592c];
 
-  // trees — oaks get 3-4 offset canopy blobs, pines get stacked cones
+  // trees: the procedural cone/blob build goes up first and STAYS if the
+  // modeled trees fail to load; otherwise the modeled CC0 trees (three leafy
+  // variants + a pine) swap in as instanced sets, one bucket per model kind,
+  // at exactly the same positions and per-tree scales. Yaw and variant choice
+  // are seeded so co-op towns match.
+  const treeRng = worldRng(0x51f7a3 ^ (dungeon.size || 0));
+  const oakT = [], pineT = [];
+  const proceduralOaks = new THREE.Group();
+  const proceduralPines = new THREE.Group();
   for (const t of dungeon.trees || []) {
     const w = tileToWorld(t.x, t.y);
+    const ry = treeRng() * Math.PI * 2;
+    const variant = Math.floor(treeRng() * 3);
     const tree = new THREE.Group();
     if (t.kind === 'pine') {
+      pineT.push({ x: w.x, z: w.z, ry, s: 3.1 * t.s });
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.16, 1.0, 6), trunkMat);
       trunk.position.y = 0.5;
       tree.add(trunk);
@@ -1082,6 +1298,7 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
         tree.add(cone);
       }
     } else {
+      oakT.push({ x: w.x, z: w.z, ry, s: 2.9 * t.s, variant });
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.2, 1.5, 7), trunkMat);
       trunk.position.y = 0.75;
       trunk.rotation.z = (Math.random() - 0.5) * 0.12;
@@ -1099,16 +1316,40 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
       }
     }
     tree.scale.setScalar(t.s);
-    tree.rotation.y = Math.random() * Math.PI * 2;
+    tree.rotation.y = ry;
     tree.position.set(w.x, 0, w.z);
-    group.add(tree);
+    (t.kind === 'pine' ? proceduralPines : proceduralOaks).add(tree);
+  }
+  group.add(proceduralOaks, proceduralPines);
+  if (oakT.length) {
+    swapInModel(group, proceduralOaks, ['treeBirch', 'treeOak', 'treeWillow'], (tpls) => {
+      const avail = tpls.filter(Boolean);
+      if (!avail.length) return null;
+      const g = new THREE.Group();
+      const buckets = avail.map(() => []);
+      for (const t of oakT) buckets[t.variant % avail.length].push(t);
+      avail.forEach((tpl, k) => { if (buckets[k].length) g.add(buildModelInstances(tpl, buckets[k])); });
+      return g;
+    });
+  }
+  if (pineT.length) {
+    swapInModel(group, proceduralPines, ['pine'], ([tpl]) => (tpl ? buildModelInstances(tpl, pineT) : null));
   }
 
-  // bushes and flowerbeds
+  // bushes and flowerbeds. Bush spots record transforms so the modeled bush
+  // can swap in (two offset instances per spot read as a natural cluster);
+  // flowers stay procedural, they already read well from the top-down camera.
+  const bushRng = worldRng(0x2b45c1);
+  const bushT = [];
+  const proceduralBushes = new THREE.Group();
   for (const p of dungeon.plants || []) {
     const w = tileToWorld(p.x, p.y);
     const spot = new THREE.Group();
     if (p.kind === 'bush') {
+      bushT.push(
+        { x: w.x + (bushRng() - 0.5) * 0.4, z: w.z + (bushRng() - 0.5) * 0.4, ry: bushRng() * Math.PI * 2, s: 0.5 + bushRng() * 0.2 },
+        { x: w.x + (bushRng() - 0.5) * 0.9, z: w.z + (bushRng() - 0.5) * 0.9, ry: bushRng() * Math.PI * 2, s: 0.3 + bushRng() * 0.15 }
+      );
       for (let i = 0; i < 3; i++) {
         const b = new THREE.Mesh(
           new THREE.SphereGeometry(0.22 + Math.random() * 0.14, 7, 6),
@@ -1136,7 +1377,62 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
       }
     }
     spot.position.set(w.x, 0, w.z);
-    group.add(spot);
+    if (p.kind === 'bush') proceduralBushes.add(spot);
+    else group.add(spot);
+  }
+  group.add(proceduralBushes);
+  if (bushT.length) {
+    swapInModel(group, proceduralBushes, ['bush'], ([tpl]) => (tpl ? buildModelInstances(tpl, bushT) : null));
+  }
+
+  // seeded grass tufts across the town green: modeled clumps scattered over
+  // the open grass tiles (never on cobbles or under buildings/props), purely
+  // additive dressing with no collision. One instanced draw per grass kind,
+  // and the same srand-style seed on every client so co-op towns match.
+  if (dungeon.grid) {
+    const gRng = worldRng(0x6e24d9);
+    const occupied = new Set();
+    const mark = (x, y) => occupied.add(x + ',' + y);
+    for (const c of dungeon.cobbles || []) mark(c.x, c.y);
+    for (const t of dungeon.trees || []) mark(t.x, t.y);
+    for (const p of dungeon.plants || []) mark(p.x, p.y);
+    for (const h of dungeon.hedges || []) mark(h.x, h.y);
+    for (const c of dungeon.crates || []) mark(c.x, c.y);
+    for (const v of dungeon.vendors || []) {
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) mark(v.x + dx, v.y + dy);
+    }
+    for (const spot of [dungeon.well, dungeon.noticeBoard, dungeon.cart, dungeon.portal]) {
+      if (spot) { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) mark(spot.x + dx, spot.y + dy); }
+    }
+    if (dungeon.tavern) {
+      const t = dungeon.tavern;
+      for (let y = t.y - 1; y <= t.y + t.h; y++) for (let x = t.x - 1; x <= t.x + t.w; x++) mark(x, y);
+    }
+    const grassT = [[], []];
+    for (let y = 0; y < dungeon.size; y++) {
+      for (let x = 0; x < dungeon.size; x++) {
+        if (dungeon.grid[y][x] !== FLOOR || occupied.has(x + ',' + y)) continue;
+        const tufts = gRng() < 0.55 ? (gRng() < 0.25 ? 2 : 1) : 0;
+        for (let i = 0; i < tufts; i++) {
+          const w = tileToWorld(x, y);
+          grassT[gRng() < 0.5 ? 0 : 1].push({
+            x: w.x + (gRng() - 0.5) * 1.5,
+            z: w.z + (gRng() - 0.5) * 1.5,
+            ry: gRng() * Math.PI * 2,
+            s: 0.2 + gRng() * 0.22,
+          });
+        }
+      }
+    }
+    swapInModel(group, null, ['grassA', 'grassB'], (tpls) => {
+      const g = new THREE.Group();
+      grassT.forEach((set, k) => {
+        // if one grass kind failed to load, the other covers both sets
+        const tpl = tpls[k] || tpls[1 - k];
+        if (tpl && set.length) g.add(buildModelInstances(tpl, set));
+      });
+      return g.children.length ? g : null;
+    });
   }
 
   // the old stone well
@@ -1186,17 +1482,21 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
     group.add(board);
   }
 
-  // market crates + sacks scattered near the square
+  // market crates + sacks scattered near the square. Box crates swap to the
+  // modeled CC0 crate (instanced) once it loads; sacks stay procedural.
   if (dungeon.crates?.length) {
     const crateGeo = new THREE.BoxGeometry(0.42, 0.42, 0.42);
     const sackMat = new THREE.MeshStandardMaterial({ color: 0xa89468, roughness: 1 });
     const crateMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 });
+    const crateT = [];
+    const proceduralCrates = new THREE.Group();
     for (const c of dungeon.crates) {
       const w = tileToWorld(c.x, c.y);
       let mesh;
       if (c.kind === 'crate') {
         mesh = new THREE.Mesh(crateGeo, crateMat);
         mesh.position.y = 0.21;
+        crateT.push({ x: w.x, z: w.z, ry: c.r, s: 0.44 });
       } else {
         mesh = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), sackMat);
         mesh.scale.y = 0.85;
@@ -1205,7 +1505,11 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
       mesh.rotation.y = c.r;
       mesh.position.x = w.x;
       mesh.position.z = w.z;
-      group.add(mesh);
+      (c.kind === 'crate' ? proceduralCrates : group).add(mesh);
+    }
+    group.add(proceduralCrates);
+    if (crateT.length) {
+      swapInModel(group, proceduralCrates, ['crate'], ([tpl]) => (tpl ? buildModelInstances(tpl, crateT) : null));
     }
   }
 
@@ -1270,18 +1574,24 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
     const plaster = new THREE.MeshStandardMaterial({ color: 0xb8a488, roughness: 0.95 });
     const timber = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.9 });
 
+    // The whole procedural building shell (walls, beams, roof, gables, door,
+    // windows) lives in one subgroup: it is the fallback that the modeled CC0
+    // inn swaps out in a single replacement below. Chimney + smoke, the step,
+    // the hanging sign and the outside barrel/bench stay either way.
+    const shell = new THREE.Group();
+    tavern.add(shell);
     const body = new THREE.Mesh(new THREE.BoxGeometry(W - 0.4, 2.6, D - 0.4), plaster);
     body.position.y = 1.3;
-    tavern.add(body);
+    shell.add(body);
     // timber frame lines
     for (let i = 0; i <= 3; i++) {
       const beam = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.6, 0.12), timber);
       beam.position.set(-W / 2 + 0.25 + (i * (W - 0.5)) / 3, 1.3, D / 2 - 0.14);
-      tavern.add(beam);
+      shell.add(beam);
     }
     const beltBeam = new THREE.Mesh(new THREE.BoxGeometry(W - 0.3, 0.14, 0.12), timber);
     beltBeam.position.set(0, 1.75, D / 2 - 0.14);
-    tavern.add(beltBeam);
+    shell.add(beltBeam);
     // pitched roof: two slopes computed to MEET exactly at the ridge and
     // overhang the eaves — no gaps, no clipping — plus closed gable ends
     const roofMat = new THREE.MeshStandardMaterial({ color: 0x71402a, roughness: 0.85 });
@@ -1295,7 +1605,7 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
     const slabR = new THREE.Mesh(new THREE.BoxGeometry(W + 0.6, 0.12, slopeLen), roofMat);
     slabR.position.set(0, (wallTop + ridgeY) / 2 + 0.04, halfSpan / 2);
     slabR.rotation.x = pitch;
-    tavern.add(slabL, slabR);
+    shell.add(slabL, slabR);
     // gable end triangles close the roof so you can't see inside it
     const gableShape = new THREE.Shape();
     gableShape.moveTo(-(D / 2 - 0.2), 0);
@@ -1307,12 +1617,12 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
       const gable = new THREE.Mesh(gableGeo, plaster);
       gable.rotation.y = sx < 0 ? -Math.PI / 2 : Math.PI / 2;
       gable.position.set(sx, wallTop, 0);
-      tavern.add(gable);
+      shell.add(gable);
     }
     // ridge beam caps the peak
     const ridge = new THREE.Mesh(new THREE.BoxGeometry(W + 0.7, 0.14, 0.18), timber);
     ridge.position.set(0, ridgeY + 0.06, 0);
-    tavern.add(ridge);
+    shell.add(ridge);
     // chimney + animated smoke puffs (data returned via smokePuffs for the game loop to drift/fade)
     const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.1, 0.35), new THREE.MeshStandardMaterial({ color: 0x6a665f, roughness: 1 }));
     chimney.position.set(W * 0.28, 3.5, 0);
@@ -1339,16 +1649,16 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
     const frontFace = D / 2 - 0.2; // plaster front plane
     const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.46), glow);
     win.position.set(-W * 0.28, 1.32, frontFace + 0.01);
-    tavern.add(win);
+    shell.add(win);
     const winFrame = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.05), timber);
     winFrame.position.set(-W * 0.28, 1.08, frontFace + 0.02); // sill
-    tavern.add(winFrame);
+    shell.add(winFrame);
     // side window flush with the side wall
     const sideFace = (W - 0.4) / 2;
     const sideWin = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.46), glow);
     sideWin.position.set(-sideFace - 0.01, 1.32, 0);
     sideWin.rotation.y = -Math.PI / 2;
-    tavern.add(sideWin);
+    shell.add(sideWin);
     // both tavern windows share one basic material: warm glow at night, dim by
     // day. Register the shared material once (via the front window mesh).
     townGlows.push({ mesh: win, base: new THREE.Color(0xffb45e), kind: 'basic' });
@@ -1360,10 +1670,10 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
     frameL.position.set(W * 0.28 - 0.4, 0.78, D / 2 - 0.1);
     const frameR = frameL.clone();
     frameR.position.x = W * 0.28 + 0.4;
-    tavern.add(frameTop, frameL, frameR);
+    shell.add(frameTop, frameL, frameR);
     const door = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.5, 0.1), timber);
     door.position.set(W * 0.28, 0.75, D / 2 - 0.12);
-    tavern.add(door);
+    shell.add(door);
     const step = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.14, 0.4), new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.95 }));
     step.position.set(W * 0.28, 0.07, D / 2 + 0.25);
     tavern.add(step);
@@ -1375,11 +1685,17 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
     const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.12, 8), new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.4 }));
     mug.position.set(W * 0.28 + 1.05, 1.9, D / 2 + 0.2);
     tavern.add(signArm, signBoard, mug);
-    // barrel + bench outside, near the door
+    // barrel + bench outside, near the door (barrel swaps to the modeled one)
     const barrelMat = new THREE.MeshStandardMaterial({ color: 0x6b4c30, roughness: 0.85 });
     const outsideBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.55, 10), barrelMat);
     outsideBarrel.position.set(-W * 0.4, 0.28, D / 2 + 0.35);
     tavern.add(outsideBarrel);
+    swapInModel(tavern, outsideBarrel, ['barrel'], ([tpl]) => {
+      if (!tpl) return null;
+      const node = buildModelMesh(tpl, 0.6);
+      node.position.set(-W * 0.4, 0, D / 2 + 0.35);
+      return node;
+    });
     const benchMat = new THREE.MeshStandardMaterial({ color: 0x5a4028, roughness: 0.9 });
     const benchSeat = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.3), benchMat);
     benchSeat.position.set(-W * 0.05, 0.32, D / 2 + 0.5);
@@ -1387,6 +1703,17 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = []) {
     const legA = new THREE.Mesh(benchLegGeo, benchMat); legA.position.set(-W * 0.05 - 0.38, 0.16, D / 2 + 0.4);
     const legB = new THREE.Mesh(benchLegGeo, benchMat); legB.position.set(-W * 0.05 + 0.38, 0.16, D / 2 + 0.4);
     tavern.add(benchSeat, legA, legB);
+
+    // Modeled CC0 inn replaces the box-and-slab shell once its GLB loads.
+    // Slightly non-uniform scale fills the tavern's wide plot without making
+    // the building tower over the square; the enter-trigger world point in
+    // game.js (doorstep on the south face) is untouched.
+    swapInModel(tavern, shell, ['inn'], ([tpl]) => {
+      if (!tpl) return null;
+      const node = buildModelMesh(tpl, 1);
+      node.scale.set(6.2, 4.6, 5.4);
+      return node;
+    });
 
     tavern.position.set(cw.x, 0, cw.z);
     group.add(tavern);
@@ -1511,9 +1838,16 @@ function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, fl
   for (const p of dungeon.props) {
     const kind = pickKind(p.roll);
     const w = tileToWorld(p.x, p.y);
+    if (kind === 'cobweb') {
+      // Webs anchor to real geometry (they used to float mid-air at a random
+      // yaw with the fan pointing away from anything). See buildCobwebProp.
+      group.add(buildCobwebProp(dungeon.grid, p, w));
+      continue;
+    }
     // Banners are flat wall hangings and need to sit flush against the wall;
-    // freestanding clutter keeps a bit of clearance from it.
-    const hug = kind === 'banner' ? 0.46 : 0.32;
+    // freestanding clutter keeps a bit of clearance from it. Sarcophagi are
+    // nearly two tiles long, so they hug a little looser to clear the wall.
+    const hug = kind === 'banner' ? 0.46 : kind === 'sarcophagus' ? 0.24 : 0.32;
     const px = w.x + (p.dx || 0) * (TILE * hug);
     const pz = w.z + (p.dy || 0) * (TILE * hug);
     const node = buildProp(kind, C, torchPositions, smokePuffs, px, pz, theme);
@@ -1524,6 +1858,12 @@ function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, fl
       // random yaw — a flat hanging needs to actually face the viewer, unlike
       // barrels/bones/etc which read fine from any angle.
       node.rotation.y = Math.atan2(-(p.dx || 0), -(p.dy || 0));
+    } else if (kind === 'sarcophagus' && (p.dx || p.dy)) {
+      // Long axis parallel to the wall it hugs: a random yaw drove the 1.9
+      // unit box straight through the masonry about half the time. The box
+      // is long along local Z, so a wall on +-X (running along Z) wants yaw
+      // 0 and a wall on +-Z wants yaw PI/2, plus a small seeded jitter.
+      node.rotation.y = (p.dx !== 0 ? 0 : Math.PI / 2) + ((p.roll || 0.5) - 0.5) * 0.12;
     } else {
       node.rotation.y = p.r || 0;
     }
@@ -1532,6 +1872,48 @@ function buildDungeonProps(group, dungeon, theme, torchPositions, smokePuffs, fl
     if (kind === 'barrel' || kind === 'crate' || kind === 'pot') breakables.push({ mesh: node, x: px, z: pz, kind });
   }
   return breakables;
+}
+
+// A cobweb anchored to real surfaces. The quarter circle fan texture's radial
+// center sits in its top-left corner (see makeCobwebTexture), so the plane is
+// laid flat and yawed until that corner sits exactly at the anchoring
+// junction, with the fan spreading into the room:
+// - Corner web: the prop tile has walls on two perpendicular sides. The fan
+//   center goes at the vertical wall-wall junction, hung high, with the
+//   plane's edges running flush along both wall faces.
+// - Wall-run web: no perpendicular wall. The web lies at the base of the
+//   wall, fan center against the wall-floor junction, spreading onto the
+//   floor like drifted webbing.
+function buildCobwebProp(grid, p, w) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ map: cobwebTexture(), transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, fog: true });
+  const web = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95), mat);
+  // Laid flat at yaw 0, the fan-center corner offsets toward (-1, -1); this
+  // yaw spins that corner around to point at the chosen junction instead.
+  const yawFor = (cx, cz) => (cx < 0 ? (cz < 0 ? 0 : Math.PI / 2) : (cz < 0 ? -Math.PI / 2 : Math.PI));
+  web.rotation.order = 'YXZ';
+  web.rotation.x = -Math.PI / 2;
+  const HALF = 0.475; // half the plane, distance from its center to the fan corner per axis
+  const perp = p.dx !== 0 ? [[0, -1], [0, 1]] : [[-1, 0], [1, 0]];
+  let pd = null;
+  for (const [qx, qy] of perp) if (grid[p.y + qy]?.[p.x + qx] === WALL) { pd = [qx, qy]; break; }
+  if (pd) {
+    const cdx = p.dx + pd[0], cdz = p.dy + pd[1]; // diagonal pointing at the corner junction
+    const jx = w.x + cdx * (TILE / 2 - 0.02);
+    const jz = w.z + cdz * (TILE / 2 - 0.02);
+    web.rotation.y = yawFor(cdx, cdz);
+    web.position.set(jx - cdx * HALF, 2.35, jz - cdz * HALF);
+  } else {
+    const sign = (p.r || 0) > Math.PI ? 1 : -1; // seeded pick of which way it fans along the wall
+    const cdx = p.dx !== 0 ? p.dx : sign;
+    const cdz = p.dy !== 0 ? p.dy : sign;
+    const jx = p.dx !== 0 ? w.x + p.dx * (TILE / 2 - 0.02) : w.x + cdx * 0.4;
+    const jz = p.dy !== 0 ? w.z + p.dy * (TILE / 2 - 0.02) : w.z + cdz * 0.4;
+    web.rotation.y = yawFor(cdx, cdz);
+    web.position.set(jx - cdx * HALF, 0.04, jz - cdz * HALF);
+  }
+  g.add(web);
+  return g;
 }
 
 function buildProp(kind, C, torchPositions, smokePuffs, px, pz, theme) {
@@ -1554,12 +1936,6 @@ function buildProp(kind, C, torchPositions, smokePuffs, px, pz, theme) {
   } else if (kind === 'pot') {
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.34, 8), std(C.TERRA)); base.position.y = 0.17; g.add(base);
     for (let i = 0; i < 3; i++) { const sh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.02), std(C.TERRA)); sh.position.set((Math.random() - 0.5) * 0.6, 0.05, (Math.random() - 0.5) * 0.6); sh.rotation.set(Math.PI / 2.3, Math.random(), 0); g.add(sh); }
-  } else if (kind === 'cobweb') {
-    // A textured web plane tucked into the ceiling corner — reads as a real
-    // cobweb rather than the flat translucent triangle it used to be.
-    const web = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95),
-      new THREE.MeshBasicMaterial({ map: cobwebTexture(), transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, fog: true }));
-    web.position.set(0, 2.05, 0); web.rotation.set(0, Math.PI / 4, 0); g.add(web);
   } else if (kind === 'banner') {
     // A wall tapestry: horizontal rod across the top, a double-sided cloth
     // panel carrying a real woven motif (see makeBannerTexture), and a
@@ -1619,8 +1995,12 @@ function buildTownSurroundings(group, dungeon, smokePuffs) {
     new THREE.MeshStandardMaterial({ color: 0x2b3620, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -0.08, cz); group.add(ground);
 
-  // forest ring outside the walls — two instanced meshes (trunks + foliage)
+  // forest ring outside the walls: the procedural trunk+cone pair goes up
+  // first (and stays as the fallback), recording every placement so the
+  // modeled trees can swap in as instanced sets at the exact same spots.
+  // Mostly pines with a scattering of leafy trees for a natural treeline.
   const R0 = extent * 0.52, R1 = R0 + 34, N = 140;
+  const ringT = [];
   const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.22, 0.32, 2.4, 5),
     new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 1, flatShading: true }), N);
   const foliage = new THREE.InstancedMesh(new THREE.ConeGeometry(1.5, 3.4, 6),
@@ -1630,12 +2010,66 @@ function buildTownSurroundings(group, dungeon, smokePuffs) {
     const a = (i / N) * Math.PI * 2 + Math.random() * 0.4;
     const r = R0 + Math.random() * (R1 - R0);
     const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r, sc = 0.8 + Math.random() * 1.0;
-    sv.set(sc, sc, sc); q.setFromEuler(new THREE.Euler(0, Math.random() * Math.PI, 0));
+    const ry = Math.random() * Math.PI;
+    ringT.push({ x, z, sc, ry });
+    sv.set(sc, sc, sc); q.setFromEuler(new THREE.Euler(0, ry, 0));
     mm.compose(pv.set(x, 1.2 * sc, z), q, sv); trunks.setMatrixAt(i, mm);
     mm.compose(pv.set(x, 4.0 * sc, z), q, sv); foliage.setMatrixAt(i, mm);
   }
   trunks.instanceMatrix.needsUpdate = true; foliage.instanceMatrix.needsUpdate = true;
-  group.add(trunks, foliage);
+  const proceduralRing = new THREE.Group();
+  proceduralRing.add(trunks, foliage);
+  group.add(proceduralRing);
+  swapInModel(group, proceduralRing, ['pine', 'treeBirch', 'treeOak'], (tpls) => {
+    const pineTpl = tpls[0];
+    const broad = tpls.slice(1).filter(Boolean);
+    if (!pineTpl && !broad.length) return null;
+    const g = new THREE.Group();
+    const pines = [];
+    const leafy = broad.map(() => []);
+    ringT.forEach((t, i) => {
+      const wantPine = !broad.length || (pineTpl && i % 10 < 7);
+      if (wantPine) pines.push({ x: t.x, z: t.z, ry: t.ry, s: 5.7 * t.sc });
+      else leafy[i % broad.length].push({ x: t.x, z: t.z, ry: t.ry, s: 4.8 * t.sc });
+    });
+    if (pineTpl && pines.length) g.add(buildModelInstances(pineTpl, pines));
+    broad.forEach((tpl, k) => { if (leafy[k].length) g.add(buildModelInstances(tpl, leafy[k])); });
+    return g.children.length ? g : null;
+  });
+
+  // meadow dressing between the wall and the treeline: seeded grass tufts and
+  // a few rocks (modeled only, additive; nothing appears if the GLBs fail)
+  const meadowRng = worldRng(0x7c31e5);
+  const meadowGrass = [[], []];
+  for (let i = 0; i < 170; i++) {
+    const a = meadowRng() * Math.PI * 2;
+    const r = extent * 0.51 + meadowRng() * extent * 0.13;
+    meadowGrass[meadowRng() < 0.5 ? 0 : 1].push({
+      x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r,
+      ry: meadowRng() * Math.PI * 2, s: 0.25 + meadowRng() * 0.3,
+    });
+  }
+  const meadowRocks = [[], []];
+  for (let i = 0; i < 22; i++) {
+    const a = meadowRng() * Math.PI * 2;
+    const r = extent * 0.51 + meadowRng() * extent * 0.14;
+    meadowRocks[meadowRng() < 0.7 ? 0 : 1].push({
+      x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r,
+      ry: meadowRng() * Math.PI * 2, s: 0.25 + meadowRng() * 0.55,
+    });
+  }
+  swapInModel(group, null, ['grassA', 'grassB', 'rockA', 'rockB'], (tpls) => {
+    const g = new THREE.Group();
+    meadowGrass.forEach((set, k) => {
+      const tpl = tpls[k] || tpls[1 - k];
+      if (tpl && set.length) g.add(buildModelInstances(tpl, set));
+    });
+    meadowRocks.forEach((set, k) => {
+      const tpl = tpls[2 + k] || tpls[3 - k];
+      if (tpl && set.length) g.add(buildModelInstances(tpl, set));
+    });
+    return g.children.length ? g : null;
+  });
 
   // (The old lone "forest critter" that ambled a circle here is gone: it was a
   // rigid box deer with no walk animation, read as a floating dog and had no
