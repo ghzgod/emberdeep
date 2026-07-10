@@ -338,6 +338,88 @@ function addEyeDiscs(mesh, headMesh, hex) {
   }
 }
 
+// The Quaternius Town* rigs (cleric/monk/scout/drifter) have no separate
+// "Head" MESH the way the KayKit rigs do (addEyeDiscs above needs
+// headMesh.geometry.boundingBox to place discs) - their entire body,
+// including the head, is one single skinned mesh with generic Blender export
+// names (Cube.003, _ncl1_29.004, etc), and that mesh's shared baked texture
+// has no painted eyes/mouth anywhere on it (verified by rendering all four
+// GLTFs standalone and inspecting the atlas image directly - this is the true
+// root cause of TODO 690's "faceless Maribel/Zoltan/patrons" bug, not
+// anything buildAnimatedHero strips). So instead of measuring a dedicated
+// head mesh, this walks the skinned mesh's own POSITION/skinIndex/skinWeight
+// buffers to find the subset of vertices predominantly weighted to the
+// "Head" bone (>50% weight) and takes THEIR bounding box - the equivalent of
+// headMesh.geometry.boundingBox but for a rig that never separated the head
+// into its own mesh. Works for any of the four Town* rigs without needing
+// per-class hardcoded numbers.
+function computeSkinnedHeadBBox(mesh) {
+  let skinned = null;
+  mesh.traverse((o) => { if (!skinned && o.isSkinnedMesh) skinned = o; });
+  if (!skinned) return null;
+  let headBone = null;
+  mesh.traverse((o) => { if (!headBone && o.isBone && /^head$/i.test(o.name)) headBone = o; });
+  if (!headBone) return null;
+  const boneIdx = skinned.skeleton.bones.indexOf(headBone);
+  if (boneIdx < 0) return null;
+  const geo = skinned.geometry;
+  const pos = geo.attributes.position;
+  const skinIndex = geo.attributes.skinIndex;
+  const skinWeight = geo.attributes.skinWeight;
+  if (!pos || !skinIndex || !skinWeight) return null;
+  const box = new THREE.Box3();
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    let w = 0;
+    for (let k = 0; k < 4; k++) {
+      if (skinIndex.getComponent(i, k) === boneIdx) w += skinWeight.getComponent(i, k);
+    }
+    if (w > 0.5) {
+      v.fromBufferAttribute(pos, i);
+      box.expandByPoint(v);
+    }
+  }
+  return box.isEmpty() ? null : box;
+}
+
+// Gives the faceless Quaternius townsfolk (TODO 690) simple painted-on eyes:
+// two small dark discs over the head-vertex bounding box computed above,
+// anchored to the same head bone the KayKit addEyeDiscs rides (see
+// anchorToHeadBone). A fixed dark hex (not a player-facing EYE_COLORS choice
+// - these classes have no character-creation UI) so every townsfolk reads as
+// having eyes regardless of their random per-name skin jitter.
+const TOWNSFOLK_EYE_HEX = 0x241a12;
+function addTownEyeDiscs(mesh) {
+  const box = computeSkinnedHeadBBox(mesh);
+  if (!box) return;
+  const w = box.max.x - box.min.x;
+  const h = box.max.y - box.min.y;
+  const d = box.max.z - box.min.z;
+  const eyeY = box.max.y - h * 0.54; // mid-face: 0.42 sat at the hairline (bbox includes hood/hair volume above the face)
+  // Pushed well past the head's own frontmost vertex (unlike KayKit's
+  // addEyeDiscs above, which only needs a d*0.03 nudge because it measures a
+  // SEPARATE, tightly-fit head mesh) - this bbox comes from ALL vertices
+  // skinned to the Head bone, which includes geometry that recedes behind the
+  // actual face surface at eye height/width (the rounded Quaternius head is
+  // widest partway back, not exactly at eye level), so a small nudge still
+  // left the discs depth-occluded by the face surface in testing (invisible
+  // even though their world position was correct). The d*0.18 standoff alone
+  // is enough clearance; depthTest stays ON so the eyes never shine through
+  // hoods, helmets or walls.
+  const eyeZ = box.max.z + d * 0.18;
+  const eyeX = w * 0.24;
+  const geo = new THREE.CircleGeometry(Math.max(0.012, w * 0.09), 10);
+  const mat = new THREE.MeshBasicMaterial({ color: TOWNSFOLK_EYE_HEX }); // depthTest stays ON: depthTest:false made eyes shine through hoods/walls
+  for (const side of [-1, 1]) {
+    const disc = new THREE.Mesh(geo, mat);
+    disc.position.set(side * eyeX, eyeY, eyeZ);
+    disc.renderOrder = 2;
+    disc.frustumCulled = false;
+    mesh.add(disc);
+    anchorToHeadBone(mesh, disc);
+  }
+}
+
 // Builds the procedural mesh for a chosen hair STYLE (see HAIR_STYLES above),
 // tinted to match the chosen hair colour exactly (same hex the baked hair
 // tile gets - see applyHairColor). Same measurement approach and same
@@ -1021,7 +1103,20 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
   // Eye colour (TODO 97): see addEyeDiscs above for why this is two small
   // overlay discs rather than an atlas tile retint.
   if (headMesh && useAtlasTones) {
-    addEyeDiscs(mesh, headMesh, eyeTone.hex);
+    // Eye-colour discs REMOVED (TODO 698): the user rejected colored discs
+    // over the KayKit rigs' painted eyes ("brown dots on everyone's eyes").
+    // eyeColor persists in saves but has no visual until a texture-level
+    // recolor exists. (Quaternius townsfolk keep their DARK discs below -
+    // those rigs ship with NO painted eyes at all, so the discs ARE the eyes.)
+  }
+  // TODO 690: the four Quaternius townsfolk (cleric/monk/scout/drifter) have
+  // no headMesh by this rig's naming convention (see the useAtlasTones gate
+  // above) AND their shared baked texture has no painted eyes at all - give
+  // them the same simple painted-eye treatment via a bone-skin-weight-derived
+  // head bbox instead of the headMesh-geometry one (see
+  // computeSkinnedHeadBBox/addTownEyeDiscs above for why).
+  if (!useAtlasTones) {
+    addTownEyeDiscs(mesh);
   }
   // Hair style (TODO 97): procedural ponytail/bun/long meshes anchored to the
   // head (see addHairMesh above). 'short' is always a no-op here (the rig's
