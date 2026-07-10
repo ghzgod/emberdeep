@@ -631,29 +631,8 @@ export class UI {
         hairWrap.appendChild(sw);
       }
     }
-    const eyeWrap = $('cs-eyes');
-    if (eyeWrap) {
-      const cur = EYE_COLORS.some((t) => t.id === localStorage.getItem('emberdeep-eyes-v1'))
-        ? localStorage.getItem('emberdeep-eyes-v1') : 'brown';
-      if (!localStorage.getItem('emberdeep-eyes-v1')) localStorage.setItem('emberdeep-eyes-v1', cur);
-      eyeWrap.innerHTML = '';
-      for (const t of EYE_COLORS) {
-        const sw = document.createElement('button');
-        sw.type = 'button';
-        sw.className = 'cs-eyes-sw' + (t.id === cur ? ' selected' : '');
-        sw.title = t.label;
-        sw.setAttribute('aria-label', t.label);
-        sw.style.background = '#' + t.hex.toString(16).padStart(6, '0');
-        sw.onclick = () => {
-          localStorage.setItem('emberdeep-eyes-v1', t.id);
-          audio.play('ui_click', { volume: 0.6 });
-          eyeWrap.querySelectorAll('.cs-eyes-sw').forEach((b) => b.classList.remove('selected'));
-          sw.classList.add('selected');
-          this.refreshCharPreview();
-        };
-        eyeWrap.appendChild(sw);
-      }
-    }
+    // Eyes picker removed (TODO 698) - cs-eyes markup is gone; eyeColor
+    // persists in saves but has no visual until a texture-level recolor.
     const faceWrap = $('cs-face');
     if (faceWrap) {
       const cur = FACE_SHAPES.some((t) => t.id === localStorage.getItem('emberdeep-face-v1'))
