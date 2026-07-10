@@ -1846,9 +1846,11 @@ export class UI {
       const a = (deg * Math.PI) / 180;
       return [CX + r * Math.cos(a), CY + r * Math.sin(a)];
     };
-    // sweep: from just past straight-up (over slot 0) counterclockwise to just
-    // past left (beyond slot 3), always outside the ability fan (radius 144)
-    const A0 = -100, A1 = -178;
+    // sweep: from straight-up (right at slot 0's chip, closing the old dead
+    // gap between the arc's tip and the first ability button) counterclockwise
+    // down past slot 3 (further than before, so the lower-left tail reaches
+    // further down the screen too) - see TODO 691.
+    const A0 = -92, A1 = -188;
     const arcPath = (r) => {
       const [x0, y0] = pt(r, A0), [x1, y1] = pt(r, A1);
       return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 0 0 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
@@ -1870,9 +1872,9 @@ export class UI {
       mk('tv-track', d, w + 2);
       return mk(cls, d, w);
     };
-    const xp = build('tv-xp', 147, 2.5);     // thin gold XP arc, innermost
-    const res = build('tv-res', 153.5, 5);   // deep blue-purple resource
-    const hp = build('tv-hp', 161.5, 8);     // blood-red health, outermost
+    const xp = build('tv-xp', 139, 2.5);     // thin gold XP arc, innermost
+    const res = build('tv-res', 145.5, 5);   // deep blue-purple resource
+    const hp = build('tv-hp', 153.5, 8);     // blood-red health, outermost
     // Current/max readouts CURVE ALONG their own bands via textPath: the
     // health numbers ride the health arc, the resource numbers ride the
     // resource arc. Each invisible text arc runs the reverse direction
@@ -1890,8 +1892,8 @@ export class UI {
       p.setAttribute('fill', 'none');
       defs.appendChild(p);
     };
-    textArc('tv-txt-hp-arc', 159.5);
-    textArc('tv-txt-res-arc', 149);
+    textArc('tv-txt-hp-arc', 151.5);
+    textArc('tv-txt-res-arc', 141);
     const mkArcText = (cls, id) => {
       const t = document.createElementNS(NS, 'text');
       t.setAttribute('class', cls);
@@ -2130,7 +2132,22 @@ export class UI {
     } else {
       playersEl.classList.add('hidden');
     }
-    $('hud-floor').textContent = this.game.floorLabelText();
+    // floorLabelText() returns a single string that's sometimes "<emoji> Title"
+    // (town/tavern/depths) and sometimes just "Title" (in-Act dungeon floors).
+    // Split the leading glyph into its own element so CSS can vertically
+    // center it against the title text as one tidy row (TODO 697) instead of
+    // relying on inline emoji baseline alignment inside the text node.
+    const floorText = this.game.floorLabelText();
+    const floorM = floorText.match(/^(\S+)\s+(.*)$/);
+    const floorIconEl = $('hud-floor-icon');
+    if (floorM && !/[A-Za-z0-9]/.test(floorM[1])) {
+      floorIconEl.textContent = floorM[1];
+      floorIconEl.classList.remove('hidden');
+      $('hud-floor').textContent = floorM[2];
+    } else {
+      floorIconEl.classList.add('hidden');
+      $('hud-floor').textContent = floorText;
+    }
 
     // stairs seal progress
     const clearEl = $('hud-clear');
