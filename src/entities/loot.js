@@ -41,8 +41,20 @@ function makeLegendary(def, floor) {
 
 // The pinnacle EPIC uniques — earned in a fight only, never sold or gambled.
 const EPIC_UNIQUES = [...GAMBLE_LEGENDARIES, ...DROP_LEGENDARIES];
-export function dropLegendary(floor) {
-  return makeLegendary(EPIC_UNIQUES[Math.floor(Math.random() * EPIC_UNIQUES.length)], floor);
+// Boss jackpot: opts.perfectChance lets act bosses / the Dungeon Lord roll a
+// small shot at a "perfect" legendary: every stat maxed for its item level
+// (a flat +15%, rounded), same legendary tier and visuals as always. The
+// bump is fixed and capped by the L() depth clamp inside the stat formulas,
+// so there is no runaway inflation and no new tier.
+export function dropLegendary(floor, opts = {}) {
+  const item = makeLegendary(EPIC_UNIQUES[Math.floor(Math.random() * EPIC_UNIQUES.length)], floor);
+  if (opts.perfectChance && Math.random() < opts.perfectChance) {
+    for (const k of Object.keys(item.stats)) item.stats[k] = Math.round(item.stats[k] * 1.15);
+    item.name = `Perfect ${item.name}`;
+    item.perfect = true;
+    item.value = Math.round(item.value * 1.5);
+  }
+  return item;
 }
 
 // Zoltan's gamble: pricey, usually junk — fate can grant up to a Super Rare,
@@ -139,15 +151,60 @@ export function rollRarity(bonus = 0) {
   return 'common';
 }
 
-export function generateGear(floor, forcedRarity = null, classId = 'knight') {
-  const slot = ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket'][Math.floor(Math.random() * 6)];
+// ---------------- Smart loot influence ----------------
+const GEAR_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'hands', 'trinket'];
+// Elite kills shift the rarity roll up (rollRarity bonus is subtracted from
+// the d100), roughly a tier's worth. Legendary rules are untouched: rollRarity
+// can never produce legendary, elite or not.
+const ELITE_RARITY_BONUS = 12;
+
+// Rough power score of a worn piece: item level scaled by its rarity mult.
+function wornScore(item) { return (item.ilvl || 1) * (RARITIES[item.rarity]?.mult || 1); }
+
+// Fill-the-gap slot pick. Weights: EMPTY slot 4x (strongly favour gearing
+// bare slots), the WEAKEST filled slot 2x (nudge upgrades where they matter
+// most), everything else 1x. Falls back to a uniform pick when the finder's
+// equipped set is unknown (vendor stock, gamble, old call sites).
+function pickDropSlot(equipped) {
+  if (!equipped) return GEAR_SLOTS[Math.floor(Math.random() * GEAR_SLOTS.length)];
+  let weakest = null, weakestScore = Infinity;
+  for (const s of GEAR_SLOTS) {
+    const it = equipped[s];
+    if (it && wornScore(it) < weakestScore) { weakestScore = wornScore(it); weakest = s; }
+  }
+  const weights = GEAR_SLOTS.map((s) => (!equipped[s] ? 4 : s === weakest ? 2 : 1));
+  let total = 0;
+  for (const w of weights) total += w;
+  let roll = Math.random() * total;
+  for (let i = 0; i < GEAR_SLOTS.length; i++) {
+    roll -= weights[i];
+    if (roll < 0) return GEAR_SLOTS[i];
+  }
+  return GEAR_SLOTS[GEAR_SLOTS.length - 1];
+}
+
+// ctx (all optional, personal to the finder so multiplayer loot stays per-player):
+//   equipped: the finder's equipped-slots map (drives slot + upgrade bias)
+//   elite:    true when the kill was a crowned elite (rarity boost)
+export function generateGear(floor, forcedRarity = null, classId = 'knight', ctx = null) {
+  const slot = pickDropSlot(ctx?.equipped);
   const isWeapon = slot === 'weapon';
-  const rarity = forcedRarity || rollRarity(floor);
+  const rarity = forcedRarity || rollRarity(floor + (ctx?.elite ? ELITE_RARITY_BONUS : 0));
+
+  // All-slots-filled upgrade bias: once every slot is worn, aim the item level
+  // slightly above the piece currently in the chosen slot so drops trend
+  // toward upgrades. Capped at floor + 2 (the gamble already sells floor + 2),
+  // so the floor's normal power budget holds and nothing inflates.
+  let ilvl = floor;
+  if (ctx?.equipped && GEAR_SLOTS.every((s) => ctx.equipped[s])) {
+    const worn = ctx.equipped[slot];
+    ilvl = Math.min(floor + 2, Math.max(floor, (worn.ilvl || floor) + 1));
+  }
   // weapons take their names/icon from the finder's class (and are class-locked)
   const def = isWeapon
     ? { ...SLOT_DEFS.weapon, ...(CLASS_WEAPONS[classId] || CLASS_WEAPONS.knight) }
     : SLOT_DEFS[slot];
-  const power = (Math.sqrt(floor) * 1.7 + Math.random()) * RARITIES[rarity].mult;
+  const power = (Math.sqrt(ilvl) * 1.7 + Math.random()) * RARITIES[rarity].mult;
 
   const stats = def.stats(power);
 
@@ -180,10 +237,10 @@ export function generateGear(floor, forcedRarity = null, classId = 'knight') {
   let name = `${prefix} ${def.names[Math.floor(Math.random() * def.names.length)]}`;
   if (rarity === 'epic') name += ` ${SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)]}`;
 
-  const value = Math.round((14 + floor * 6) * RARITIES[rarity].mult);
+  const value = Math.round((14 + ilvl * 6) * RARITIES[rarity].mult);
   // weapons carry the class that can wield them; shared gear carries affinity
   const forClass = isWeapon ? classId : null;
-  return { id: nextItemId++, slot, rarity, name, icon: def.icon, ilvl: floor, stats, value, forClass, affinity };
+  return { id: nextItemId++, slot, rarity, name, icon: def.icon, ilvl, stats, value, forClass, affinity };
 }
 
 // Gold received when selling (items from old saves may lack a stored value).
