@@ -2237,10 +2237,16 @@ export class Game {
         const wantsHorns = fancy || r3 > 0.72;
         const wantsCrest = it.rarity !== 'common' && (r3 < 0.35 || fancy);
         const wantsFaceGuard = fancy && r3 > 0.4 && r3 < 0.85;
+        // Sizes/positions come from the helmet's EXTENT (max-min), never from
+        // absolute local-Y multiples: the baked geometry's local origin is the
+        // model root, so max.y alone includes the whole head-height offset and
+        // scaling by it produced comically oversized add-ons (giant slab
+        // crests twice the helmet - the exact bug seen in the preview).
+        const hH = hbb.max.y - hbb.min.y;
         if (wantsHorns) {
           for (const sx of [-1, 1]) {
-            const horn = new THREE.Mesh(new THREE.ConeGeometry(hW * 0.14, hTop * (0.3 + r2 * 0.25), 6), hat.material);
-            horn.position.set(sx * hW * 0.55, hTop * 0.9, hMidZ);
+            const horn = new THREE.Mesh(new THREE.ConeGeometry(hW * 0.14, hH * (0.35 + r2 * 0.3), 6), hat.material);
+            horn.position.set(sx * hW * 0.55, hbb.max.y - hH * 0.22, hMidZ);
             horn.rotation.z = sx * (0.4 + r2 * 0.3);
             horn.rotation.x = -0.2;
             hat.add(horn);
@@ -2248,13 +2254,14 @@ export class Game {
         }
         if (wantsCrest) {
           const crestLen = hbb.max.z - hbb.min.z;
-          const crest = new THREE.Mesh(new THREE.BoxGeometry(hW * 0.16, hTop * (0.22 + r2 * 0.18), crestLen * 0.95), hat.material);
-          crest.position.set(0, hTop * 1.04, hMidZ);
+          const crestH = hH * (0.28 + r2 * 0.22);
+          const crest = new THREE.Mesh(new THREE.BoxGeometry(hW * 0.16, crestH, crestLen * 0.9), hat.material);
+          crest.position.set(0, hbb.max.y - crestH * 0.15, hMidZ);
           hat.add(crest);
         }
         if (wantsFaceGuard) {
-          const guard = new THREE.Mesh(new THREE.BoxGeometry(hW * 0.14, (hMidY - hbb.min.y) * 0.95, hW * 0.14), hat.material);
-          guard.position.set(0, hMidY * 0.65, hbb.max.z * 0.95);
+          const guard = new THREE.Mesh(new THREE.BoxGeometry(hW * 0.14, hH * 0.5, hW * 0.14), hat.material);
+          guard.position.set(0, hbb.min.y + hH * 0.25, hbb.max.z * 0.95);
           hat.add(guard);
         }
       }
