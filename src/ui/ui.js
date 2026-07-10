@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CLASSES, buildHeroMesh } from '../entities/classes.js';
-import { SKIN_TONES, GENDERS, HAIR_TONES, buildAnimatedHero } from '../entities/heroModel.js';
+import { SKIN_TONES, GENDERS, HAIR_TONES, EYE_COLORS, FACE_SHAPES, buildAnimatedHero } from '../entities/heroModel.js';
 import { SKILLS } from '../entities/skills.js';
 import { svgIcon, ICONS, CLASS_ICONS } from './icons.js';
 import { RARITIES, statLabel, sellValue, buyPrice } from '../entities/loot.js';
@@ -631,6 +631,50 @@ export class UI {
         hairWrap.appendChild(sw);
       }
     }
+    const eyeWrap = $('cs-eyes');
+    if (eyeWrap) {
+      const cur = EYE_COLORS.some((t) => t.id === localStorage.getItem('emberdeep-eyes-v1'))
+        ? localStorage.getItem('emberdeep-eyes-v1') : 'brown';
+      if (!localStorage.getItem('emberdeep-eyes-v1')) localStorage.setItem('emberdeep-eyes-v1', cur);
+      eyeWrap.innerHTML = '';
+      for (const t of EYE_COLORS) {
+        const sw = document.createElement('button');
+        sw.type = 'button';
+        sw.className = 'cs-eyes-sw' + (t.id === cur ? ' selected' : '');
+        sw.title = t.label;
+        sw.setAttribute('aria-label', t.label);
+        sw.style.background = '#' + t.hex.toString(16).padStart(6, '0');
+        sw.onclick = () => {
+          localStorage.setItem('emberdeep-eyes-v1', t.id);
+          audio.play('ui_click', { volume: 0.6 });
+          eyeWrap.querySelectorAll('.cs-eyes-sw').forEach((b) => b.classList.remove('selected'));
+          sw.classList.add('selected');
+          this.refreshCharPreview();
+        };
+        eyeWrap.appendChild(sw);
+      }
+    }
+    const faceWrap = $('cs-face');
+    if (faceWrap) {
+      const cur = FACE_SHAPES.some((t) => t.id === localStorage.getItem('emberdeep-face-v1'))
+        ? localStorage.getItem('emberdeep-face-v1') : 'standard';
+      if (!localStorage.getItem('emberdeep-face-v1')) localStorage.setItem('emberdeep-face-v1', cur);
+      faceWrap.innerHTML = '';
+      for (const t of FACE_SHAPES) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cs-face-btn' + (t.id === cur ? ' selected' : '');
+        btn.textContent = t.label;
+        btn.onclick = () => {
+          localStorage.setItem('emberdeep-face-v1', t.id);
+          audio.play('ui_click', { volume: 0.6 });
+          faceWrap.querySelectorAll('.cs-face-btn').forEach((b) => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          this.refreshCharPreview();
+        };
+        faceWrap.appendChild(btn);
+      }
+    }
   }
 
   // Tap/click selects and shows details; the confirm button starts the game.
@@ -751,9 +795,13 @@ export class UI {
     const skinTone = localStorage.getItem('emberdeep-skin-v1') || 'light';
     const storedHair = localStorage.getItem('emberdeep-hair-v1');
     const hairColor = HAIR_TONES.some((t) => t.id === storedHair) ? storedHair : null;
+    const storedEyes = localStorage.getItem('emberdeep-eyes-v1');
+    const eyeColor = EYE_COLORS.some((t) => t.id === storedEyes) ? storedEyes : 'brown';
+    const storedFace = localStorage.getItem('emberdeep-face-v1');
+    const faceShape = FACE_SHAPES.some((t) => t.id === storedFace) ? storedFace : 'standard';
     // Same builder + same creation options the real Player uses, so what spins
     // here is exactly what spawns. Primitive fallback only if the GLB failed.
-    const anim = buildAnimatedHero(clsId, name, { gender, skinTone, hairColor });
+    const anim = buildAnimatedHero(clsId, name, { gender, skinTone, hairColor, eyeColor, faceShape });
     let mesh, gait = null;
     if (anim) {
       mesh = anim.mesh;
@@ -2417,7 +2465,7 @@ export class UI {
     scene.add(turntable);
 
     const p = this.game.player;
-    const anim = buildAnimatedHero(p.classId, this.game.playerName(), { gender: p.gender, skinTone: p.skinTone, hairColor: p.hairColor });
+    const anim = buildAnimatedHero(p.classId, this.game.playerName(), { gender: p.gender, skinTone: p.skinTone, hairColor: p.hairColor, eyeColor: p.eyeColor, faceShape: p.faceShape });
     let mesh, gait = null;
     if (anim) mesh = anim.mesh;
     else { mesh = buildHeroMesh(CLASSES[p.classId], this.game.playerName()); gait = mesh.userData.updateGait; }

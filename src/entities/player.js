@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CLASSES, buildHeroMesh } from './classes.js';
-import { buildAnimatedHero, skinToneById, hairToneById } from './heroModel.js';
+import { buildAnimatedHero, skinToneById, hairToneById, eyeColorById, faceShapeById } from './heroModel.js';
 import { audio } from '../core/audio.js';
 
 export function xpForLevel(level) {
@@ -77,9 +77,16 @@ export class Player {
     // actually been picked in char-select.
     const savedHair = ls?.getItem('emberdeep-hair-v1');
     this.hairColor = hairToneById(savedHair) ? savedHair : null;
+    // Eye colour defaults to brown (unlike hair, every head needs SOME eye
+    // colour, so an unrecognized/missing pick still falls back to brown
+    // rather than "no tint"). Face shape defaults to 'standard' (no scale).
+    const savedEyes = ls?.getItem('emberdeep-eyes-v1');
+    this.eyeColor = eyeColorById(savedEyes) ? savedEyes : 'brown';
+    const savedFace = ls?.getItem('emberdeep-face-v1');
+    this.faceShape = faceShapeById(savedFace).id;
 
     // Prefer the animated KayKit model; fall back to primitives if it failed to load.
-    this.anim = buildAnimatedHero(classId, heroName, { gender: this.gender, skinTone: this.skinTone, hairColor: this.hairColor });
+    this.anim = buildAnimatedHero(classId, heroName, { gender: this.gender, skinTone: this.skinTone, hairColor: this.hairColor, eyeColor: this.eyeColor, faceShape: this.faceShape });
     this.mesh = this.anim ? this.anim.mesh : buildHeroMesh(this.classDef, heroName);
   }
 
@@ -571,6 +578,8 @@ export class Player {
       gender: this.gender,
       skinTone: this.skinTone,
       hairColor: this.hairColor,
+      eyeColor: this.eyeColor,
+      faceShape: this.faceShape,
     };
   }
 
@@ -639,12 +648,17 @@ export class Player {
     const savedGender = data.gender === 'female' ? 'female' : 'male';
     const savedSkin = skinToneById(data.skinTone) ? data.skinTone : 'light';
     const savedHair = hairToneById(data.hairColor) ? data.hairColor : null;
-    if (savedGender !== p.gender || savedSkin !== p.skinTone || savedHair !== p.hairColor) {
+    const savedEyes = eyeColorById(data.eyeColor) ? data.eyeColor : 'brown';
+    const savedFace = faceShapeById(data.faceShape).id;
+    if (savedGender !== p.gender || savedSkin !== p.skinTone || savedHair !== p.hairColor
+      || savedEyes !== p.eyeColor || savedFace !== p.faceShape) {
       p.gender = savedGender;
       p.skinTone = savedSkin;
       p.hairColor = savedHair;
+      p.eyeColor = savedEyes;
+      p.faceShape = savedFace;
       const heroName = (typeof localStorage !== 'undefined' && localStorage.getItem('emberdeep-name-v1')) || 'Hero';
-      const rebuilt = buildAnimatedHero(classId, heroName, { gender: p.gender, skinTone: p.skinTone, hairColor: p.hairColor });
+      const rebuilt = buildAnimatedHero(classId, heroName, { gender: p.gender, skinTone: p.skinTone, hairColor: p.hairColor, eyeColor: p.eyeColor, faceShape: p.faceShape });
       if (rebuilt) { p.anim = rebuilt; p.mesh = rebuilt.mesh; }
     }
 
