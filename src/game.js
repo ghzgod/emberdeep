@@ -3649,8 +3649,12 @@ export class Game {
     audio.setVolume('master', s.masterVolume);
     audio.setVolume('music', s.musicVolume);
     audio.setVolume('sfx', s.sfxVolume);
-    roaster.volume = s.speechVolume;
-    import('./ai/neuralVoice.js').then(({ neuralVoice }) => { neuralVoice.volume = s.speechVolume; }).catch(() => {});
+    // Speech scales by MASTER too: Web Speech goes through the OS voice
+    // engine and Kokoro through its own context, so neither inherits the
+    // master gain - muting the game must actually silence the voices.
+    const speechVol = (s.speechVolume ?? 1) * (s.masterVolume ?? 1);
+    roaster.volume = speechVol;
+    import('./ai/neuralVoice.js').then(({ neuralVoice }) => { neuralVoice.volume = speechVol; }).catch(() => {});
     voice.setOutputVolume(s.voiceChatVolume);
   }
 
