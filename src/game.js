@@ -666,6 +666,11 @@ export class Game {
     // so standing at the hearth is unmistakably crackly and the far corner
     // barely murmurs. Torn down in teardownFloor.
     audio.startFireCrackle();
+    // Ambient table-talk lines are pre-synthesized ONCE here (736): the
+    // exchanges then replay from cache while the player idles - no periodic
+    // Kokoro inference while chilling in the room.
+    this._tavernConvoPlans = roaster.prepareTavernConvo();
+    this._tavernPlanIdx = 0;
     this.stairsCooldown = 1.5;
   }
 
@@ -1029,6 +1034,8 @@ export class Game {
     const line = roaster.composeVendorLine('barkeep', { playerName: n, memory, body });
     if (!memory.met) { this.vendorMemory['Magda the Barkeep'] = { met: true }; this.requestSave(); }
     const b = this.dungeonMeshes.barkeepPos;
+    // She faces the player only for the duration of this exchange (735).
+    if (this.dungeonMeshes.talkGate) this.dungeonMeshes.talkGate.magdaUntil = performance.now() + 7000;
     // Female voice, unused elsewhere: af_kore (not shared with Maribel/af_bella,
     // the sober patron/af_sarah, or any enemy/boss cast in roaster.js).
     roaster.sayGated(this, 'Magda the Barkeep', line,
@@ -1051,6 +1058,7 @@ export class Game {
     const cast = pm.drunk
       ? { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82 }
       : { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 };
+    pm.talkUntil = performance.now() + 7000; // stool-swivel toward the player only mid-conversation (735)
     roaster.sayGated(this, pm.drunk ? 'Tipsy Regular' : 'Tavern Patron', line, cast, pm);
   }
 
@@ -4894,7 +4902,12 @@ export class Game {
       } else {
         this._convoT = (this._convoT ?? 14) - dt;
         if (this._convoT <= 0 && !this.npcSpeechActive()) {
-          this._tavernConvo = roaster.composeTavernConvo();
+          // alternate between the visit's PREWARMED exchanges (736) so every
+          // ambient line is a cache hit - never a fresh mid-idle inference
+          const plans = this._tavernConvoPlans;
+          this._tavernConvo = plans?.length
+            ? plans[(this._tavernPlanIdx++) % plans.length]
+            : roaster.composeTavernConvo();
           this._convoIdx = 0;
           this._convoGap = 0;
         }

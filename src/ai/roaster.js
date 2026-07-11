@@ -377,6 +377,31 @@ export class Roaster {
     return convo.map(([who, variants]) => ({ who, text: variants[Math.floor(Math.random() * variants.length)] }));
   }
 
+  // Pick and PRE-SYNTHESIZE this visit's ambient exchanges (Obsidian 736):
+  // two exchanges are chosen once at tavern ENTRY and their lines pushed
+  // through neuralVoice.preload in a single burst, so the table-talk that
+  // plays while the player idles comes entirely from cache - zero periodic
+  // Kokoro inference while "just chilling in the tavern". Battery saver
+  // (Web Speech) has nothing to prewarm; a not-yet-loaded model is never
+  // force-loaded for ambience (the lines would just fall back to captions).
+  prepareTavernConvo() {
+    const plans = [this.composeTavernConvo(), this.composeTavernConvo()];
+    if (!this.batterySaver) {
+      const VOICE = {
+        magda: { voice: 'af_kore', speed: 0.95 },
+        patron: { voice: 'af_sarah', speed: 1.0 },
+        drunk: { voice: 'bm_daniel', speed: 0.82 },
+      };
+      import('./neuralVoice.js').then(({ neuralVoice }) => {
+        if (!neuralVoice.ready) return;
+        for (const plan of plans) {
+          for (const t of plan) neuralVoice.preload(t.text, VOICE[t.who])?.catch?.(() => {});
+        }
+      }).catch(() => {});
+    }
+    return plans;
+  }
+
   // Show an animated ellipsis above the speaker (anchor) the instant a line is
   // queued, then swap it for the real caption the moment audio actually starts
   // playing -- never both at once, and never the caption before the voice.

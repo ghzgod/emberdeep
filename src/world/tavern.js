@@ -354,6 +354,10 @@ export function buildTavernInterior() {
   keeper.position.set(keeperPos.x + TILE / 2, 0.24, keeperPos.z);
   keeper.rotation.y = 0; // face the customer side (+z), not the back wall
   group.add(keeper);
+  // Interaction gate (Obsidian 735): tavern NPCs face/eye-track the player
+  // ONLY while a conversation with them is active. game.js stamps these
+  // timestamps (performance.now()-based) from barkeepChat/patronChat.
+  const talkGate = { magdaUntil: 0 };
 
   // --- Modeled human Magda (preferred) ---
   // Replace the box barkeep's visuals with the KayKit unhooded-Rogue "villager"
@@ -366,8 +370,19 @@ export function buildTavernInterior() {
   if (barlow) {
     for (let i = keeper.children.length - 1; i >= 0; i--) {
       const c = keeper.children[i];
-      if (c === heldMug) { keeper.remove(c); barlow.mesh.add(c); c.position.set(0.28, 1.12, 0.34); }
-      else { keeper.remove(c); c.geometry?.dispose?.(); }
+      if (c === heldMug) {
+        keeper.remove(c);
+        // IN HER HAND (Obsidian 737): parent the tankard to the rig's left
+        // hand slot bone so she visibly carries it on her rounds - root-
+        // parenting left it hovering beside her shoulder. handslot is
+        // KayKit's authored held-item mount; falls back to the old float
+        // only if the rig is missing the bone entirely.
+        let hand = null;
+        barlow.mesh.traverse((o) => { if (!hand && o.isBone && /handslot\.l/i.test(o.name)) hand = o; });
+        if (!hand) barlow.mesh.traverse((o) => { if (!hand && o.isBone && /hand\.l/i.test(o.name)) hand = o; });
+        if (hand) { c.position.set(0, 0.06, 0); c.rotation.set(0, 0, 0); hand.add(c); }
+        else { barlow.mesh.add(c); c.position.set(0.28, 1.12, 0.34); }
+      } else { keeper.remove(c); c.geometry?.dispose?.(); }
     }
     keeper.add(barlow.mesh);
 
@@ -416,11 +431,14 @@ export function buildTavernInterior() {
           const moved = Math.hypot(keeper.position.x - prevX, keeper.position.z - prevZ);
           barlow.tick(dt, dt > 0 ? moved / dt : 0);
         };
-        const hero = nearestHero(keeper, 6);
+        // Attentive ONLY while the player is actually talking to her
+        // (Obsidian 735, same rule as the town vendors in 726): barkeepChat
+        // stamps talkGate.magdaUntil; outside that window she never eye-
+        // tracks or swivels at mere proximity.
+        const talking = performance.now() < talkGate.magdaUntil;
+        const hero = talking ? nearestHero(keeper, 6) : null;
         if (hero) barlow.lookAt(hero.x, hero.z); else barlow.lookAt(null);
-        // Attentive: stop ambling and turn the whole body to face a nearby
-        // player, exactly like the vendor amble does (task e's body-turn).
-        if (hero && hero.d < 2.6) {
+        if (hero) {
           const faceYaw = Math.atan2(hero.x - keeper.position.x, hero.z - keeper.position.z);
           keeper.rotation.y += wrapAngle(faceYaw - keeper.rotation.y) * Math.min(1, dt * 4);
           tickWalk();
@@ -785,6 +803,10 @@ export function buildTavernInterior() {
     // Modeled human patron (preferred): swap the box visuals for a KayKit
     // adventurer standing at the stool, keeping the mug in hand. The `patron`
     // Group stays the transform anchor (position + table-facing yaw).
+    // pmEntry is created up-front so the driver below and patronChat
+    // (game.js) share it: patronChat stamps pmEntry.talkUntil when the
+    // player actually opens a conversation.
+    const pmEntry = { mesh: patron, x: px, z: pz, drunk: def.name === 'drunk', talkUntil: 0 };
     const pnpc = buildNpcModel(def.cls, def.npcName, { gender: def.gender, skinTone: def.skin });
     if (pnpc) {
       for (let i = patron.children.length - 1; i >= 0; i--) {
@@ -795,11 +817,10 @@ export function buildTavernInterior() {
       pnpc.mesh.position.y = -0.18; // undo the stool-perch lift so feet reach the floor
       patron.add(pnpc.mesh);
 
-      // Body turn (task e): when a player is close, smoothly swivel the
-      // whole seated group (as if turning on the stool) to face them, on
-      // top of the existing head-glance; ease back to the table-facing
-      // "seat" yaw once they step away. seatYaw is captured now, before
-      // anything mutates patron.rotation.y.
+      // Body turn ONLY while the player is talking to this patron (Obsidian
+      // 735, matching the vendor rule from 726): patronChat stamps
+      // pmEntry.talkUntil; outside that window they keep facing their table
+      // - no proximity eye-tracking, no stool-swivel stalking.
       const seatYaw = patron.rotation.y;
       const patronDriver = {
         kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1, _phase: 0,
@@ -808,9 +829,10 @@ export function buildTavernInterior() {
           const dt = Math.min(0.1, Math.max(0, v - this._phase));
           this._phase = v;
           pnpc.tick(dt);
-          const hero = nearestHero(pnpc.mesh, 6);
+          const talking = performance.now() < pmEntry.talkUntil;
+          const hero = talking ? nearestHero(pnpc.mesh, 6) : null;
           if (hero) pnpc.lookAt(hero.x, hero.z); else pnpc.lookAt(null);
-          const targetYaw = (hero && hero.d < 2.5)
+          const targetYaw = hero
             ? Math.atan2(hero.x - patron.position.x, hero.z - patron.position.z)
             : seatYaw;
           patron.rotation.y += wrapAngle(targetYaw - patron.rotation.y) * Math.min(1, dt * 4);
@@ -820,7 +842,7 @@ export function buildTavernInterior() {
     }
 
     group.add(patron);
-    patronMeshes.push({ mesh: patron, x: px, z: pz, drunk: def.name === 'drunk' });
+    patronMeshes.push(pmEntry);
   }
 
   // ---- rotating visitors (Obsidian 722): every minute or two a different
@@ -887,8 +909,8 @@ export function buildTavernInterior() {
           }
         } else if (vs.mode === 'linger') {
           vs.waitT -= dt;
-          const hero = nearestHero(vs.group, 5);
-          if (hero) vs.npc.lookAt(hero.x, hero.z); else vs.npc.lookAt(null);
+          // no player eye-tracking (735): visitors mind their drink; they
+          // aren't interactable, so they never have a reason to stare.
           if (vs.waitT <= 0) vs.mode = 'out';
         } else if (vs.mode === 'out') {
           if (walkToward(vs.group, doorSpot.x, doorSpot.z + 0.8, dt) < 0.05) {
@@ -1089,7 +1111,11 @@ export function buildTavernInterior() {
     portalMesh: null,
     returnPortalMesh: null,
     smokePuffs,
-    barkeepPos: { x: keeperPos.x + TILE / 2, z: keeperPos.z + 1.4 },
+    // LIVE position (Obsidian 734): the keeper group's own Vector3, so the
+    // talk prompt, chat anchor and thinking pill all track her as she
+    // ambles instead of pointing at where she stood when the tavern built.
+    barkeepPos: keeper.position,
+    talkGate, // game.js stamps magdaUntil when the player talks to her (735)
     patronMeshes,
     hearthPos: { x: hw.x, z: hw.z }, // crackle-loop distance anchor (717)
     couchPos, // fireside sit spot (716)
