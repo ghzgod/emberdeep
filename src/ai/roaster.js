@@ -222,6 +222,10 @@ export class Roaster {
     // _cancelActivePreloads) so it never grows unbounded.
     this._activePreloads = new Map();
     this._preloadFloor = null;
+    // The single in-flight "ellipsis -> caption" gate (see sayGated below).
+    // Only one line is ever gated at a time (speaking is single-voice), so a
+    // new line simply supersedes whatever gate was pending.
+    this._activeGate = null;
     if ('speechSynthesis' in window) {
       const load = () => { this.voices = speechSynthesis.getVoices(); };
       load();
@@ -268,26 +272,33 @@ export class Roaster {
   // Speak with an explicit voice cast — vendors, narrators, anyone.
   // Prefers the neural Kokoro engine when it's loaded; Web Speech otherwise.
   // anchor: optional world pos of the speaker for the "speaking soon" bubble.
-  speakAs(text, cast, anchor) {
-    if (!this.enabled) return;
+  // hooks: { onStart, onCancel } -- onStart fires the instant audible output
+  // actually begins (Kokoro's AudioBufferSourceNode.start(), or the Web Speech
+  // utterance's `onstart`); onCancel fires if this line will never produce
+  // audio (Kokoro silently skipped mid-download, speech unavailable, etc.) so
+  // the caller can drop a pending caption cleanly. Callers that don't care
+  // about the exact instant can omit hooks entirely — the line still speaks.
+  speakAs(text, cast, anchor, hooks = {}) {
+    if (!this.enabled) { hooks.onCancel?.(); return; }
     // Battery saver: skip Kokoro completely (no heavy import, no main-thread
     // inference) and use the built-in voices, cast male vs female per `cast`.
-    if (this.batterySaver) { this._speakWebSpeech(text, cast); return; }
+    if (this.batterySaver) { this._speakWebSpeech(text, cast, hooks); return; }
     import('./neuralVoice.js').then(async ({ neuralVoice }) => {
       if (neuralVoice.ready) {
-        const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1, anchor, rate: cast.rate || 1 });
+        const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1, anchor, rate: cast.rate || 1, onStart: hooks.onStart });
         if (ok) return;
       }
       // Kokoro is the only voice. While it's still downloading we stay SILENT
       // (the subtitle already conveys the line) rather than fall back to the
       // robotic Web Speech synth. Only use Web Speech if Kokoro truly failed to
       // load on this device, so a broken model doesn't mute every character.
-      if (neuralVoice.status === 'error') this._speakWebSpeech(text, cast);
-    }).catch(() => this._speakWebSpeech(text, cast));
+      if (neuralVoice.status === 'error') { this._speakWebSpeech(text, cast, hooks); return; }
+      hooks.onCancel?.();
+    }).catch(() => this._speakWebSpeech(text, cast, hooks));
   }
 
-  _speakWebSpeech(text, cast) {
-    if (!this.enabled || !('speechSynthesis' in window)) return;
+  _speakWebSpeech(text, cast, hooks = {}) {
+    if (!this.enabled || !('speechSynthesis' in window)) { hooks.onCancel?.(); return; }
     try {
       speechSynthesis.cancel(); // characters don't talk over each other
       const u = new SpeechSynthesisUtterance(normalizeForSpeech(text));
@@ -303,8 +314,58 @@ export class Roaster {
       u.pitch = cast.pitch ?? 1;
       u.rate = cast.rate ?? 1;
       u.volume = this.volume ?? 0.9;
+      // Gate the caption on the utterance actually starting to speak. Headless/
+      // voiceless browsers (and some system configs) never fire `onstart`; the
+      // caller's own timeout fallback (see sayGated) covers that so the line is
+      // never lost.
+      if (hooks.onStart) u.onstart = () => hooks.onStart();
       speechSynthesis.speak(u);
-    } catch { /* speech not available */ }
+    } catch { hooks.onCancel?.(); }
+  }
+
+  // Show an animated ellipsis above the speaker (anchor) the instant a line is
+  // queued, then swap it for the real caption the moment audio actually starts
+  // playing -- never both at once, and never the caption before the voice.
+  // `show` defaults to the standard subtitle bar; callers with a different
+  // caption presentation (e.g. the multiplayer roast floater) can override it.
+  // A 1.5s safety-net timeout shows the caption regardless if no onStart ever
+  // fires (headless/voiceless browsers, a failed generate(), etc.) so a line
+  // is never silently lost.
+  sayGated(game, speaker, line, cast, anchor, { durationMs = 4200, show } = {}) {
+    if (!this.enabled) return;
+    this._clearGate(); // a new line supersedes whatever was pending; no stacked ellipses
+    const hasBubble = !!(anchor && game?.ui?.floaters);
+    if (hasBubble) game.ui.floaters.showThinking(anchor);
+    const doShow = show || (() => game.ui.showSubtitle(speaker, line, durationMs));
+    let started = false;
+    const gate = { fallback: null };
+    const finish = () => {
+      if (started) return;
+      started = true;
+      clearTimeout(gate.fallback);
+      if (hasBubble) game.ui.floaters.hideThinking();
+      doShow();
+      if (this._activeGate === gate) this._activeGate = null;
+    };
+    const cancel = () => {
+      if (started) return;
+      started = true;
+      clearTimeout(gate.fallback);
+      if (hasBubble) game.ui.floaters.hideThinking();
+      if (this._activeGate === gate) this._activeGate = null;
+    };
+    gate.cancel = cancel;
+    gate.fallback = setTimeout(finish, 1500);
+    this._activeGate = gate;
+    this.speakAs(line, cast, anchor, { onStart: finish, onCancel: cancel });
+  }
+
+  // Drop the pending ellipsis->caption gate (if any) WITHOUT ever showing the
+  // caption -- used when the speaker is cut off before audio starts (dies,
+  // gets superseded by a new line, etc.).
+  _clearGate() {
+    if (this._activeGate) this._activeGate.cancel();
+    this._activeGate = null;
   }
 
   // Figure out what the target deserves to be mocked for.
@@ -447,8 +508,7 @@ export class Roaster {
     // Slower/deeper casts (dragons, golems) get a longer caption window so the
     // subtitle stays up for the full pitched-down, slowed-down line.
     const dur = Math.round(Math.min(7000, Math.max(2200, 3600 / (cast.rate || 1))));
-    game.ui.showSubtitle(elite.name || 'Elite', line, dur);
-    this.speakAs(line, cast, elite.pos);
+    this.sayGated(game, elite.name || 'Elite', line, cast, elite.pos, { durationMs: dur });
   }
 
   // While the player is on a boss floor but a boss/elite/miniboss hasn't been
@@ -501,6 +561,9 @@ export class Roaster {
   // unplayed opening line so a boss that dies mid-synthesis never speaks after
   // death. Safe to call even if nothing is speaking or preloading.
   stopSpeaking() {
+    // A pending ellipsis for a line that hasn't started playing yet must
+    // vanish with nothing shown -- the speaker is being cut off (death, etc.).
+    this._clearGate();
     try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch { /* */ }
     import('./neuralVoice.js').then(({ neuralVoice }) => {
       neuralVoice.stop?.();

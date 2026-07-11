@@ -841,12 +841,26 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
   white-space: normal; width: 260px; text-align: center; line-height: 1.35;
   text-shadow: 0 2px 4px #000, 0 0 10px rgba(0,0,0,0.8);
 }
-/* "Speaking soon" bubble: animated dots floated above a character's head while
-   their voice line is being synthesized (before audio starts). JS drives the
-   dot count and the world-projected position; this is just the look. */
+/* "Speaking soon" pill: a small parchment-on-dark chip floated above a
+   character's head from the moment a line is queued until audio actually
+   starts. JS only drives the world-projected position; the three dots pulse
+   in sequence via CSS (staggered animation-delay), no per-frame JS needed. */
 .floater.speak-soon {
-  animation: none; font-size: 22px; letter-spacing: 2px; color: #ffe9c8;
-  min-width: 1.4em; text-align: left; text-shadow: 0 2px 4px #000, 0 0 8px rgba(0,0,0,0.7);
+  animation: none; display: flex; align-items: center; justify-content: center;
+  gap: 4px; padding: 6px 10px; min-width: 0; white-space: nowrap;
+  background: linear-gradient(180deg, rgba(24,18,30,0.92), rgba(14,10,20,0.92));
+  border: 1px solid var(--gold); border-radius: 10px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.5), 0 0 8px rgba(232,192,90,0.1);
+}
+.floater.speak-soon span {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--parchment);
+  opacity: 0.35; animation: speak-soon-pulse 1.1s ease-in-out infinite;
+}
+.floater.speak-soon span:nth-child(2) { animation-delay: 0.18s; }
+.floater.speak-soon span:nth-child(3) { animation-delay: 0.36s; }
+@keyframes speak-soon-pulse {
+  0%, 80%, 100% { opacity: 0.35; transform: scale(0.85); }
+  40% { opacity: 1; transform: scale(1.15); }
 }
 @keyframes float-up { 0% { opacity: 1; margin-top: 0; } 100% { opacity: 0; margin-top: -46px; } }
 

@@ -18,25 +18,25 @@ export class Floaters {
     // "Speaking soon" bubble: a single reused element floated above the head of
     // whoever is currently generating a voice line (Kokoro inference in flight).
     this._think = null;      // { el, x, y, z } | null
-    this._thinkPhase = 0;    // cycles the . / .. / ... animation
   }
 
-  // Show an animated "..." above a character while their voice line is being
-  // synthesized (before audio starts). worldPos is a fixed anchor captured by
-  // value; call hideThinking() once audio starts or generation fails.
+  // Show an animated ellipsis pill above a character while their line is
+  // queued/synthesizing (before audio starts). worldPos is a fixed anchor
+  // captured by value; call hideThinking() once audio starts or the line is
+  // cancelled. Three dots pulse in sequence (CSS-driven, staggered delays) --
+  // this element itself never changes text, so no per-frame textContent churn.
   showThinking(worldPos) {
     if (!worldPos) { this.hideThinking(); return; }
     if (!this._think) {
       const el = document.createElement('div');
       el.className = 'floater speak-soon';
-      el.textContent = '.';
+      el.innerHTML = '<span></span><span></span><span></span>';
       this.container.appendChild(el);
       this._think = { el };
     }
     this._think.x = worldPos.x;
     this._think.y = (worldPos.y ?? 0) + 2.0; // a touch above the name/head line
     this._think.z = worldPos.z;
-    this._thinkPhase = 0;
     this.placeThink();
   }
 
@@ -121,14 +121,9 @@ export class Floaters {
       f.el.style.opacity = f.t < FADE ? (f.t / FADE).toFixed(2) : '1';
       this.place(f);
     }
-    // Drive the "speaking soon" bubble: cycle . / .. / ... about 3x a second and
-    // keep it pinned to its world anchor as the camera moves.
-    if (this._think) {
-      this._thinkPhase += dt;
-      const dots = 1 + (Math.floor(this._thinkPhase * 3) % 3);
-      this._think.el.textContent = '.'.repeat(dots);
-      this.placeThink();
-    }
+    // The "speaking soon" pill's dots pulse via CSS keyframes (staggered
+    // delays); just keep it pinned to its world anchor as the camera moves.
+    if (this._think) this.placeThink();
   }
 
   clear() {

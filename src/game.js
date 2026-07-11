@@ -1044,10 +1044,10 @@ export class Game {
     const line = roaster.composeVendorLine('barkeep', { playerName: n, memory, body });
     if (!memory.met) { this.vendorMemory['Magda the Barkeep'] = { met: true }; this.requestSave(); }
     const b = this.dungeonMeshes.barkeepPos;
-    this.ui.showSubtitle('Magda the Barkeep', line);
     // Female voice, unused elsewhere: af_kore (not shared with Maribel/af_bella,
     // the sober patron/af_sarah, or any enemy/boss cast in roaster.js).
-    roaster.speakAs(line, { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 });
+    roaster.sayGated(this, 'Magda the Barkeep', line,
+      { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, b);
   }
 
   patronChat(pm) {
@@ -1063,10 +1063,10 @@ export class Game {
     ];
     const bank = pm.drunk ? drunkLines : soberLines;
     const line = bank[Math.floor(Math.random() * bank.length)];
-    this.ui.showSubtitle(pm.drunk ? 'Tipsy Regular' : 'Tavern Patron', line);
-    roaster.speakAs(line, pm.drunk
+    const cast = pm.drunk
       ? { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82 }
-      : { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 });
+      : { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 };
+    roaster.sayGated(this, pm.drunk ? 'Tipsy Regular' : 'Tavern Patron', line, cast, pm);
   }
 
   openNotices() {
@@ -1198,8 +1198,8 @@ export class Game {
     const memory = this.vendorMemory[vendor.name] || {};
     const line = roaster.composeVendorLine(vendor.type, { playerName: n, memory, body });
     if (!memory.met) { this.vendorMemory[vendor.name] = { ...memory, met: true }; this.requestSave(); }
-    this.ui.showSubtitle(vendor.name, line);
-    roaster.speakAs(line, casts[vendor.type] || casts.gear);
+    const anchor = vendor.wx !== undefined ? { x: vendor.wx, z: vendor.wz } : null;
+    roaster.sayGated(this, vendor.name, line, casts[vendor.type] || casts.gear, anchor);
   }
 
   closeShop() {
@@ -1622,8 +1622,12 @@ export class Game {
       if (!e) return;
       const d = Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z);
       if (d > 18) return;
-      this.ui.floaters.spawn(e.pos, `“${msg.txt}”`, 'roast', 6);
-      roaster.speak(msg.txt, msg.ty, e.pos);
+      // Gate the floating roast bubble the same way as every other AI line:
+      // ellipsis while this guest's own voice engine is loading/generating,
+      // then the actual line the instant audio starts.
+      roaster.sayGated(this, null, msg.txt, roaster.pickVoice(msg.ty), e.pos, {
+        show: () => this.ui.floaters.spawn(e.pos, `“${msg.txt}”`, 'roast', 6),
+      });
     });
     net.on('state', (msg) => {
       if (net.isHost || !this.player) return;
