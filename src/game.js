@@ -9,7 +9,7 @@ import { themeForFloor, actOfFloor, actFloorOf, makeGlowTexture } from './world/
 import { Player, xpForLevel } from './entities/player.js';
 import { Enemy, Boss, ENEMY_TYPES, ACT_BOSSES, buildEnemyMesh, buildBossMesh, resetEnemyAnimBudget } from './entities/enemies.js';
 import { attachEnemyModel, typeModelKey, bossModelKey } from './entities/enemyModel.js';
-import { buildAnimatedHero, tintHoodedHeadMap, anchorToBodyBone } from './entities/heroModel.js';
+import { buildAnimatedHero, tintHoodedHeadMap, anchorToBodyBone, applyRobeTint } from './entities/heroModel.js';
 import { CLASSES, buildHeroMesh } from './entities/classes.js';
 import { ProjectileSystem } from './entities/projectiles.js';
 import { LootSystem, generateGear, rollRarity, sellValue, gambleItem, dropLegendary, RARITIES, newItemId, WEAPON_ELEMENTS } from './entities/loot.js';
@@ -36,12 +36,6 @@ import { TouchControls } from './core/touch.js';
 const MAX_FLOOR = 50;
 const ROMAN = [null, 'I', 'II', 'III', 'IV', 'V'];
 
-// Shared neck seam used by the mage's robe chest (collar torus) and hood
-// helmet (skirt hem) in updateHeroGear, in the hero's local space relative to
-// the head anchor. Keeping this in one place means a hood equipped alongside
-// a robe always meets the collar with no gap, regardless of which item's
-// rarity colour each piece uses.
-const MAGE_ROBE_COLLAR = { r: 0.16, y: 0.92 + 0.42, z: 0.02 };
 
 export class Game {
   // Town day/night cycle: one full day + one full night takes DAY_NIGHT_PERIOD
@@ -2120,9 +2114,9 @@ export class Game {
         // robe rather than a hat sitting awkwardly over a robe collar. If no
         // robe is worn, always fall back to the hat (a floating cloth cone
         // with no robe collar to meet would look like a mistake, not a
-        // style). Built from the shared MAGE_ROBE_COLLAR seam (also used by
-        // the robe's own collar torus in the equipped.chest/mage block
-        // below) so the hood's hem meets the robe collar with no gap. It is
+        // style). The hooded HEAD carries its own authored neck/scarf, and
+        // the robe is now the dyed baked body (732), so no shared collar
+        // seam constant is needed anymore. It is
         // two-tone by design: the hood tints from the HELMET item's own
         // rarity colour while the robe keeps its own tint from the chest
         // item - a real hooded-robe often uses a contrast lining, not the
@@ -2375,41 +2369,17 @@ export class Game {
     if (equipped.chest) {
       const it = equipped.chest, m = mat(it.rarity), r = rof(it), r2 = rof2(it), fancy = elaborate(it.rarity);
       if (classId === 'mage') {
-        // Full-length flowing ROBE: a waist-to-ankle skirt (cone-ish, built from
-        // a tapered cylinder so it reads as cloth rather than armor plate), plus
-        // a fitted upper chest piece and shoulder drape. Style varies the hem
-        // shape/flare; higher rarity gets a trim band + a slow emissive glow.
-        const style = r2 < 0.34 ? 'flare' : r2 < 0.67 ? 'straight' : 'slit';
+        // Robe = the BAKED, fully-skinned KayKit robe, DYED to the item's
+        // rarity (Obsidian 732, replacing the rigid procedural skirt/torso/
+        // collar overlay that floated over the animating body): sleeves move
+        // with the arms and the robe skirt with the legs because they ARE the
+        // skinned body mesh. applyRobeTint repaints only the robe-cloth atlas
+        // tiles, so skin/hair/leather/armor regions keep their own colors.
         const hot = fancy;
-        const robeMat = new THREE.MeshStandardMaterial({ color: m.color.clone(), metalness: 0.15, roughness: 0.55, emissive: hot ? m.color.clone() : 0x000000, emissiveIntensity: hot ? 0.16 : 0 });
-        // Hem stops at mid-calf so the boots and feet stay visible - a floor-length
-        // hem read as a solid cylinder swallowing the wizard's legs.
-        const waistY = 0.92, hemY = 0.3 + r * 0.04;
-        const topR = 0.26 + r * 0.03;
-        const botR = style === 'flare' ? topR * (1.5 + r * 0.2) : style === 'slit' ? topR * 1.35 : topR * 1.15;
-        const skirt = new THREE.Mesh(new THREE.CylinderGeometry(topR, botR, waistY - hemY, 12, 1, true), robeMat);
-        skirt.position.set(0, (waistY + hemY) / 2, 0);
-        grp.add(skirt);
-        if (style === 'slit') { // front slit: two overlapping half-cylinders instead of one closed skirt
-          skirt.visible = false;
-          for (const sx of [-1, 1]) {
-            const half = new THREE.Mesh(new THREE.CylinderGeometry(topR, botR, waistY - hemY, 8, 1, true, 0, Math.PI * 0.98), robeMat);
-            half.position.set(0, (waistY + hemY) / 2, 0); half.rotation.y = sx > 0 ? 0.15 : Math.PI + 0.15;
-            grp.add(half);
-          }
-        }
-        // Hem ring: a thin torus riding the bottom edge, the sway target so the
-        // whole hem visibly billows rather than just one thin strip.
-        const hem = new THREE.Mesh(new THREE.TorusGeometry(botR, 0.03, 6, 16), mat(it.rarity));
-        hem.rotation.x = Math.PI / 2; hem.position.set(0, hemY, 0);
-        grp.add(hem);
-        sway.hem.push({ obj: hem, basePos: hem.position.clone(), amp: 0.06 + r * 0.03, kind: 'ring' });
-        // Fitted chest + shoulder drape (cloth, not plate).
-        const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.22, topR, 0.42, 10), robeMat); torso.position.set(0, waistY + 0.21, 0.02); grp.add(torso);
-        // Collar sits at the shared MAGE_ROBE_COLLAR seam so an equipped hood's
-        // skirt hem lands exactly here, whatever colour either piece rolled.
-        const collar = new THREE.Mesh(new THREE.TorusGeometry(MAGE_ROBE_COLLAR.r, 0.025, 6, 10), mat(it.rarity)); collar.rotation.x = Math.PI / 2; collar.position.set(0, MAGE_ROBE_COLLAR.y, MAGE_ROBE_COLLAR.z); grp.add(collar);
+        applyRobeTint(mesh, RARITIES[it.rarity]?.color ?? 0x8a8a8a);
         // A drifting cloak-cape swatch off the back shoulders for elaborate robes.
+        const robeMat = new THREE.MeshStandardMaterial({ color: m.color.clone(), metalness: 0.15, roughness: 0.55, emissive: hot ? m.color.clone() : 0x000000, emissiveIntensity: hot ? 0.16 : 0 });
+        const waistY = 0.92, hemY = 0.3 + r * 0.04;
         if (fancy) {
           const drape = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.5, 8, 1, true), robeMat);
           drape.position.set(0, waistY, -0.08); drape.rotation.x = Math.PI;
@@ -2455,6 +2425,9 @@ export class Game {
         sway.cloak.push({ obj: cloak, baseRotZ: 0, baseRotX: cloak.rotation.x, amp: 0.06 + r * 0.04 });
         if (fancy) { const clasp = new THREE.Mesh(new THREE.OctahedronGeometry(0.04), mat(it.rarity)); clasp.position.set(0, 1.14, 0.18); grp.add(clasp); }
       }
+    } else if (classId === 'mage') {
+      // Chest slot emptied: restore the robe's own undyed cloth (732).
+      applyRobeTint(mesh, null);
     }
     if (equipped.legs) {
       const m = mat(equipped.legs.rarity);

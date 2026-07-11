@@ -671,6 +671,46 @@ export function applyHairColor(mesh, hex) {
   });
 }
 
+// Rarity-dye the mage's BAKED robe (Obsidian 732): atlas tiles (0,2) - the
+// light-purple robe cloth the user flagged - and (0,3), its dark trim/shadow,
+// are what the Mage_Body AND both sleeve meshes sample (verified by UV
+// bucketing the GLB), so repainting them dyes the whole authored robe. The
+// baked robe is fully SKINNED - sleeves move with the arms, the skirt with
+// the legs - which is the entire point: it replaces the old rigid procedural
+// skirt/torso overlay that floated over the animating body. hex null
+// restores the undyed look (chest slot emptied). Always re-chains from the
+// pristine post-cosmetics map (userData.robeBaseMap) because tintAtlasTile
+// derives shading from current pixels and re-tinting its own output
+// compounds darker each equip. Skips the hooded-head mesh, whose map is its
+// own separately-tinted lineage (see tintHoodedHeadMap).
+export function applyRobeTint(mesh, hex) {
+  if (!mesh.userData.robeBaseMap) {
+    mesh.traverse((o) => {
+      if (mesh.userData.robeBaseMap || !o.isMesh || o === mesh.userData.mageHoodedHead) return;
+      if (o.material && !Array.isArray(o.material) && o.material.map) mesh.userData.robeBaseMap = o.material.map;
+    });
+  }
+  const base = mesh.userData.robeBaseMap;
+  if (!base) return;
+  let out = base;
+  if (hex != null) {
+    const darker = (((hex >> 16) & 255) * 0.5 << 16) | (((hex >> 8) & 255) * 0.5 << 8) | ((hex & 255) * 0.5);
+    out = tintAtlasTile(base, 0, 2, hex);
+    if (!out) return;
+    out = tintAtlasTile(out, 0, 3, darker) || out;
+  }
+  if (mesh.userData.robeTintedMap && mesh.userData.robeTintedMap !== out) mesh.userData.robeTintedMap.dispose();
+  mesh.userData.robeTintedMap = hex != null ? out : null;
+  mesh.traverse((o) => {
+    if (!o.isMesh || o === mesh.userData.mageHoodedHead) return;
+    if (!o.material || Array.isArray(o.material) || !o.material.map) return;
+    if (o.material.map === out) return;
+    o.material = o.material.clone();
+    o.material.map = out;
+    o.material.needsUpdate = true;
+  });
+}
+
 function applyCosmetics(mesh, name, skinToneHex = null, hairColorHex = null) {
   const rng = mulberry32(hashSeed(name || 'Hero'));
   let headMesh = null, capeMesh = null, trimMesh = null;
