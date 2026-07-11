@@ -42,7 +42,11 @@ export class TouchControls {
     this.move = { x: 0, z: 0 };
     this.joyActive = false;
     this.rotDir = 0; // legacy field read by game.js's camera-rotate check; always 0 now that rotation is twist-gesture only
-    this.fadeTimer = 4; // touch buttons dim after a few idle seconds
+    // NOTE: no idle fade for #touch-ui (TODO 687) - it used to dim the
+    // inventory/settings/mic bubbles after ~4s idle while the ability
+    // cluster/potion in #hotbar stayed fully visible, an inconsistent
+    // "half the corner cluster fades, half doesn't" look. wake() below is
+    // kept as a harmless no-op call site for existing callers.
     this._joyId = null;
 
     // body.touch-mode is the flag both CSS and JS key off; re-evaluated below
@@ -274,20 +278,16 @@ export class TouchControls {
   }
 
   wake() {
-    this.fadeTimer = 4;
+    // Idle fade removed (TODO 687) - this is now a harmless no-op kept so
+    // existing call sites (pointerdown listener, setVisible) don't need
+    // touching; 'ui-faded' is never added anywhere, so this just guards
+    // against a stale class from old saved DOM state, if any.
     document.getElementById('touch-ui')?.classList.remove('ui-faded');
   }
 
-  // called from the game loop: dim the utility row after idle time
   update(dt) {
     if (!this.touchInput && !this.compact) return;
     // any real movement proves walking is understood - retire the ghost
     if (this._ghostShown && (this.move.x || this.move.z)) this.dismissJoyGhost(true);
-    if (this.fadeTimer > 0) {
-      this.fadeTimer -= dt;
-      if (this.fadeTimer <= 0) {
-        document.getElementById('touch-ui')?.classList.add('ui-faded');
-      }
-    }
   }
 }

@@ -1470,9 +1470,9 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
 /* ---------- Touch controls ---------- */
 /* Above overlays (z 20) so the bag/pause buttons still work while the inventory is open. */
 #touch-ui { position: absolute; inset: 0; pointer-events: none; z-index: 25; }
-/* idle drawer fade — buttons stay tappable, just get out of the way */
-#touch-ui button { transition: opacity 0.6s ease; }
-#touch-ui.ui-faded button { opacity: 0.16; }
+/* idle drawer fade removed (TODO 687): the utility bubbles (inventory/
+   settings/mic) used to dim after ~4s idle while #hotbar's ability
+   cluster/potion stayed fully visible - inconsistent. Now neither fades. */
 #joystick-base {
   display: none; position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px;
   border: 2px solid rgba(216, 203, 176, 0.35); border-radius: 50%;
