@@ -42,8 +42,11 @@ function wrapAngle(a) { return ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (
 // through the bar; patrons and the barkeep can be chatted with.
 const W = 16, H = 12;
 
-// solid furniture tiles (collision): bar row, two tables, the hearth
-const BAR_TILES = [[3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1], [9, 1], [10, 1]];
+// solid furniture tiles (collision): bar row, two tables, the hearth.
+// Bar row moved y1 -> y2 (Obsidian 720): against the wall row the service
+// aisle between counter and back-bar shelves was ~0.36 units - nobody fits;
+// one row south gives Magda a real ~2.3-unit aisle to work and walk.
+const BAR_TILES = [[3, 2], [4, 2], [5, 2], [6, 2], [7, 2], [8, 2], [9, 2], [10, 2]];
 // x=8 sits directly on the spawn(8,9)->exit(8,10)->bar walking lane, so the
 // two right-side tables are mirrored to x=12 (16-wide room, center 7.5) —
 // clear of the entrance lane, symmetric with the x=3 tables on the other side.
@@ -65,7 +68,7 @@ export function generateTavernInterior() {
     // walk-to-and-interact point, so there's no separate grid width to widen
     // or narrow to match it.
     exit: { x: 8, y: 10 },
-    barkeep: { x: 6, y: 2 },     // stands in front of the bar's left side? no — behind: see mesh
+    barkeep: { x: 6, y: 1 },     // the service aisle between back-bar and counter (720)
     patrons: [
       { x: 3, y: 4, seatAngle: 0.8, drunk: false },
       { x: 8, y: 4, seatAngle: -2.2, drunk: true },
@@ -240,7 +243,7 @@ export function buildTavernInterior() {
   group.add(thresholdLight);
 
   // ---- the bar (on BAR_TILES row) ----
-  const barCenter = tileToWorld(6.5, 1);
+  const barCenter = tileToWorld(6.5, 2);
   const bar = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 1.05, 1.2), boardMat);
   bar.position.set(barCenter.x + TILE / 2, 0.52, barCenter.z);
   group.add(bar);
@@ -311,14 +314,16 @@ export function buildTavernInterior() {
     new THREE.MeshStandardMaterial({ color: 0xdcb24e, metalness: 0.55, roughness: 0.45 }));
   heldMug.position.set(0.6, 1.08, 0.36);
   keeper.add(kBody, kBelly, kApron, kApronBib, head, kArmL, kArmR, heldMug);
-  const keeperPos = tileToWorld(6.5, 0.55);
+  // Mid-aisle (Obsidian 720): the keeper works the ~2.3-unit lane between
+  // the back-bar shelves (z~2.04) and the counter's back face (z~4.4).
+  const keeperPos = tileToWorld(6.5, 1.05);
   // Duckboard platform behind the bar: lifts Magda 0.24 so her head and
   // shoulders clear the 1.1-high bar top from the game's overhead camera
   // (user report: "can't even see the bartender... shorter than the counter").
-  // Widened from the original 2.2 (a single stand-still spot) to run almost
-  // the full bar so she has an actual lane to pace along (see her amble
-  // driver below) without floating off the edge of her own platform.
-  const duckboard = new THREE.Mesh(new THREE.BoxGeometry(9, 0.24, 0.9), darkWood);
+  // Runs the SAME length as the back-bar shelves (720: it used to be 9 wide
+  // under 16-wide shelves - the "plank of wood shorter than the shelves"
+  // report) and fills the widened aisle without touching wall or counter.
+  const duckboard = new THREE.Mesh(new THREE.BoxGeometry(8 * TILE - 0.4, 0.24, 1.5), darkWood);
   duckboard.position.set(keeperPos.x + TILE / 2, 0.12, keeperPos.z);
   group.add(duckboard);
   keeper.position.set(keeperPos.x + TILE / 2, 0.24, keeperPos.z);
