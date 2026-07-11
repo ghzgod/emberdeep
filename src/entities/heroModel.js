@@ -776,6 +776,13 @@ function tintAtlasTile(srcTex, col, row, hex) {
   tex.colorSpace = srcTex.colorSpace;
   tex.wrapS = srcTex.wrapS;
   tex.wrapT = srcTex.wrapT;
+  // No mipmaps (Obsidian 713): auto-generated mips average this repainted
+  // tile with its untouched (light) neighbor tiles across the 8x8 grid, so a
+  // DARK skin/hair tint sampled at smaller mip levels grows white seam lines
+  // exactly at the UV island borders (hairline, neck). The atlas is flat toon
+  // color, so plain bilinear sampling of the full-res canvas loses nothing.
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
   return tex;
 }
