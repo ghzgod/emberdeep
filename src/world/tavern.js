@@ -841,17 +841,86 @@ export function buildTavernInterior() {
   logs.position.set(-0.3, 0.25, 0);
   const logs2 = logs.clone(); logs2.position.set(-0.3, 0.38, 0.12); logs2.rotation.set(Math.PI / 2, 0, 0.2);
   hearth.add(surround, chimney, mantel, mCandle, mFlame, mTankard, firebox, logs, logs2);
-  // layered flames that the game loop makes dance
-  const flameColors = [0xff6a2a, 0xff9a3a, 0xffc45e];
-  let mainFlame = null;
-  flameColors.forEach((c, i) => {
-    const f = new THREE.Mesh(new THREE.ConeGeometry(0.16 - i * 0.04, 0.42 - i * 0.08, 7),
-      new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.95 - i * 0.15 }));
-    f.position.set(-0.3, 0.42 + i * 0.1, (i - 1) * 0.16);
-    hearth.add(f);
-    smokePuffs.push({ mesh: f, baseY: f.position.y, phase: i * 2.1, speed: 4 + i, kind: 'fire' });
-    if (i === 0) mainFlame = f;
-  });
+  // Living fire (Obsidian 717, replacing the three solid cones that read as
+  // plastic party hats): a cluster of additive billboard flame sprites - the
+  // standard Three.js real-time fire treatment (soft radial-gradient
+  // teardrops, additive blending, no depth write, per-sprite asymmetric
+  // flicker) - plus rising ember motes that fade out and respawn at the
+  // logs. All driven by one custom smokePuffs driver (same phase-setter
+  // pattern as Magda's amble) so game.js needs no new hooks.
+  const makeFlameTexture = () => {
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 40, 2, 32, 36, 30);
+    grad.addColorStop(0, 'rgba(255,240,190,1)');
+    grad.addColorStop(0.35, 'rgba(255,170,60,0.85)');
+    grad.addColorStop(0.7, 'rgba(255,90,25,0.4)');
+    grad.addColorStop(1, 'rgba(255,60,10,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  };
+  const flameTex = makeFlameTexture();
+  const flames = [];
+  const FLAME_COLS = [0xffc45e, 0xff9a3a, 0xff7a2a, 0xffd88a, 0xff8a3a];
+  for (let i = 0; i < 5; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: flameTex, color: FLAME_COLS[i], transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.9,
+    }));
+    const bx = -0.52, bz = (i - 2) * 0.18; // proud of the surround face (-0.35) so the box can't occlude
+    sp.position.set(bx, 0.42, bz);
+    sp.scale.set(0.34 + (i % 2) * 0.1, 0.5 + (i % 3) * 0.12, 1);
+    hearth.add(sp);
+    flames.push({ sp, bx, bz, baseY: 0.42, baseSx: sp.scale.x, baseSy: sp.scale.y, ph: i * 1.7 });
+  }
+  const embers = [];
+  for (let i = 0; i < 6; i++) {
+    const em = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: flameTex, color: 0xffb050, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0,
+    }));
+    em.scale.set(0.05, 0.05, 1);
+    em.position.set(-0.52, 0.3, 0);
+    hearth.add(em);
+    embers.push({ em, t: Math.random() * 2, life: 1.2 + Math.random() * 1.2, dx: 0, dz: 0 });
+  }
+  const fireDriver = {
+    kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1, _phase: 0,
+    get phase() { return this._phase; },
+    set phase(v) {
+      const dt = Math.min(0.1, Math.max(0, v - this._phase));
+      this._phase = v;
+      const now = v;
+      for (const f of flames) {
+        // asymmetric flicker: layered sines at co-prime rates read as flame,
+        // not metronome; height leads, width follows inversely (a flame that
+        // stretches up thins out)
+        const k = 0.75 + Math.sin(now * 9 + f.ph) * 0.14 + Math.sin(now * 23 + f.ph * 2.3) * 0.1;
+        f.sp.scale.y = f.baseSy * (0.8 + k * 0.5);
+        f.sp.scale.x = f.baseSx * (1.25 - k * 0.35);
+        f.sp.position.y = f.baseY + f.sp.scale.y * 0.28;
+        f.sp.position.z = f.bz + Math.sin(now * 6 + f.ph) * 0.02;
+        f.sp.material.opacity = 0.65 + k * 0.3;
+      }
+      for (const e of embers) {
+        e.t += dt;
+        if (e.t >= e.life) { // respawn at the logs with a fresh drift
+          e.t = 0; e.life = 1.2 + Math.random() * 1.4;
+          e.dx = (Math.random() - 0.5) * 0.12; e.dz = (Math.random() - 0.5) * 0.3;
+        }
+        const p = e.t / e.life;
+        e.em.position.set(-0.52 + e.dx * p, 0.32 + p * 1.05, e.dz * (0.4 + p));
+        e.em.material.opacity = p < 0.15 ? p / 0.15 * 0.85 : 0.85 * (1 - (p - 0.15) / 0.85);
+        const s = 0.05 * (1 - p * 0.5);
+        e.em.scale.set(s, s, 1);
+      }
+    },
+  };
+  smokePuffs.push(fireDriver);
   const hw = tileToWorld(HEARTH_TILES[0][0], HEARTH_TILES[0][1]);
   hearth.position.set(hw.x + 0.5, 0, hw.z);
   group.add(hearth);
@@ -865,15 +934,50 @@ export function buildTavernInterior() {
   rug.rotation.x = -Math.PI / 2;
   rug.position.set(hw.x - 2.2, 0.02, hw.z);
   group.add(rug);
+
+  // ---- fireside couch (Obsidian 716): a timber settle with red cushions
+  // facing the hearth across the rug; the player can SIT on it (interact
+  // prompt in game.js reads couchPos below) and just listen to the fire. ----
+  const couch = new THREE.Group();
+  const fabricMat = new THREE.MeshStandardMaterial({ color: 0x8a3030, roughness: 0.95 });
+  const couchWood = new THREE.MeshStandardMaterial({ color: 0x3e2f1e, roughness: 0.9 });
+  const seatBase = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.42, 2.0), couchWood);
+  seatBase.position.y = 0.21;
+  const backRest = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.62, 2.0), couchWood);
+  backRest.position.set(-0.36, 0.72, 0);
+  const backCushion = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.5, 1.8), fabricMat);
+  backCushion.position.set(-0.24, 0.7, 0);
+  for (const sz of [-0.46, 0.46]) {
+    const cushion = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.16, 0.86), fabricMat);
+    cushion.position.set(0.02, 0.5, sz);
+    couch.add(cushion);
+  }
+  for (const az of [-1.0, 1.0]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 0.14), couchWood);
+    arm.position.set(0, 0.72, az);
+    couch.add(arm);
+  }
+  for (const [lx, lz] of [[-0.32, -0.9], [-0.32, 0.9], [0.32, -0.9], [0.32, 0.9]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.1), couchWood);
+    leg.position.set(lx, 0.09, lz);
+    couch.add(leg);
+  }
+  couch.add(seatBase, backRest, backCushion);
+  // west of the rug, seat opening toward the fire (+x)
+  couch.position.set(hw.x - 3.6, 0, hw.z);
+  group.add(couch);
+  const couchPos = { x: hw.x - 3.55, z: hw.z, seatY: 0.6, faceX: hw.x, faceZ: hw.z };
   const mat = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.04, 0.8),
     new THREE.MeshStandardMaterial({ color: 0x5a4a30, roughness: 1 }));
   const exitW = tileToWorld(8, 10);
   mat.position.set(exitW.x, 0.02, exitW.z + 0.6);
   group.add(mat);
 
+  // flame refs removed (717): the sprite fire animates itself via its own
+  // driver above; updateTorches only needs the light positions.
   const torchPositions = [
-    { x: hw.x - 0.4, y: 1.2, z: hw.z, flame: mainFlame },
-    { x: (W * TILE) / 2, y: 1.7, z: TILE * 1.6, flame: mainFlame },
+    { x: hw.x - 0.4, y: 1.2, z: hw.z, flame: null },
+    { x: (W * TILE) / 2, y: 1.7, z: TILE * 1.6, flame: null },
   ];
 
   return {
@@ -888,5 +992,7 @@ export function buildTavernInterior() {
     smokePuffs,
     barkeepPos: { x: keeperPos.x + TILE / 2, z: keeperPos.z + 1.4 },
     patronMeshes,
+    hearthPos: { x: hw.x, z: hw.z }, // crackle-loop distance anchor (717)
+    couchPos, // fireside sit spot (716)
   };
 }

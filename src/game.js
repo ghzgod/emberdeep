@@ -615,6 +615,7 @@ export class Game {
 
   teardownFloor() {
     this.safeZone = null;
+    audio.stopFireCrackle(); // hearth loop is tavern-only (717); no-op elsewhere
     if (this.dungeonMeshes) {
       this.scene.remove(this.dungeonMeshes.group);
       this.dungeonMeshes.group.traverse((o) => {
@@ -659,7 +660,12 @@ export class Game {
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner('THE SLEEPING GOLEM', 'Rest a while, hero', true);
     audio.playMusic('tavern');
-    audio.startAmbience('tavern'); // room tone + hearth crackle
+    audio.startAmbience('tavern'); // room tone + occasional pops
+    // Positional hearth crackle (Obsidian 717): a dedicated loop whose level
+    // tracks the player's distance to the fire each frame (see updatePlaying),
+    // so standing at the hearth is unmistakably crackly and the far corner
+    // barely murmurs. Torn down in teardownFloor.
+    audio.startFireCrackle();
     this.stairsCooldown = 1.5;
   }
 
@@ -4806,6 +4812,18 @@ export class Game {
           if (near(pm.x, pm.z, 1.8)) { candidate = { label: pm.drunk ? 'Nudge the drunk' : 'Chat with the patron', icon: '💬', talk: true, action: () => this.patronChat(pm) }; break; }
         }
       }
+      // fireside couch (Obsidian 716): sit and listen to the fire
+      const cp = this.dungeonMeshes.couchPos;
+      if (!candidate && cp && !this.sittingOnCouch && near(cp.x, cp.z, 1.7)) {
+        candidate = {
+          label: 'Sit by the fire', icon: '🔥', action: () => {
+            this.sittingOnCouch = true;
+            this.player.pos.x = cp.x; this.player.pos.z = cp.z;
+            this.player.visualAngle = Math.atan2(cp.faceX - cp.x, cp.faceZ - cp.z) - Math.PI / 2;
+            audio.play('ui_click', { volume: 0.5 });
+          },
+        };
+      }
     }
 
     // While an NPC line is still audibly playing, hold every TALK prompt back
@@ -4817,6 +4835,31 @@ export class Game {
     this.setInteractable(candidate);
     if (this.wanderer && this.inTown && !this.inTavern) this.wanderer.update(dt, this);
     if (this.inTown && !this.inTavern) this.updateVendors(dt);
+
+    // Seated on the fireside couch (716): pin to the seat, face the fire,
+    // perch at cushion height; ANY movement input stands back up (stepping
+    // off toward the rug so you don't stand up inside the couch).
+    if (this.inTavern && this.sittingOnCouch) {
+      const cp = this.dungeonMeshes.couchPos;
+      const p = this.player;
+      if (!cp) { this.sittingOnCouch = false; }
+      else if (Math.abs(p.moveDir.x) > 0.01 || Math.abs(p.moveDir.z) > 0.01) {
+        this.sittingOnCouch = false;
+        p.pos.x = cp.x + 0.9; p.pos.z = cp.z;
+      } else {
+        p.pos.x = cp.x; p.pos.z = cp.z;
+        p.aimAngle = Math.atan2(cp.faceZ - cp.z, cp.faceX - cp.x);
+        p.faceAimTimer = Math.max(p.faceAimTimer, 0.3); // keep facing the fire
+        p.mesh.position.y += 0.34; // perched on the cushion, not standing in it
+      }
+    } else if (this.sittingOnCouch) this.sittingOnCouch = false;
+
+    // hearth crackle loudness tracks distance to the fire (717)
+    if (this.inTavern && this.dungeonMeshes.hearthPos) {
+      const h = this.dungeonMeshes.hearthPos;
+      const d = Math.hypot(this.player.pos.x - h.x, this.player.pos.z - h.z);
+      audio.setFireCrackleLevel(Math.max(0.06, Math.min(1, 2.2 / Math.max(1, d - 0.5))));
+    }
 
     // tavern smoke + hearth idle animation data from the mesh builder
     const puffs = this.dungeonMeshes.smokePuffs;
