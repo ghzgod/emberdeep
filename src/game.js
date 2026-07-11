@@ -3248,6 +3248,9 @@ export class Game {
     e.dead = true;
     this.kills++;
     this.floorKills++;
+    // Event-driven learning (Obsidian 724): one quick training burst per
+    // kill instead of a background every-6s timer - see learner.worker.js.
+    learner.notifyEnemyDeath();
     if (e.elite) {
       this.elitesKilled++;
       this.ui.floaters.spawn(e.pos, `${e.name} falls!`, 'crit');

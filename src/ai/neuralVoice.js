@@ -81,15 +81,16 @@ export function isMemoryConstrainedDevice() {
   return iOS || android || coarse || lowMem;
 }
 
-// Seconds of silence after which the resident Kokoro model is disposed to stop
-// keeping the GPU/WASM session (and ~90 MB of weights) warm the whole session.
-// The next speak() lazily reloads it, accepting a short first-line delay.
-const IDLE_RELEASE_MS = 8 * 60 * 1000; // 8 min (was 90s): onnxruntime-web's
-// WebGPU dispose() is a known category where GPU buffers aren't synchronously
-// freed, so every release->reload cycle (one per NPC line after a release)
-// LEAKED GPU memory - the "GPU ramps up while chilling in town" report
-// (TODO 709). A long window means sessions churn rarely; the visibilitychange
-// release still frees the model the moment the tab is backgrounded.
+// Foreground idle-release RETIRED (Obsidian 724, superseding the 709
+// mitigation that only lengthened the timer to 8 min): onnxruntime-web's
+// WebGPU dispose() does not synchronously free GPU buffers, so EVERY
+// release->reload cycle leaked GPU memory - with periodic NPC lines the
+// "GPU ramps up while I'm just standing in the tavern" report was this
+// churn, not the render path (an 83s instrumented trace showed rendering
+// flat). A visible tab now keeps the loaded session RESIDENT: constant ~90MB
+// once, zero per-cycle leak, zero ramp, and no first-line reload delay.
+// Backgrounding the tab still releases it immediately (visibilitychange
+// below) - that is rare and bounded, and a hidden tab should not hold GPU.
 
 class NeuralVoice {
   constructor() {
@@ -106,7 +107,7 @@ class NeuralVoice {
     this._preloading = new Map(); // key -> in-flight preload Promise (dedupes repeat calls)
     this._preloadTokens = new Map(); // key -> { aborted } so a death mid-synthesis can drop the result
     this._combatBusy = false; // set via reportCombatLoad(); gates fresh generation only
-    this._idleTimer = null;   // disposes the model after IDLE_RELEASE_MS of silence
+    this._idleTimer = null;   // legacy handle; only visibilitychange releases now (724)
     this._released = false;   // true when we freed the model and must lazily reload
     this._loadOpts = null;    // remembers device/dtype so a lazy reload is exact + silent
 
@@ -276,12 +277,11 @@ class NeuralVoice {
     }
   }
 
-  // Free the resident model after a spell of silence. Safe to call while a
-  // generate() is in flight: we only drop it once the current line settles.
+  // Foreground idle-release retired (see the comment block near the top of
+  // this file): re-arming is now a no-op so a visible tab never churns the
+  // session. Kept as a method because speak()'s finally still calls it.
   _armIdleRelease() {
-    if (typeof setTimeout !== 'function') return;
     clearTimeout(this._idleTimer);
-    this._idleTimer = setTimeout(() => this._releaseIdle(), IDLE_RELEASE_MS);
   }
 
   _releaseIdle() {
