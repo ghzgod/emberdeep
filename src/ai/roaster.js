@@ -264,7 +264,27 @@ export class Roaster {
     const callbacks = VENDOR_CALLBACKS[type];
     let line2 = body;
     if (memory?.lastItem && callbacks && Math.random() < 0.4) {
-      line2 = callbacks[Math.floor(Math.random() * callbacks.length)].replaceAll('{item}', memory.lastItem);
+      {
+        // Grammar: plural gear nouns (Leggings, Gauntlets, Greaves...) take
+        // "those/They", singular takes "that/It" - "still swinging that
+        // Dragonhide Leggings?" read wrong (TODO 711). Templates are written
+        // with the singular forms; swap them when the item's base noun is
+        // plural. Word-boundary replaces keep 'That' at sentence starts right.
+        const PLURAL_NOUN = /\b(leggings|gauntlets|gloves|greaves|tassets|faulds|fists|grips|vestments|boots|bracers)\b/i; // word-boundary, not end-anchored: names carry suffixes ('Leggings of Swiftness')
+        const plural = PLURAL_NOUN.test(memory.lastItem);
+        let tpl = callbacks[Math.floor(Math.random() * callbacks.length)];
+        if (plural) {
+          tpl = tpl
+            .replace(/\bthat \{item\}/g, 'those {item}')
+            .replace(/\bThat \{item\}/g, 'Those {item}')
+            .replace(/\{item\} treat you/g, '{item} treat you') // verbs already number-agnostic
+            .replace(/\bDid those \{item\} reveal its secrets/g, 'Did those {item} reveal their secrets')
+            .replace(/\{item\} worth what you paid/g, '{item} worth what you paid')
+            .replace(/\{item\} still holding an edge\?/g, '{item} still holding their edge?')
+            .replace(/\{item\} keep you standing/g, '{item} keep you standing');
+        }
+        line2 = tpl.replaceAll('{item}', memory.lastItem);
+      }
     }
     return `${opener}${nameBit}. ${line2}`;
   }

@@ -84,7 +84,12 @@ export function isMemoryConstrainedDevice() {
 // Seconds of silence after which the resident Kokoro model is disposed to stop
 // keeping the GPU/WASM session (and ~90 MB of weights) warm the whole session.
 // The next speak() lazily reloads it, accepting a short first-line delay.
-const IDLE_RELEASE_MS = 90000;
+const IDLE_RELEASE_MS = 8 * 60 * 1000; // 8 min (was 90s): onnxruntime-web's
+// WebGPU dispose() is a known category where GPU buffers aren't synchronously
+// freed, so every release->reload cycle (one per NPC line after a release)
+// LEAKED GPU memory - the "GPU ramps up while chilling in town" report
+// (TODO 709). A long window means sessions churn rarely; the visibilitychange
+// release still frees the model the moment the tab is backgrounded.
 
 class NeuralVoice {
   constructor() {
