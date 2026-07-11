@@ -9,7 +9,7 @@ import { themeForFloor, actOfFloor, actFloorOf, makeGlowTexture } from './world/
 import { Player, xpForLevel } from './entities/player.js';
 import { Enemy, Boss, ENEMY_TYPES, ACT_BOSSES, buildEnemyMesh, buildBossMesh, resetEnemyAnimBudget } from './entities/enemies.js';
 import { attachEnemyModel, typeModelKey, bossModelKey } from './entities/enemyModel.js';
-import { buildAnimatedHero } from './entities/heroModel.js';
+import { buildAnimatedHero, tintHoodedHeadMap } from './entities/heroModel.js';
 import { CLASSES, buildHeroMesh } from './entities/classes.js';
 import { ProjectileSystem } from './entities/projectiles.js';
 import { LootSystem, generateGear, rollRarity, sellValue, gambleItem, dropLegendary, RARITIES, newItemId, WEAPON_ELEMENTS } from './entities/loot.js';
@@ -2123,51 +2123,55 @@ export class Game {
         // dome), and a draped back POINT hanging past the collar toward the
         // shoulders (see the isHoodStyle block below).
         const isHoodStyle = !!(anchor && equipped.chest && /hood|visage|coif/i.test(it.name));
-        // Hood style DISABLED (TODO 671): the procedural THREE-piece
-        // LatheGeometry cowl that used to live here is retired. TODO 93
-        // reopened because it still read as "a turban" from the gameplay
-        // camera angle - a procedural silhouette, however carefully profiled,
-        // is not the same as a real authored cowl. It is replaced by
-        // mesh.userData.mageHood: a REAL authored KayKit mesh (extracted from
-        // the rogue's own hooded head, see heroModel.js's mageHoodMesh /
-        // MAGE_HOOD_SOURCE_ANCHOR) already built, refit to this exact hero
-        // instance's head, and parented in place at hero-build time - this
-        // block now only shows/hides/tints it, it builds nothing.
+        // Hooded HEAD swap (Obsidian 714, replacing every hood-over-the-head
+        // attempt - procedural cowl, extracted hood accessory, liner - all
+        // of which leaked hair or hem artifacts somewhere): userData.mageHood
+        // is now a fitted clone of the rogue's COMPLETE authored hooded head
+        // (hood + shadowed mask + face + neck in one garment, see
+        // heroModel.js). Showing it hides the mage's entire own head mesh,
+        // so there is no hair left to escape. This block only
+        // shows/hides/retints, it builds nothing.
         const mageHood = mesh.userData.mageHood;
         if (isHoodStyle && mageHood) {
           hat.visible = false; // baked pointy-hat mesh stays hidden for this style
           mageHood.visible = true;
-          // Two-tone: the hood tints from the HELMET item's own rarity colour
-          // while the robe (built in the equipped.chest/mage block below)
-          // keeps its own tint from the chest item - a real hooded-robe often
-          // uses a contrast lining, not the exact same dye lot as the robe.
-          // The authored hood is ONE flat material slot, so this is a single
-          // colour/emissive set rather than the old multi-piece material.
+          if (mesh.userData.mageHeadMesh) mesh.userData.mageHeadMesh.visible = false;
+          if (mesh.userData.hairStyleMesh) mesh.userData.hairStyleMesh.group.visible = false;
+          // Two-tone via the atlas, not material.color: the hooded head's one
+          // material also renders the FACE, so a whole-material tint would
+          // dye the skin. tintHoodedHeadMap repaints only the hood-cloth
+          // tiles to the helmet item's rarity colour and the face tile to
+          // the player's chosen skin tone. Tinted from the PRISTINE template
+          // map every time (see its comment) and cached per rarity+skin so
+          // repeat updateHeroGear calls don't rebuild canvases.
           const hoodColor = RARITIES[it.rarity]?.color ?? 0x8a8a8a;
-          const hoodHot = it.rarity === 'legendary' || it.rarity === 'epic';
-          const hoodMesh = mesh.userData.mageHoodMesh;
-          hoodMesh.material.color.set(hoodColor);
-          hoodMesh.material.metalness = 0.05;
-          hoodMesh.material.roughness = 0.85;
-          // DoubleSide (the old procedural hood used this too, for the same
-          // reason - see its own side: THREE.DoubleSide): this is a thin,
-          // open cowl shell, so some angles look through the inside surface
-          // (e.g. through the open face) where FrontSide culling would show
-          // nothing at all. The actual crown-seam hole (TODO 93 verification:
-          // two small genuine gaps in the extracted mesh, patched with a
-          // fanned triangle patch) is fixed at the geometry level in
-          // heroModel.js's patchMageHoodCrownSeam, not by this DoubleSide.
-          hoodMesh.material.side = THREE.DoubleSide;
-          if (hoodMesh.material.emissive) {
-            hoodMesh.material.emissive.set(hoodHot ? hoodColor : 0x000000);
-            hoodMesh.material.emissiveIntensity = it.rarity === 'legendary' ? 0.28 : it.rarity === 'epic' ? 0.16 : 0;
+          const hh = mesh.userData.mageHoodedHead;
+          const skinHex = mesh.userData.skinToneHex ?? 0xf3b189; // rogue's own face tone fallback
+          const tintKey = `${hoodColor}_${skinHex}`;
+          if (hh.userData.tintKey !== tintKey) {
+            const tinted = tintHoodedHeadMap(hh.material.userData.pristineMap || (hh.material.userData.pristineMap = hh.material.map), skinHex, hoodColor);
+            if (tinted) {
+              if (hh.userData.tintedMap) hh.userData.tintedMap.dispose();
+              hh.userData.tintedMap = tinted;
+              hh.userData.tintKey = tintKey;
+              hh.material.map = tinted;
+              hh.material.needsUpdate = true;
+            }
           }
-          // sway target: the whole hood group, reusing the hat's single sway
-          // slot (see the shared sway.hat assignment and animateGearSway) so
-          // it still moves gently in the idle breeze.
-          sway.hat = { obj: mageHood, baseZ: mageHood.rotation.z, baseX: mageHood.rotation.x, amp: 0.025 + r * 0.015 };
+          hh.material.metalness = 0.05;
+          hh.material.roughness = 0.85;
+          // No emissive rarity glow here (unlike the retired hood accessory):
+          // the one material also lights the FACE, and a glowing face reads
+          // as a bug, not a legendary. Rarity shows through the cloth tint.
+          if (hh.material.emissive) { hh.material.emissive.set(0x000000); hh.material.emissiveIntensity = 0; }
+          // no sway: this IS the head now - it must track the head bone
+          // rigidly, not breeze independently of the face inside it.
+          sway.hat = null;
         } else {
           if (mageHood) mageHood.visible = false; // no robe, or the authored asset failed to load - fall back to the hat below
+          if (mesh.userData.mageHeadMesh) mesh.userData.mageHeadMesh.visible = true;
+          // hair-style visibility is re-derived every pass by the bun/helmet
+          // rule earlier in this function, so nothing to restore here.
         // The authored Mage_Hat brim is wide enough to curtain the whole face at
         // the game's slightly-zoomed camera. Squash ONLY the brim radius (local
         // X/Z) so at least the lower half of the face clears it, while keeping
@@ -2307,6 +2311,8 @@ export class Game {
       // hood, per each class's own default-look logic above).
       mesh.userData.bakedHat.visible = false;
       if (mesh.userData.mageHood) mesh.userData.mageHood.visible = false;
+      // ...and bring the mage's real head back if a hooded head was swapped in
+      if (mesh.userData.mageHeadMesh) mesh.userData.mageHeadMesh.visible = true;
     }
     // Ranger: this class has no baked hat/helmet mesh of its own (the
     // Rogue_Hooded model ships no _Hat/_Helmet-suffixed mesh, so bakedHat is
