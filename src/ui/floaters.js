@@ -21,10 +21,15 @@ export class Floaters {
   }
 
   // Show an animated ellipsis pill above a character while their line is
-  // queued/synthesizing (before audio starts). worldPos is a fixed anchor
-  // captured by value; call hideThinking() once audio starts or the line is
-  // cancelled. Three dots pulse in sequence (CSS-driven, staggered delays) --
-  // this element itself never changes text, so no per-frame textContent churn.
+  // queued/synthesizing (before audio starts). worldPos is kept as a LIVE
+  // reference and re-read every frame (Obsidian 734): speakers move while
+  // their line synthesizes (Magda ambles, elites chase), and a by-value
+  // anchor left the pill hanging over empty floor. Pass a live position
+  // object (Vector3 / mesh.position / any {x,z} the mover mutates) and the
+  // pill follows the head; call hideThinking() once audio starts or the
+  // line is cancelled. Three dots pulse in sequence (CSS-driven, staggered
+  // delays) -- this element itself never changes text, so no per-frame
+  // textContent churn.
   showThinking(worldPos) {
     if (!worldPos) { this.hideThinking(); return; }
     if (!this._think) {
@@ -34,9 +39,7 @@ export class Floaters {
       this.container.appendChild(el);
       this._think = { el };
     }
-    this._think.x = worldPos.x;
-    this._think.y = (worldPos.y ?? 0) + 2.0; // a touch above the name/head line
-    this._think.z = worldPos.z;
+    this._think.anchor = worldPos;
     this.placeThink();
   }
 
@@ -46,8 +49,10 @@ export class Floaters {
 
   placeThink() {
     const t = this._think;
-    if (!t) return;
-    this._v.set(t.x, t.y, t.z).project(this.camera);
+    if (!t || !t.anchor) return;
+    // live re-read: the anchor object's x/y/z are whatever the speaker's
+    // driver has moved them to THIS frame
+    this._v.set(t.anchor.x, (t.anchor.y ?? 0) + 2.0, t.anchor.z).project(this.camera);
     // Hide when the anchor is behind the camera (project z > 1) so the bubble
     // doesn't flip to the wrong side of the screen.
     if (this._v.z > 1) { t.el.style.opacity = '0'; return; }
