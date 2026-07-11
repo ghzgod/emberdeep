@@ -60,85 +60,123 @@ let mageHoodMesh = null;
 // target anchor at build time (see the mageHoodMesh clone block below).
 const MAGE_HOOD_SOURCE_ANCHOR = { top: 1.8809, cx: 0, cz: 0.075, r: 0.549 };
 
-// Mage hood BACK DRAPE (Obsidian 705): from BEHIND, the extracted hood mesh
-// alone reads as "half a cut egg" - a smooth dome sitting on the head with a
-// visible gap down to the chest robe's collar, disconnected from the cape.
-// Direct measurement of the authored geometry (public/models/mage_hood.glb,
-// same raw coordinate space as MAGE_HOOD_SOURCE_ANCHOR/MAGE_HOOD_CROWN_HOLE_LOOP
-// above) found why: its back hem (vertices with z < -0.1, the rear half) is a
-// genuinely jagged boundary loop, swinging between y=1.40 and y=1.85 as x
-// goes from the centreline (x=0, z~-0.46) out to the sides (x~0.42, z~-0.28)
-// - a real "zigzag hem", not a rendering artifact - that stops well above
-// MAGE_ROBE_COLLAR.y (1.34, game.js). That constant lives in the SAME raw
-// rig-space as this hood: both the chest robe's grp and this hood's group are
-// parented directly under the hero root before its overall TARGET_HEIGHT
-// scale is applied, so their local y values are directly comparable, and the
-// ~0.3-0.5 unit gap between the hood's back hem and 1.34 is real, not a
-// units mismatch. MAGE_HOOD_DRAPE_ROWS below is an ADDITIONAL back-only cloth
-// panel (not part of the authored mesh) built in that exact raw space: its
-// top row (y=1.65) tucks up INTO the jagged hem band (pulled BEHIND the
-// dome's own back surface in z, not just overlapping in y, so it isn't
-// hidden inside the shell - see MAGE_HOOD_DRAPE_CURVE below for why), and it
-// tapers/flares down to a bottom row (y=1.36) kept shy of both
-// MAGE_ROBE_COLLAR.y and the robe torso's own top surface (also ~1.34) so it
-// never clips the cape, with a per-vertex droop (MAGE_HOOD_DRAPE_HEM_DROOP)
-// on that bottom row so the lower edge reads as irregular cloth, not a
-// machine-straight cut. See buildMageHoodDrapeGeometry and its call site in
-// the mageHoodMesh clone block below (added into the SAME hoodGroup, sharing
-// hoodMesh's own per-instance material so it picks up the same tint).
-const MAGE_HOOD_DRAPE_ROWS = [
-  { y: 1.65, z: -0.52, halfW: 0.30 }, // top: overlaps the hem band, pulled BEHIND the dome's own back surface (z<-0.475 at that height) so it isn't hidden inside the shell
-  { y: 1.52, z: -0.60, halfW: 0.34 }, // widest/most-protruding point: mid-back bulge
-  { y: 1.42, z: -0.55, halfW: 0.30 },
-  { y: 1.36, z: -0.45, halfW: 0.25 }, // bottom hem: curves back in toward the body, shy of the collar/torso-top line
+// Mage hood LINER/COWL (Obsidian 707, replacing the Obsidian 705 flat back
+// drape): from a CLOSE-UP behind angle, the flat drape above was too narrow
+// and too far out - the extracted hood mesh's back hem is a genuinely jagged
+// boundary loop (direct measurement of public/models/mage_hood.glb, same raw
+// coordinate space as MAGE_HOOD_SOURCE_ANCHOR/MAGE_HOOD_CROWN_HOLE_LOOP
+// above), swinging between y=1.40 and y=1.85 as x goes from the centreline
+// out to the sides, and a single flat panel centred on the back left dark
+// hair/skin visible through the gaps at the sides and at the hem's shallower
+// (higher-y) notches. MAGE_HOOD_LINER_ROWS instead builds a curved SHELL
+// (a partial cylinder wrapping the back+sides of the head/neck, imagine a
+// real hood's cloth lining) that:
+//   - spans MAGE_HOOD_LINER_HALF_ANGLE*2 (~229 degrees) around the back and
+//     sides, leaving only a ~131 degree front face window open so it can
+//     never clip the face from 3/4-front angles;
+//   - runs from its top row (y=1.42, just ABOVE the hem's LOWEST reach of
+//     1.40 - the whole dome above that is already solid cloth, so the liner
+//     only needs to back up the lowest notch, not the full 1.40-1.85 hem
+//     range) down to its bottom row pinned to the robe collar.
+//   - a radius profile MEASURED off the authored hood mesh itself, not
+//     guessed: a diagnostic pass sampled the hood's own back/side surface
+//     distance from the neck axis at each row's height, across angles
+//     0-114.6 degrees from dead-behind, and came back roughly CONSTANT
+//     (0.465-0.58 raw units at every row/angle - the authored hood does NOT
+//     taper down to hug the neck near its hem, it drapes as a near-
+//     cylindrical bell). Each row below uses ~85% of the measured minimum
+//     radius at that height, always kept smaller than the hood dome itself
+//     so it never pokes through the outer hood surface where the two
+//     overlap, while sitting close enough to it to leave no visible gap.
+// IMPORTANT correction (Obsidian 707 verification pass): an EARLIER version
+// of this comment claimed MAGE_ROBE_COLLAR.y (1.34, game.js) was directly
+// comparable to this geometry's own raw y values, on the theory that both
+// the chest robe and this hood group are parented under the hero root in
+// the same space. That was TRUE for the hood GROUP's build-time position,
+// but anchorToHeadBone (below) then REPARENTS the group onto the head BONE,
+// preserving world transform by recomputing its local position/scale in
+// bone-space - which is NOT the same numeric space the collar's y lives in.
+// A close-up screenshot showed a visible gap of raw hair/skin between the
+// hood hem and the collar even after a first liner attempt sized off that
+// assumption. Diagnostic matrix math (invert hoodGroup.matrixWorld, project
+// the actual collar TORUS mesh's world position through it - identified by
+// its geometry params, radius 0.16/tube 0.025, matching MAGE_ROBE_COLLAR
+// exactly, since the mage rig has FIVE other TorusGeometry meshes - a rib,
+// a hat band, a robe hem, and a gorget - that a naive "first torus found"
+// lookup grabs instead) found the collar's REAL position in this geometry's
+// raw frame is (x=0, y=1.159, z=0.192), with its own ring radius converting
+// to ~0.16-0.20 in this same raw scale - not (x=0, y=1.34, z=~0.02) as
+// assumed, and reassuringly close to the hem's own lowest reach (1.40): a
+// real hood collar sits just below the hem, not nearly a full unit below
+// it. MAGE_HOOD_LINER_ROWS below spans that short, real gap (1.16 to 1.42)
+// instead, tapering both z (0.19 at the collar -> 0.02 at the hem, following
+// the neck curving back into the head) and r (0.22 at the collar, barely
+// wider than the collar ring itself, -> 0.40 at the top, matching the
+// hood's own measured surface radius there).
+// Obsidian 710 (walk-cycle interpenetration): the OLD flat drape (retired,
+// see buildMageHoodDrapeGeometry history) could droop below the collar
+// seam at rest, and head-bone sway during the walk cycle swung that
+// below-collar cloth through the body-anchored cape. This shell has no
+// downward droop and its bottom row is pinned exactly to the collar's own
+// measured position, so even with head-bone rotation it starts flush with
+// (never below) the collar plane, keeping the whole liner in the neck/head
+// volume the cape never occupies.
+// Second verification pass (screenshots /tmp/liner_behind.png et al) showed
+// the "1.42 top / taper to the neck" version above STILL leaked: (a) the hem
+// notches between 1.40 and its 1.85 highest swing had nothing behind them and
+// read as dark see-through triangles mid-back, and (b) the nape hair is WIDER
+// than the tapered 0.22-0.40 radii, so the black hair band rendered outside
+// the liner. The hood's own diagnostic said it drapes as a near-cylindrical
+// bell (0.465-0.58 at every row/angle) - so the liner now mirrors that: full
+// hem-notch height (collar 1.16 up to 1.88, above the 1.85 highest notch) at
+// a near-constant bell radius just inside the hood's measured minimum.
+const MAGE_HOOD_LINER_ROWS = [
+  { y: 1.16, z: 0.14, r: 0.34 }, // bottom: pinned to the robe collar's measured height, pulled in enough to stay clear of the cape's shoulder line
+  { y: 1.34, z: 0.11, r: 0.40 },
+  { y: 1.52, z: 0.09, r: 0.44 },
+  { y: 1.70, z: 0.08, r: 0.45 },
+  { y: 1.88, z: 0.075, r: 0.45 }, // top: above the hem's HIGHEST swing (1.85) so every jagged notch is backed by cloth; kept under the hood's 0.465 measured minimum so it never pokes through the dome
 ];
-const MAGE_HOOD_DRAPE_HEM_DROOP = [0.000, 0.022, -0.010, 0.016, -0.018, 0.012, -0.006];
-const MAGE_HOOD_DRAPE_COLS = MAGE_HOOD_DRAPE_HEM_DROOP.length;
+const MAGE_HOOD_LINER_HALF_ANGLE = 2.0; // radians swept from directly-behind to each edge (~229 degrees total, ~131 degree front window left open)
+const MAGE_HOOD_LINER_COLS = 9;
 
-// Curvature (Obsidian 705 follow-up): a perfectly FLAT back panel is only
-// visible dead-on from directly behind - from a 3/4 back-left/right angle it
-// turns nearly edge-on and vanishes behind the (fully 3D, domed) hood mesh it
-// rides under. Sweeping each row's columns across an ANGLE (sin for x, a
-// cosine falloff pulling the edges' z back toward the head) instead of a
-// flat x gives the panel real cross-section curvature - a shallow half-pipe
-// wrapping the nape/shoulders like real cloth - so it keeps a visible face
-// toward the camera through the back-left/back-right verification angles too.
-const MAGE_HOOD_DRAPE_HALF_ANGLE = 0.95; // radians swept from centre to each edge
-const MAGE_HOOD_DRAPE_CURVE = 0.16; // how far the edges pull back in toward the head
-
-// Builds the back-drape strip described above: a small (4 row x 7 col)
-// tapered, curved sheet, cheap enough to build fresh per mage instance (no
+// Builds the liner/cowl shell described above: a small (5 row x 9 col)
+// curved partial-cylinder, cheap enough to build fresh per mage instance (no
 // shared-geometry cache needed, unlike the authored hood mesh it rides
 // alongside).
-function buildMageHoodDrapeGeometry() {
-  const rows = MAGE_HOOD_DRAPE_ROWS;
+function buildMageHoodLinerGeometry() {
+  const rows = MAGE_HOOD_LINER_ROWS;
   const positions = [];
+  const normals = [];
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r];
-    const isBottom = r === rows.length - 1;
-    for (let c = 0; c < MAGE_HOOD_DRAPE_COLS; c++) {
-      const t = (c / (MAGE_HOOD_DRAPE_COLS - 1)) * 2 - 1; // -1..1, centreline at c's midpoint
-      const angle = t * MAGE_HOOD_DRAPE_HALF_ANGLE;
-      const x = Math.sin(angle) * row.halfW;
-      const zCurve = (1 - Math.cos(angle)) * MAGE_HOOD_DRAPE_CURVE;
-      const y = row.y - (isBottom ? MAGE_HOOD_DRAPE_HEM_DROOP[c] : 0);
-      positions.push(x, y, row.z + zCurve);
+    for (let c = 0; c < MAGE_HOOD_LINER_COLS; c++) {
+      const t = (c / (MAGE_HOOD_LINER_COLS - 1)) * 2 - 1; // -1..1, centreline at c's midpoint (directly behind)
+      const angle = t * MAGE_HOOD_LINER_HALF_ANGLE;
+      const x = Math.sin(angle) * row.r;
+      const z = row.z - Math.cos(angle) * row.r; // angle=0 (dead behind) -> most negative z; edges sweep forward toward the open face window
+      positions.push(x, row.y, z);
+      // Radial (outward-horizontal) normals, NOT computeVertexNormals: the
+      // averaged normals tilted down/back and shaded the whole shell near-
+      // black next to the brightly-lit dome (the "black band" in the second
+      // verification pass). Radial normals light it like the cylinder it is.
+      normals.push(Math.sin(angle), 0, -Math.cos(angle));
     }
   }
   const indices = [];
   for (let r = 0; r < rows.length - 1; r++) {
-    for (let c = 0; c < MAGE_HOOD_DRAPE_COLS - 1; c++) {
-      const a = r * MAGE_HOOD_DRAPE_COLS + c;
+    for (let c = 0; c < MAGE_HOOD_LINER_COLS - 1; c++) {
+      const a = r * MAGE_HOOD_LINER_COLS + c;
       const b = a + 1;
-      const d = (r + 1) * MAGE_HOOD_DRAPE_COLS + c;
+      const d = (r + 1) * MAGE_HOOD_LINER_COLS + c;
       const e = d + 1;
       indices.push(a, d, b, b, d, e);
     }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geo.setIndex(indices);
-  geo.computeVertexNormals();
   return geo;
 }
 
@@ -1304,17 +1342,17 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
     hoodMesh.position.set(-MAGE_HOOD_SOURCE_ANCHOR.cx, -MAGE_HOOD_SOURCE_ANCHOR.top, -MAGE_HOOD_SOURCE_ANCHOR.cz);
     const hoodGroup = new THREE.Group();
     hoodGroup.add(hoodMesh);
-    // Back drape (Obsidian 705, see MAGE_HOOD_DRAPE_ROWS's comment above):
+    // Liner/cowl (Obsidian 707, see MAGE_HOOD_LINER_ROWS's comment above):
     // built in the SAME raw coordinate space as hoodMesh's own authored
     // geometry, so it takes the identical position offset and rides inside
     // this same group/scale/head-bone anchor. Shares hoodMesh's own
     // per-instance material object (not mageHoodMesh's shared source
     // material) so updateHeroGear's single tint of hoodMesh.material
-    // (game.js) colors the drape too - one hood, one tint, one garment.
-    const drapeMesh = new THREE.Mesh(buildMageHoodDrapeGeometry(), hoodMesh.material);
-    drapeMesh.castShadow = false; drapeMesh.receiveShadow = false; drapeMesh.frustumCulled = false;
-    drapeMesh.position.copy(hoodMesh.position);
-    hoodGroup.add(drapeMesh);
+    // (game.js) colors the liner too - one hood, one tint, one garment.
+    const linerMesh = new THREE.Mesh(buildMageHoodLinerGeometry(), hoodMesh.material);
+    linerMesh.castShadow = false; linerMesh.receiveShadow = false; linerMesh.frustumCulled = false;
+    linerMesh.position.copy(hoodMesh.position);
+    hoodGroup.add(linerMesh);
     hoodGroup.scale.setScalar(scale);
     hoodGroup.position.set(anchor.cx, anchor.top, anchor.cz);
     hoodGroup.visible = false; // shown by updateHeroGear only for hood-named helmet + robe
