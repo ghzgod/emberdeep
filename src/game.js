@@ -3012,10 +3012,14 @@ export class Game {
   // ---- corner action cluster: cast routing ----
   // TAP on a cluster button: auto-aim the nearest enemy, then fire through the
   // SAME code path the keys/hotbar use. slot -1 is the big basic-attack button.
+  // Ability taps search a RANGED radius (Obsidian 733: a clicked Fireball must
+  // auto-aim without a drag - the old 9-unit default was melee reach, so any
+  // farther enemy left the shot flying wherever the cursor last pointed);
+  // the basic-attack button keeps the tighter melee-scale assist.
   clusterTap(slot) {
     const p = this.player;
     if (!p || this.inTown || this.state !== 'playing') return;
-    this.aimAtNearestEnemy(p);
+    this.aimAtNearestEnemy(p, slot >= 0 ? 22 : 9);
     p.faceAimTimer = Math.max(p.faceAimTimer, 0.25);
     if (slot < 0) { p.tryBasicAttack(this); this.touch?._advanceTut?.('attack'); }
     else p.tryAbility(slot, this);
