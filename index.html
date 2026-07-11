@@ -162,44 +162,56 @@
       </div>
     </div>
 
-    <!-- Character select -->
+    <!-- Character select (redesigned, TODO 712): large live preview pane on
+         the left (the hero of the page), a single form column on the right -
+         Name, then compact class cards with ONE shared detail panel for the
+         selected class, then labeled appearance rows with uniform swatches,
+         then the confirm/back buttons. Stacks vertically on small screens. -->
     <div id="charselect-screen" class="overlay">
       <h2 class="screen-heading">Choose Your Hero</h2>
-      <label class="cs-name-label">Your name <input id="cs-name" type="text" maxlength="14" placeholder="Enter a name" autocomplete="off"></label>
-      <!-- Live 3D turntable preview of the hero being created (class + gender
-           + skin tone applied live); driven by ui.js start/refresh/stopCharPreview -->
-      <div class="cs-top">
+      <div class="cs-layout">
+        <!-- Live 3D turntable preview (class + gender + skin tone applied
+             live); driven by ui.js start/refresh/stopCharPreview -->
         <div id="cs-preview"><canvas id="cs-preview-canvas"></canvas></div>
-        <div class="cs-appearance">
-          <div class="cs-pick-group">
-            <span class="cs-pick-label">Gender</span>
-            <div class="cs-gender" id="cs-gender"></div>
+        <div class="cs-form">
+          <label class="cs-name-label"><span class="cs-section-title">Name</span><input id="cs-name" type="text" maxlength="14" placeholder="Enter a name" autocomplete="off"></label>
+          <div class="cs-section">
+            <span class="cs-section-title">Class</span>
+            <div class="class-cards" id="class-cards"></div>
+            <div id="class-detail" class="hidden"></div>
           </div>
-          <div class="cs-pick-group">
-            <span class="cs-pick-label">Skin</span>
-            <div class="cs-skin" id="cs-skin"></div>
+          <div class="cs-section">
+            <span class="cs-section-title">Appearance</span>
+            <div class="cs-appearance">
+              <div class="cs-pick-group">
+                <span class="cs-pick-label">Gender</span>
+                <div class="cs-gender" id="cs-gender"></div>
+              </div>
+              <div class="cs-pick-group">
+                <span class="cs-pick-label">Skin</span>
+                <div class="cs-skin" id="cs-skin"></div>
+              </div>
+              <div class="cs-pick-group">
+                <span class="cs-pick-label">Hair</span>
+                <div class="cs-hair" id="cs-hair"></div>
+              </div>
+              <!-- Eyes picker removed (TODO 698): eye-colour discs were rejected;
+                   the field persists in saves but has no visual for now. -->
+              <div class="cs-pick-group">
+                <span class="cs-pick-label">Face</span>
+                <div class="cs-face" id="cs-face"></div>
+              </div>
+              <div class="cs-pick-group">
+                <span class="cs-pick-label">Hair Style</span>
+                <div class="cs-hairstyle" id="cs-hairstyle"></div>
+              </div>
+            </div>
           </div>
-          <div class="cs-pick-group">
-            <span class="cs-pick-label">Hair</span>
-            <div class="cs-hair" id="cs-hair"></div>
-          </div>
-          <!-- Eyes picker removed (TODO 698): eye-colour discs were rejected;
-               the field persists in saves but has no visual for now. -->
-          <div class="cs-pick-group">
-            <span class="cs-pick-label">Face</span>
-            <div class="cs-face" id="cs-face"></div>
-          </div>
-          <div class="cs-pick-group">
-            <span class="cs-pick-label">Hair Style</span>
-            <div class="cs-hairstyle" id="cs-hairstyle"></div>
+          <div class="menu-buttons cs-actions">
+            <button id="btn-charselect-confirm" class="menu-btn" disabled>Choose a hero</button>
+            <button id="btn-charselect-back" class="menu-btn small">Back</button>
           </div>
         </div>
-      </div>
-      <div class="class-cards" id="class-cards"></div>
-      <div id="class-detail" class="hidden"></div>
-      <div class="menu-buttons">
-        <button id="btn-charselect-confirm" class="menu-btn" disabled>Choose a hero</button>
-        <button id="btn-charselect-back" class="menu-btn small">Back</button>
       </div>
     </div>
 
