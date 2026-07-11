@@ -1226,6 +1226,11 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
     hoodGroup.position.set(anchor.cx, anchor.top, anchor.cz);
     hoodGroup.visible = false; // shown by updateHeroGear only for hood-named helmet + robe
     headMesh.parent.add(hoodGroup);
+    // Ride the head animation: positioned in bind space above, then reparented
+    // onto the head BONE preserving world transform (attach()) - without this
+    // the hood floated static while the head tilted mid-walk (TODO 701, the
+    // same defect the eye discs had).
+    anchorToHeadBone(mesh, hoodGroup);
     mesh.userData.mageHood = hoodGroup;
     mesh.userData.mageHoodMesh = hoodMesh;
   }

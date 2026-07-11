@@ -1829,7 +1829,13 @@ export class UI {
     // gap between the arc's tip and the first ability button) counterclockwise
     // down past slot 3 (further than before, so the lower-left tail reaches
     // further down the screen too) - see TODO 691.
-    const A0 = -92, A1 = -188;
+    // TODO 700: bands run ALONGSIDE the ability arc, fully OUTSIDE it - from
+    // the top-right edge of slot 0 (-90deg button center + ~12deg half-width)
+    // to the bottom edge of slot 3 (-190deg - ~8deg). Radii below keep every
+    // band's inner edge clear of the buttons' outer extent (~150px: 115.6
+    // center radius + 29 button + ring + number chip) with a real gap - the
+    // failed first pass tucked the bands UNDER buttons 2 and 4.
+    const A0 = -78, A1 = -198;
     const arcPath = (r) => {
       const [x0, y0] = pt(r, A0), [x1, y1] = pt(r, A1);
       return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 0 0 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
@@ -1851,9 +1857,9 @@ export class UI {
       mk('tv-track', d, w + 2);
       return mk(cls, d, w);
     };
-    const xp = build('tv-xp', 139, 2.5);     // thin gold XP arc, innermost
-    const res = build('tv-res', 145.5, 5);   // deep blue-purple resource
-    const hp = build('tv-hp', 153.5, 8);     // blood-red health, outermost
+    const xp = build('tv-xp', 155, 2.5);     // thin gold XP arc, innermost (inner edge 153.75 > button extent 150)
+    const res = build('tv-res', 161, 5);     // deep blue-purple resource
+    const hp = build('tv-hp', 169, 8);       // blood-red health, outermost
     // Current/max readouts CURVE ALONG their own bands via textPath: the
     // health numbers ride the health arc, the resource numbers ride the
     // resource arc. Each invisible text arc runs the reverse direction
@@ -1871,8 +1877,8 @@ export class UI {
       p.setAttribute('fill', 'none');
       defs.appendChild(p);
     };
-    textArc('tv-txt-hp-arc', 151.5);
-    textArc('tv-txt-res-arc', 141);
+    textArc('tv-txt-hp-arc', 167);
+    textArc('tv-txt-res-arc', 156.5);
     const mkArcText = (cls, id) => {
       const t = document.createElementNS(NS, 'text');
       t.setAttribute('class', cls);
