@@ -375,7 +375,14 @@ export class Roaster {
       if (this._activeGate === gate) this._activeGate = null;
     };
     gate.cancel = cancel;
-    gate.fallback = setTimeout(finish, 1500);
+    // TRUE safety net only (Obsidian 728): 1.5s raced fresh Kokoro synthesis
+    // (several seconds for an uncached line), so the caption regularly beat
+    // the audio - the exact defect the gate exists to prevent. Every path
+    // that will never produce audio already calls onCancel explicitly
+    // (disabled, Kokoro skipped mid-download, Web Speech unavailable/threw),
+    // so this timer only catches the no-callback corners (e.g. a queued
+    // utterance whose onstart never fires on voiceless configs).
+    gate.fallback = setTimeout(finish, 10000);
     this._activeGate = gate;
     this.speakAs(line, cast, anchor, { onStart: finish, onCancel: cancel });
   }
