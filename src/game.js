@@ -4749,7 +4749,13 @@ export class Game {
         .then(({ neuralVoice }) => { this._neuralVoiceRef = neuralVoice; })
         .catch(() => { /* stays the empty stub: neural half reads silent */ });
     }
-    return !!(this._neuralVoiceRef._current || this._neuralVoiceRef._busy);
+    if (!this._liteVoiceRef) {
+      this._liteVoiceRef = {};
+      import('./ai/liteVoice.js')
+        .then(({ liteVoice }) => { this._liteVoiceRef = liteVoice; })
+        .catch(() => { /* stays the empty stub: lite half reads silent */ });
+    }
+    return !!(this._neuralVoiceRef._current || this._neuralVoiceRef._busy || this._liteVoiceRef.speaking);
   }
 
   updateTownInteractions(dt) {
@@ -4880,13 +4886,15 @@ export class Game {
     // plus a small beat, and the whole thing yields instantly to any player
     // conversation (talk prompts already gate on npcSpeechActive too).
     if (this.inTavern && roaster.enabled) {
+      // cast.lite = KittenTTS voice id (738): ambient chatter synthesizes on
+      // the tiny CPU engine; kokoro ids remain the fallback voices.
       const speakerOf = (who) => {
-        if (who === 'magda') return { name: 'Magda', cast: { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, pos: this.dungeonMeshes.barkeepPos };
+        if (who === 'magda') return { name: 'Magda', cast: { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95, lite: 'expr-voice-5-f' }, pos: this.dungeonMeshes.barkeepPos };
         const pm = (this.dungeonMeshes.patronMeshes || []).find((p) => (who === 'drunk') === !!p.drunk);
         if (!pm) return null;
         return who === 'drunk'
-          ? { name: 'Tipsy Regular', cast: { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82 }, pos: pm }
-          : { name: 'Tavern Patron', cast: { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 }, pos: pm };
+          ? { name: 'Tipsy Regular', cast: { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82, lite: 'expr-voice-2-m' }, pos: pm }
+          : { name: 'Tavern Patron', cast: { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0, lite: 'expr-voice-3-f' }, pos: pm };
       };
       if (this._tavernConvo) {
         this._convoGap -= dt;
