@@ -58,6 +58,12 @@ export function generateTavernInterior() {
   return {
     grid, size: Math.max(W, H), rooms: [],
     spawn: { x: 8, y: 9 },
+    // TODO 703: collision here is tile-granularity (isWalkable() in game.js
+    // checks dungeon.grid, not the wall mesh), and this exit tile is the
+    // ONLY floor cell in the south border row — narrowing the visual gap in
+    // the wall mesh above (DOOR_GAP_W) doesn't change this single-tile
+    // walk-to-and-interact point, so there's no separate grid width to widen
+    // or narrow to match it.
     exit: { x: 8, y: 10 },
     barkeep: { x: 6, y: 2 },     // stands in front of the bar's left side? no — behind: see mesh
     patrons: [
@@ -132,8 +138,17 @@ export function buildTavernInterior() {
   mkWall(W * TILE, TILE, (W * TILE) / 2, TILE / 2, true);
   mkWall(TILE, H * TILE, TILE / 2, (H * TILE) / 2, false);
   mkWall(TILE, H * TILE, W * TILE - TILE / 2, (H * TILE) / 2, false);
-  mkWall(7 * TILE, TILE, 4 * TILE, H * TILE - TILE / 2, true);
-  mkWall(6.5 * TILE, TILE, W * TILE - 3.25 * TILE, H * TILE - TILE / 2, true);
+  // South wall, split around the exit gap. DOOR_GAP_W/gapCenterX are declared
+  // here (rather than down by the rest of the door dressing) so both this
+  // split and the jamb/leaf/threshold-glow below share one definition. Was a
+  // flat 4-unit gap (garage-door wide, TODO 703) — narrowed to real door
+  // width; each segment's OUTER edge (against the west/east walls, at x=1
+  // and x=W*TILE-1) stays fixed, only the inner edge moves to close in on
+  // the narrower gap.
+  const DOOR_GAP_W = 2.2, gapCenterX = 8 * TILE + TILE / 2; // matches exit tile (8, 10)
+  const westSegR = gapCenterX - DOOR_GAP_W / 2, eastSegL = gapCenterX + DOOR_GAP_W / 2;
+  mkWall(westSegR - 1, TILE, (1 + westSegR) / 2, H * TILE - TILE / 2, true);
+  mkWall((W * TILE - 1) - eastSegL, TILE, (eastSegL + W * TILE - 1) / 2, H * TILE - TILE / 2, true);
   // Ceiling beams REMOVED (user report): at gameplay camera angles the
   // y=2.55 rafters sliced across the view and read as mid-room walls that
   // blocked sight of the table areas.
@@ -184,7 +199,7 @@ export function buildTavernInterior() {
   // than walking through a bare hole in the wall (user report: "the door to
   // leave doesn't even make sense"). The gap itself (its walkable width) is
   // untouched — this only dresses its edges.
-  const gapWidth = 4, gapCenterX = 8 * TILE + TILE / 2; // matches exit tile (8, 10)
+  const gapWidth = DOOR_GAP_W; // matches exit tile (8, 10) — see DOOR_GAP_W above
   const gapZ = H * TILE - TILE / 2;
   const jambGeo = new THREE.BoxGeometry(0.16, wallH, 0.3);
   const jambL = new THREE.Mesh(jambGeo, darkWood); jambL.position.set(gapCenterX - gapWidth / 2, wallH / 2, gapZ);
