@@ -56,7 +56,13 @@ async function checkForUpdate(silent = false) {
         + 'background:rgba(24,20,34,0.95);color:#e8c05a;border:1px solid #4a3b5c;border-radius:10px;'
         + 'padding:10px 18px;font:14px Georgia,serif;letter-spacing:0.5px;cursor:pointer;'
         + 'box-shadow:0 2px 16px rgba(0,0,0,0.8)';
-      toast.onclick = () => location.replace(url.toString());
+      // Stamp a same-tab resume intent (Obsidian 730) so boot() drops the
+      // player straight back into their most recent session after the reload
+      // instead of parking them at the title menu.
+      toast.onclick = () => {
+        try { sessionStorage.setItem('emberdeep-resume-v1', '1'); } catch { /* private mode */ }
+        location.replace(url.toString());
+      };
       document.body.appendChild(toast);
     }
   } catch { /* offline or dev server — ignore */ }

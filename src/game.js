@@ -360,6 +360,20 @@ export class Game {
     this.state = 'title';
     this.ui.showTitle();
 
+    // Post-update auto-resume (Obsidian 730): the "Update ready" toast stamps
+    // this sessionStorage flag right before reloading. Land the player back
+    // in their most recent session instead of at the title menu. Multiplayer
+    // guests resume their hero in single player (a room can't be silently
+    // rejoined after a reload); a first-ever visit has no saves, so this can
+    // never race the battery-saver modal below.
+    try {
+      if (sessionStorage.getItem('emberdeep-resume-v1')) {
+        sessionStorage.removeItem('emberdeep-resume-v1');
+        const recent = SaveManager.listSaves()[0];
+        if (recent) { this.continueGame(recent.id); return; }
+      }
+    } catch { /* storage unavailable - fall through to the title */ }
+
     // First-ever visit: battery saver defaulted ON above without asking.
     // Offer the same explanatory modal used for later re-toggles so the
     // player can opt into full AI (smarter bosses, neural voices) right away.
