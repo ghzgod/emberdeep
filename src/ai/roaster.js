@@ -303,6 +303,27 @@ export class Roaster {
     // Battery saver: skip Kokoro completely (no heavy import, no main-thread
     // inference) and use the built-in voices, cast male vs female per `cast`.
     if (this.batterySaver) { this._speakWebSpeech(text, cast, hooks); return; }
+    // Lite engine (Obsidian 738): casts tagged with a KittenTTS voice id
+    // (ambient tavern chatter) synthesize on the tiny CPU model instead of
+    // Kokoro - cheap enough to run while the player idles. Any failure
+    // falls straight through to the normal Kokoro path below.
+    if (cast.lite) {
+      import('./liteVoice.js').then(async ({ liteVoice }) => {
+        if (liteVoice.ready) {
+          const ok = await liteVoice.speak(text, {
+            voice: cast.lite, speed: cast.kSpeed || cast.rate || 1,
+            volume: this.volume ?? 0.9, rate: 1, onStart: hooks.onStart,
+          });
+          if (ok) return;
+        } else liteVoice.load(); // warm it for the next line
+        this._speakNeural(text, cast, anchor, hooks);
+      }).catch(() => this._speakNeural(text, cast, anchor, hooks));
+      return;
+    }
+    this._speakNeural(text, cast, anchor, hooks);
+  }
+
+  _speakNeural(text, cast, anchor, hooks = {}) {
     import('./neuralVoice.js').then(async ({ neuralVoice }) => {
       if (neuralVoice.ready) {
         const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1, anchor, rate: cast.rate || 1, onStart: hooks.onStart });
@@ -387,16 +408,22 @@ export class Roaster {
   prepareTavernConvo() {
     const plans = [this.composeTavernConvo(), this.composeTavernConvo()];
     if (!this.batterySaver) {
-      const VOICE = {
-        magda: { voice: 'af_kore', speed: 0.95 },
-        patron: { voice: 'af_sarah', speed: 1.0 },
-        drunk: { voice: 'bm_daniel', speed: 0.82 },
-      };
-      import('./neuralVoice.js').then(({ neuralVoice }) => {
-        if (!neuralVoice.ready) return;
-        for (const plan of plans) {
-          for (const t of plan) neuralVoice.preload(t.text, VOICE[t.who])?.catch?.(() => {});
-        }
+      // Preferred: warm the KittenTTS lite engine (738) - tavern lines then
+      // synthesize on CPU for pennies. Only if it's unavailable do we fall
+      // back to prewarming the lines through Kokoro (736's one-burst rule).
+      import('./liteVoice.js').then(({ liteVoice }) => liteVoice.load()).then((ok) => {
+        if (ok) return;
+        const VOICE = {
+          magda: { voice: 'af_kore', speed: 0.95 },
+          patron: { voice: 'af_sarah', speed: 1.0 },
+          drunk: { voice: 'bm_daniel', speed: 0.82 },
+        };
+        return import('./neuralVoice.js').then(({ neuralVoice }) => {
+          if (!neuralVoice.ready) return;
+          for (const plan of plans) {
+            for (const t of plan) neuralVoice.preload(t.text, VOICE[t.who])?.catch?.(() => {});
+          }
+        });
       }).catch(() => {});
     }
     return plans;
