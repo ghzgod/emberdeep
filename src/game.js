@@ -680,7 +680,9 @@ export class Game {
     const spawnTile = opts.fromDungeon
       ? { x: this.dungeon.portal.x, y: this.dungeon.portal.y + 3 }
       : opts.fromTavern
-        ? { x: this.dungeon.tavern.x + 4, y: this.dungeon.tavern.y + this.dungeon.tavern.h + 1 }
+        // doorstep tile: same W*0.28 door-offset rule the facade and the
+        // enter-trigger use, so this stays aligned however the plot resizes
+        ? { x: Math.round(this.dungeon.tavern.x + this.dungeon.tavern.w / 2 - 0.5 + this.dungeon.tavern.w * 0.28), y: this.dungeon.tavern.y + this.dungeon.tavern.h + 1 }
         : this.dungeon.spawn;
     const spawn = tileToWorld(spawnTile.x, spawnTile.y);
     this.player.pos.set(spawn.x, 0, spawn.z);

@@ -603,8 +603,12 @@ export function generateTown() {
     for (let x = 11; x <= 17; x++) cobbles.push({ x, y });
   for (let y = 5; y <= 21; y++) { cobbles.push({ x: 13, y }, { x: 14, y }, { x: 15, y }); }
 
-  // tavern "The Sleeping Golem": 5x4 footprint, west side; tiles solid
-  const tavern = { x: 4, y: 15, w: 5, h: 4 };
+  // tavern "The Sleeping Golem": 7x5 footprint, west side; tiles solid.
+  // Enlarged from 5x4 (Obsidian 715): the exterior must read as the same
+  // building as the 16x12-tile interior - one story, same 4:3 perimeter
+  // shape, as large as the west plot allows without eating the well (10,14),
+  // the tree at (3,19) or the plaza cobbles (x>=11).
+  const tavern = { x: 3, y: 14, w: 7, h: 5 };
   for (let y = tavern.y; y < tavern.y + tavern.h; y++)
     for (let x = tavern.x; x < tavern.x + tavern.w; x++)
       grid[y][x] = WALL;

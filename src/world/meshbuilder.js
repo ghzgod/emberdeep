@@ -181,7 +181,7 @@ const WORLD_MODEL_FILES = {
   barrel: 'models/world/barrel.glb',
   crate: 'models/world/crate.glb',
   stall: 'models/world/stall.glb',
-  inn: 'models/world/inn.glb',
+  // inn.glb retired (Obsidian 715): the tavern is the procedural shell now.
 };
 
 const worldLoader = new GLTFLoader();
@@ -2127,22 +2127,28 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     // the hanging sign and the outside barrel/bench stay either way.
     const shell = new THREE.Group();
     tavern.add(shell);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(W - 0.4, 2.6, D - 0.4), plaster);
-    body.position.y = 1.3;
+    // Single TALL story (Obsidian 715): the interior room is one open space
+    // with 3.3-unit walls, so the exterior is one story with matching wall
+    // height - the old two-story-reading scaled inn.glb swap is retired
+    // below, this procedural shell (whose wall planes are exactly known, so
+    // nothing can float) is now the real building.
+    const wallH2 = 3.4;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(W - 0.4, wallH2, D - 0.4), plaster);
+    body.position.y = wallH2 / 2;
     shell.add(body);
     // timber frame lines
     for (let i = 0; i <= 3; i++) {
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.6, 0.12), timber);
-      beam.position.set(-W / 2 + 0.25 + (i * (W - 0.5)) / 3, 1.3, D / 2 - 0.14);
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(0.12, wallH2, 0.12), timber);
+      beam.position.set(-W / 2 + 0.25 + (i * (W - 0.5)) / 3, wallH2 / 2, D / 2 - 0.14);
       shell.add(beam);
     }
     const beltBeam = new THREE.Mesh(new THREE.BoxGeometry(W - 0.3, 0.14, 0.12), timber);
-    beltBeam.position.set(0, 1.75, D / 2 - 0.14);
+    beltBeam.position.set(0, 2.3, D / 2 - 0.14);
     shell.add(beltBeam);
     // pitched roof: two slopes computed to MEET exactly at the ridge and
     // overhang the eaves — no gaps, no clipping — plus closed gable ends
     const roofMat = new THREE.MeshStandardMaterial({ color: 0x71402a, roughness: 0.85 });
-    const wallTop = 2.6, ridgeY = 3.6;
+    const wallTop = wallH2, ridgeY = wallH2 + 1.4;
     const halfSpan = D / 2 + 0.35;                       // eave overhang
     const pitch = Math.atan((ridgeY - wallTop) / halfSpan);
     const slopeLen = Math.hypot(halfSpan, ridgeY - wallTop) + 0.1;
@@ -2172,7 +2178,7 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     shell.add(ridge);
     // chimney + animated smoke puffs (data returned via smokePuffs for the game loop to drift/fade)
     const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.1, 0.35), new THREE.MeshStandardMaterial({ color: 0x6a665f, roughness: 1 }));
-    chimney.position.set(W * 0.28, 3.5, 0);
+    chimney.position.set(W * 0.28, ridgeY + 0.7, 0);
     tavern.add(chimney);
     const puffGeo = new THREE.SphereGeometry(1, 6, 5); // unit sphere, scaled per-puff below
     for (let i = 0; i < 5; i++) {
@@ -2182,7 +2188,7 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
         new THREE.MeshBasicMaterial({ color: 0x9a95a0, transparent: true, opacity: 0.34 - i * 0.05 })
       );
       puff.scale.setScalar(s);
-      const baseY = 4.05 + i * 0.3;
+      const baseY = ridgeY + 1.4 + i * 0.3; // just above the chimney mouth
       puff.position.set(W * 0.28 + (Math.random() - 0.5) * 0.1, baseY, 0);
       tavern.add(puff);
       if (smokePuffs) {
@@ -2290,13 +2296,10 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       mkWindow(frontWin1X, frontZ + 0.01, 0);
       mkWindow(frontWin2X, frontZ + 0.01, 0);
       const sideZ = sideSpan * 0.45;
-      // The measured halfW is the model's OVERALL bounding extent, which on
-      // the short gable ends includes the roof eave's overhang — the actual
-      // vertical wall face sits inset from that by roughly the eave depth, so
-      // a window placed exactly at halfW ends up floating out past the wall
-      // under the eave's shadow rather than sitting flush on the visible
-      // timber face. sideInset pulls it back to the wall itself.
-      const sideInset = halfW * 0.8;
+      // halfW is now the procedural shell's EXACT wall plane (the inn.glb
+      // bbox guesswork is retired, Obsidian 715), so side windows sit flush
+      // ON the wall - a hair proud of it so they can't z-fight the plaster.
+      const sideInset = halfW + 0.01;
       mkWindow(-sideInset, -sideZ, -Math.PI / 2);
       mkWindow(-sideInset, sideZ, -Math.PI / 2);
       mkWindow(sideInset, -sideZ, Math.PI / 2);
@@ -2379,7 +2382,9 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       facadeState = { objs, glowEntries };
     }
     // First pass: procedural shell's own wall planes (fallback + pre-load look).
-    buildFacade((W - 0.4) / 2, D / 2 - 0.2, D / 2 - 0.2);
+    // S=1.35 grows the windows/sign to suit the taller single-story wall;
+    // the door assembly keeps its own human-passable scale.
+    buildFacade((W - 0.4) / 2, D / 2 - 0.2, D / 2 - 0.2, 1.35, 1.8);
     // barrel + bench outside, near the door (barrel swaps to the modeled one).
     // Held in its own subgroup (not loose in `tavern`) so breakNear() can
     // smash just the barrel without touching the rest of the building.
@@ -2400,49 +2405,13 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     const legB = new THREE.Mesh(benchLegGeo, benchMat); legB.position.set(-W * 0.05 + 0.38, 0.16, D / 2 + 0.4);
     tavern.add(benchSeat, legA, legB);
 
-    // Modeled CC0 inn replaces the box-and-slab shell once its GLB loads.
-    // Slightly non-uniform scale fills the tavern's wide plot without making
-    // the building tower over the square; the enter-trigger world point in
-    // game.js (doorstep on the south face) is untouched.
-    // TODO 692 ("tavern too small"): at the previous scale (6.2, 5.8, 5.4) the
-    // door read barely taller than the 1.6-unit hero and the whole building
-    // read dollhouse-scale. Bumping node.scale alone doesn't fix the DOOR,
-    // though: doorH/doorW in buildFacade below are fixed-size constants that
-    // never tracked node.scale, so the overlay door (which fully masks the
-    // model's own baked door art — see buildFacade) stayed pinned at the same
-    // absolute size no matter how big the building got.
-    // TODO 703 ("still reads like a small house against the huge interior"):
-    // FACADE_SCALE (X/Y, building bulk) is bumped again to 2.2 so the
-    // exterior silhouette plausibly contains the 32x24 interior. DOOR_SCALE
-    // is kept separate and NOT bumped with it — growing the door past
-    // ~2.1-2.2x hero would make a doorway giants use, so only the door
-    // assembly (leaf/arch/handle/step/baked-door patch, all in buildFacade)
-    // stays pinned to DOOR_SCALE while windows/sign scale with the bigger
-    // building via FACADE_SCALE. Z (depth) is deliberately left unbumped:
-    // the south wall's world Z position (frontZ, measured below) is exactly
-    // what the fixed enter-trigger world point in game.js was calibrated
-    // against, and Z-depth is the only axis that would move that wall —
-    // growing it would desync the trigger from the real doorstep without a
-    // matching game.js edit (out of scope here).
-    const FACADE_SCALE = 2.2;
-    const DOOR_SCALE = 1.8;
-    swapInModel(tavern, shell, ['inn'], ([tpl]) => {
-      if (!tpl) return null;
-      const node = buildModelMesh(tpl, 1);
-      node.scale.set(6.2 * FACADE_SCALE, 5.8 * FACADE_SCALE, 5.4);
-      // Measure the model's REAL world-space extent (after scaling) instead
-      // of trusting the procedural shell's W/D, and rebuild the facade
-      // dressing flush against it — this is what fixes windows/door/sign
-      // floating off or sinking into the real wall once the swap lands.
-      node.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(node);
-      const halfW = Math.max(Math.abs(box.min.x), Math.abs(box.max.x));
-      const sideSpan = Math.max(Math.abs(box.min.z), Math.abs(box.max.z));
-      const frontZ = box.max.z; // south wall — same side the doorstep trigger faces
-      clearFacade();
-      buildFacade(halfW, frontZ, sideSpan, FACADE_SCALE, DOOR_SCALE);
-      return node;
-    });
+    // inn.glb swap RETIRED (Obsidian 715, superseding TODO 692/703's scale
+    // bumps): however it was scaled, the baked model kept reading as a tall
+    // two-story house whose real wall planes had to be guessed from a
+    // bounding box - the source of every floating-window / window-over-the-
+    // door report. The procedural shell above (whose planes are exactly
+    // known and whose 7x5-tile footprint matches the interior's 4:3
+    // perimeter as one tall story) IS the tavern now.
 
     tavern.position.set(cw.x, 0, cw.z);
     group.add(tavern);
