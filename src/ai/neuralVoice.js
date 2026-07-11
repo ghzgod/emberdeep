@@ -27,6 +27,16 @@ export function normalizeForTTS(text) {
   t = t.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200D}]/gu, ' ');
   // dashes + ellipses → a plain comma pause (Kokoro stumbles on the glyphs)
   t = t.replace(/\s*[—–]\s*/g, ', ').replace(/\.{2,}|…/g, ', ');
+  // vowel-less interjections → speakable respellings (Obsidian 743): the
+  // espeak-based phonemizer treats "Hm"/"Mm" as initialisms and says
+  // "h.m." — same table as roaster.js's Web Speech normalizer. Per the
+  // Kokoro community guidance (vault tts.md): phonetic respelling in-text
+  // is the fix that works on every Kokoro runtime.
+  t = t.replace(/\bh+m+\b/gi, 'hum');
+  t = t.replace(/\bm{2,}h?m*\b/gi, 'hum');
+  t = t.replace(/\bgr{2,}\b/gi, 'gurr');
+  t = t.replace(/\b(?:tsk)+\b/gi, 'tisk');
+  t = t.replace(/\bpf+t+\b/gi, 'pft');
   // whole-word abbreviations → spoken form
   t = t.replace(/\b([A-Za-z]+)\b/g, (w) => (ABBR[w] ? ABBR[w] : w));
   // ALL-CAPS emphasis words → title case so they aren't spelled out letter by letter
@@ -197,11 +207,22 @@ class NeuralVoice {
       let lastErr = null;
       for (const opt of attempts) {
         try {
-          this.tts = await Promise.race([
-            KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX',
-              { device: opt.device, dtype: opt.dtype, progress_callback }),
-            new Promise((_, rej) => setTimeout(() => rej(new Error(`${opt.device} timed out`)), opt.timeout)),
-          ]);
+          // WORKER FIRST (Obsidian 745): host the whole pipeline in
+          // kokoro.worker.js so generate() never blocks the main thread -
+          // the old in-page path made the game hitch for the duration of
+          // every fresh synthesis while the thinking pill was up. Falls back
+          // to the in-page pipeline when the worker can't boot (older
+          // browsers without WebGPU-in-workers, CSP, etc.).
+          try {
+            this.tts = await this._workerTts(opt, progress_callback);
+          } catch (werr) {
+            console.warn(`[neural-tts] worker path failed on ${opt.device}; using in-page pipeline`, werr);
+            this.tts = await Promise.race([
+              KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX',
+                { device: opt.device, dtype: opt.dtype, progress_callback }),
+              new Promise((_, rej) => setTimeout(() => rej(new Error(`${opt.device} timed out`)), opt.timeout)),
+            ]);
+          }
           localStorage.setItem('emberdeep-tts-backend', `${opt.device}|${opt.dtype}`);
           this._loadOpts = { device: opt.device, dtype: opt.dtype };
           this._released = false;
@@ -237,6 +258,51 @@ class NeuralVoice {
   // before offering an explicit opt-in.
   get memoryConstrained() { return isMemoryConstrainedDevice(); }
 
+  // Boot the Kokoro pipeline inside kokoro.worker.js and return a tts-shaped
+  // proxy (generate + dispose are the only two members the rest of this file
+  // uses). The load itself is time-boxed by opt.timeout; a generate has a
+  // generous fixed box so a wedged worker can't hang a line forever (745).
+  _workerTts(opt, progress_callback) {
+    const worker = new Worker(new URL('./kokoro.worker.js', import.meta.url), { type: 'module' });
+    const pending = new Map();
+    let seq = 0;
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'progress') { progress_callback?.({ status: 'progress', loaded: m.loaded, total: m.total }); return; }
+      const p = pending.get(m.id);
+      if (!p) return;
+      pending.delete(m.id);
+      if (m.type === 'error') p.reject(new Error(m.error));
+      else p.resolve(m);
+    };
+    worker.onerror = (err) => {
+      for (const p of pending.values()) p.reject(err instanceof Error ? err : new Error('kokoro worker error'));
+      pending.clear();
+    };
+    const rpc = (msg, timeout) => new Promise((resolve, reject) => {
+      const id = ++seq;
+      pending.set(id, { resolve, reject });
+      worker.postMessage({ ...msg, id });
+      if (timeout) {
+        setTimeout(() => {
+          if (pending.has(id)) { pending.delete(id); reject(new Error('kokoro worker timed out')); }
+        }, timeout);
+      }
+    });
+    return rpc({ type: 'load', model: 'onnx-community/Kokoro-82M-v1.0-ONNX', device: opt.device, dtype: opt.dtype }, opt.timeout)
+      .then(() => ({
+        async generate(text, { voice, speed } = {}) {
+          const r = await rpc({ type: 'generate', text, voice, speed }, 60000);
+          return { audio: r.audio, sampling_rate: r.sr };
+        },
+        dispose() {
+          rpc({ type: 'dispose' }, 2000).catch(() => { /* dying anyway */ });
+          setTimeout(() => worker.terminate(), 2500);
+        },
+      }))
+      .catch((err) => { try { worker.terminate(); } catch { /* already dead */ } throw err; });
+  }
+
   // Prefer the lighter WASM backend when running on battery (laptop unplugged),
   // to spare the GPU. Degrades gracefully to false (keep WebGPU) whenever the
   // Battery Status API is missing, throws, or reports charging/plugged-in.
@@ -260,13 +326,18 @@ class NeuralVoice {
     if (this.status === 'loading') return this.load(); // dedupe an in-flight reload
     this.status = 'loading';
     try {
-      const { KokoroTTS, env } = await import('kokoro-js');
+      // same worker-first order as load() (745), silent reload semantics kept
       try {
-        env.backends.onnx.wasm.numThreads = 1;
-        env.backends.onnx.wasm.proxy = true;
-      } catch { /* env shape changed; best-effort */ }
-      this.tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX',
-        { device: this._loadOpts.device, dtype: this._loadOpts.dtype });
+        this.tts = await this._workerTts({ ...this._loadOpts, timeout: 60000 }, null);
+      } catch {
+        const { KokoroTTS, env } = await import('kokoro-js');
+        try {
+          env.backends.onnx.wasm.numThreads = 1;
+          env.backends.onnx.wasm.proxy = true;
+        } catch { /* env shape changed; best-effort */ }
+        this.tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX',
+          { device: this._loadOpts.device, dtype: this._loadOpts.dtype });
+      }
       this._released = false;
       this.status = 'ready';
       return true;
