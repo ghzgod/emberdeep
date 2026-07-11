@@ -385,7 +385,7 @@ export function buildTavernInterior() {
     const barZ = keeperPos.z;
     const paceLeftX = barCenter.x + TILE / 2 - 3.2;   // 11.8 — clear of the cask at ~10.4
     const paceRightX = barCenter.x + TILE / 2 + 3.0;  // 18.0 — clear of the kegs at ~19.1/19.9
-    const roundX = barCenter.x + TILE / 2 - 6.3;      // past the bar's real left edge (x=9)
+    const roundX = barCenter.x + TILE / 2 - 6.9;      // 0.9 clear of the bar's left edge (x=9) so her body never clips the corner (719)
     const visitTable = tileToWorld(3, 4);
     const path = [
       { x: roundX, z: barZ, y: 0.24 },            // walk to the bar's end, still on the duckboard
@@ -406,7 +406,16 @@ export function buildTavernInterior() {
       set phase(v) {
         const dt = Math.min(0.1, Math.max(0, v - this._phase));
         this._phase = v;
-        barlow.tick(dt);
+        // Real WALK animation (Obsidian 719): tick the rig with the speed she
+        // actually covered this update - the locomotion blender plays the
+        // walk clip while she moves and idle when she stands, so she never
+        // glides with frozen legs again. Runs on every path out of this
+        // setter (tickWalk before each return / at the end).
+        const prevX = keeper.position.x, prevZ = keeper.position.z;
+        const tickWalk = () => {
+          const moved = Math.hypot(keeper.position.x - prevX, keeper.position.z - prevZ);
+          barlow.tick(dt, dt > 0 ? moved / dt : 0);
+        };
         const hero = nearestHero(keeper, 6);
         if (hero) barlow.lookAt(hero.x, hero.z); else barlow.lookAt(null);
         // Attentive: stop ambling and turn the whole body to face a nearby
@@ -414,6 +423,7 @@ export function buildTavernInterior() {
         if (hero && hero.d < 2.6) {
           const faceYaw = Math.atan2(hero.x - keeper.position.x, hero.z - keeper.position.z);
           keeper.rotation.y += wrapAngle(faceYaw - keeper.rotation.y) * Math.min(1, dt * 4);
+          tickWalk();
           return;
         }
         const now = performance.now();
@@ -464,6 +474,7 @@ export function buildTavernInterior() {
           st.waitT -= dt;
           if (st.waitT <= 0) { st.mode = 'toBar'; st.wp = 0; }
         }
+        tickWalk();
       },
     };
     smokePuffs.push(magdaDriver);
