@@ -109,47 +109,12 @@ export class Game {
     }, { passive: true });
     window.addEventListener('touchend', () => { this._pinch = null; }, { passive: true });
 
-    // Two-thumb twist: when both touches orbit their midpoint (the angle of the
-    // segment between them changes) with little radial change, rotate the camera
-    // slowly - same effect as holding a rotate button. Radial-dominant motion is
-    // pinch zoom (handled above, untouched) and never twists; a joystick finger
-    // that is actively steering never twists either. The measured rotation is
-    // accumulated into _twistPending and drained smoothly (rate-clamped) by the
-    // camera input block in updatePlaying, so the motion is always lerped.
-    this._twist = null;
-    this._twistPending = 0;
-    const twistSample = (e) => ({
-      ang: Math.atan2(
-        e.touches[1].clientY - e.touches[0].clientY,
-        e.touches[1].clientX - e.touches[0].clientX),
-      dist: Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY),
-    });
-    window.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) this._twist = twistSample(e);
-    }, { passive: true });
-    window.addEventListener('touchmove', (e) => {
-      if (this.state !== 'playing' || e.touches.length !== 2 || !this._twist) return;
-      const prev = this._twist;
-      const cur = twistSample(e);
-      this._twist = cur;
-      // one finger is the joystick and it is steering: two-finger play, not a gesture
-      const t = this.touch;
-      if (t?.joyActive && Math.hypot(t.move.x, t.move.z) > 0.2) return;
-      let da = cur.ang - prev.ang;
-      if (da > Math.PI) da -= Math.PI * 2;
-      if (da < -Math.PI) da += Math.PI * 2;
-      // require a clearly rotational motion: the swept arc must dominate the
-      // radial (pinch) change; jitter and touch-order flips are ignored outright
-      const arc = Math.abs(da) * cur.dist * 0.5;
-      const radial = Math.abs(cur.dist - prev.dist);
-      if (Math.abs(da) < 0.004 || Math.abs(da) > 0.5 || arc < radial * 2) return;
-      this._twistPending += da;
-    }, { passive: true });
-    window.addEventListener('touchend', (e) => {
-      this._twist = null;
-    }, { passive: true });
+    // Two-thumb twist rotation (TODO 706) is now computed in touch.js
+    // (TouchControls._syncTwist), which tracks every active CANVAS pointer
+    // purely for this gesture - including the joystick's own finger - so a
+    // real two-finger twist always registers even when one thumb starts
+    // inside the joystick's capture zone. See this.touch.twistPending, drained
+    // by the camera input block in updatePlaying below.
 
     // lights
     this.ambient = new THREE.AmbientLight(0x8a7a9a, 0.55);
@@ -3872,16 +3837,16 @@ export class Game {
     if (input.isDown('KeyQ')) this.camYaw += 2.2 * dt;
     if (input.isDown('KeyE')) this.camYaw -= 2.2 * dt;
     if (this.touch.rotDir) this.camYaw += this.touch.rotDir * 2.0 * dt;
-    // two-thumb twist gesture: drain the accumulated rotation smoothly, with
-    // the per-frame step clamped so the camera never whips around
-    const twisting = this._twistPending !== 0;
+    // two-thumb twist gesture (accumulated in touch.js): drain the rotation
+    // smoothly, with the per-frame step clamped so the camera never whips around
+    const twisting = this.touch.twistPending !== 0;
     if (twisting) {
       const maxStep = 2.4 * dt;
-      let step = this._twistPending * Math.min(1, 10 * dt);
+      let step = this.touch.twistPending * Math.min(1, 10 * dt);
       step = Math.max(-maxStep, Math.min(maxStep, step));
       this.camYaw += step;
-      this._twistPending -= step;
-      if (Math.abs(this._twistPending) < 0.002) this._twistPending = 0;
+      this.touch.twistPending -= step;
+      if (Math.abs(this.touch.twistPending) < 0.002) this.touch.twistPending = 0;
     }
     // any manual rotation suspends the hallway auto-rotate for a few seconds
     // (and cancels a pending vendor/restore ease) so the camera never fights
