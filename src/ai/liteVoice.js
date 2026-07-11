@@ -52,6 +52,10 @@ class LiteVoice {
         fetch(base + 'tokenizer.json').then((r) => r.json()),
         fetch(base + 'voices.json').then((r) => r.json()),
       ]);
+      // proxy=true runs ORT's WASM inference in its own worker (Obsidian 745):
+      // without it each ~1s KittenTTS synth blocked the main thread and the
+      // game hitched during ambient tavern lines.
+      try { ort.env.wasm.proxy = true; ort.env.wasm.numThreads = 1; } catch { /* env shape changed */ }
       this.session = await ort.InferenceSession.create(modelBuf, {
         executionProviders: [{ name: 'wasm', simd: true }],
       });

@@ -183,6 +183,7 @@ const MALE_HINT = /male|daniel|alex|fred|arthur|george|aaron|guy|david|mark|jame
 // GREETINGS; the interjection table exists for any line added later.
 const VOCALIZATIONS = [
   [/\bh+m+\b/gi, 'hum'],        // hmm, hmmm, hm -> "hum" (bare "hmm" gets spelled out on several system voices)
+  [/\bm{2,}h?m*\b/gi, 'hum'],   // mm, mmm, mhm -> "hum" (743: same initialism problem as hm)
   [/\bheh+\b/gi, 'heh'],        // heh, hehe -> unchanged; reads fine as a real word on tested system voices
   [/\bgr+\b/gi, 'gurr'],        // grr, grrr -> "gurr" (no vowel for the synth to grab onto otherwise)
   [/\b(?:tsk)+\b/gi, 'tisk'],   // tsk, tsktsk -> "tisk"
