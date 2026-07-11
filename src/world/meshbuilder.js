@@ -1091,15 +1091,21 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
 
     // Step-up skirt: a thin stone lip around the plaza's edge so the raised
     // flagstone doesn't read as a floating slab where it meets the grass.
+    // Placed fully OUTSIDE the tile edge (offset by its own half-thickness):
+    // centred on the edge it overlapped 0.05 into the tile with its top face
+    // exactly coplanar with the cobble tops, which z-fought as a flickering
+    // line just inside the plaza border while the camera moved (Obsidian 731).
+    // Its top also sits a hair below the plaza surface for the same reason.
     const cobbleSet = new Set(dungeon.cobbles.map((c) => `${c.x},${c.y}`));
     const skirtMat = new THREE.MeshStandardMaterial({ color: 0x8a8378, roughness: 0.9 });
-    const skirtGeo = new THREE.BoxGeometry(TILE, TOWN_PLAZA_HEIGHT, 0.1);
+    const SKIRT_T = 0.1, SKIRT_H = TOWN_PLAZA_HEIGHT - 0.005;
+    const skirtGeo = new THREE.BoxGeometry(TILE, SKIRT_H, SKIRT_T);
     for (const c of dungeon.cobbles) {
       for (const [dx, dy, rot] of [[0, -1, 0], [0, 1, 0], [-1, 0, Math.PI / 2], [1, 0, Math.PI / 2]]) {
         if (cobbleSet.has(`${c.x + dx},${c.y + dy}`)) continue;
         const w = tileToWorld(c.x, c.y);
         const skirt = new THREE.Mesh(skirtGeo, skirtMat);
-        skirt.position.set(w.x + dx * TILE / 2, TOWN_PLAZA_HEIGHT / 2, w.z + dy * TILE / 2);
+        skirt.position.set(w.x + dx * (TILE / 2 + SKIRT_T / 2), SKIRT_H / 2, w.z + dy * (TILE / 2 + SKIRT_T / 2));
         skirt.rotation.y = rot;
         group.add(skirt);
       }
