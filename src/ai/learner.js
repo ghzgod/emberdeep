@@ -44,6 +44,14 @@ export class MovementLearner {
   // The learned distance at which the player is dangerous (or null if unlearned).
   dangerRange() { return this.attackRangeEMA; }
 
+  // Event-driven training (Obsidian 724): the model retrains in one quick
+  // burst when an enemy dies - "it trains really quick and gets better" -
+  // instead of the old every-6-seconds background timer. Called from
+  // killEnemy (game.js).
+  notifyEnemyDeath() {
+    if (this.worker) this.worker.postMessage({ type: 'enemyDied' });
+  }
+
   init() {
     try {
       // Vite bundles this worker; { type: 'module' } lets it use dynamic import().

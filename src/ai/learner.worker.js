@@ -18,7 +18,6 @@
 const HORIZON = 0.5;        // seconds ahead we learn to predict
 const SAMPLE_EVERY = 0.25;  // seconds between recorded samples
 const BUFFER_MAX = 400;     // rolling window of samples
-const TRAIN_EVERY = 6;      // seconds between background training runs
 const MIN_SAMPLES = 48;
 const PRED_EVERY = 100;     // ms between prediction posts (~10Hz, matches old cache)
 
@@ -29,7 +28,6 @@ let training = false;
 let buffer = [];
 let pending = null;         // sample waiting for its future-position label
 let sampleTimer = 0;
-let trainTimer = TRAIN_EVERY;
 let trainCount = 0;
 let lastInput = null;       // most recent observation input vector (for prediction)
 let lastPredPost = 0;
@@ -96,11 +94,10 @@ function observe(s) {
     pending = { input: s.input, px: s.px, pz: s.pz, age: 0 };
   }
 
-  trainTimer -= dt;
-  if (trainTimer <= 0) {
-    trainTimer = TRAIN_EVERY;
-    train();
-  }
+  // Training is EVENT-DRIVEN (Obsidian 724): no background timer here. The
+  // main thread posts 'enemyDied' when a kill lands and train() runs one
+  // quick burst then goes quiet - observation sampling above is the only
+  // steady-state work, and the main thread only sends samples mid-combat.
 
   // Post the latest prediction at ~10Hz. Enemies use the newest value we sent.
   const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -161,6 +158,7 @@ self.onmessage = (e) => {
   switch (m.type) {
     case 'init': init(m.seedDanger); break;
     case 'observe': observe(m.sample); break;
+    case 'enemyDied': train(); break; // one quick burst per kill, then idle
     case 'hit': recordPlayerHit(m.dist); break;
     case 'reset': reset(); break;
     default: break;
