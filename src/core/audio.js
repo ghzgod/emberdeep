@@ -523,6 +523,70 @@ export class AudioEngine {
     if (this._heartbeat) { clearInterval(this._heartbeat); this._heartbeat = null; }
   }
 
+  // Fireplace crackle (Obsidian 717): a soft lowpassed noise bed (the fire's
+  // steady breath) plus randomly-timed short bright noise bursts (the pops
+  // and snaps). Fully synthesized like startWhirl/startHeartbeat - no asset -
+  // and routed through sfxGain so the SFX slider/mute applies. The caller
+  // scales it with distance via setFireCrackleLevel(0..1) each frame-ish.
+  startFireCrackle() {
+    if (this._fire || !this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+    const out = this.sfxGain || this.ctx.destination;
+    const level = this.ctx.createGain(); // distance-driven master for the whole fire
+    level.gain.setValueAtTime(0.0001, t);
+    level.connect(out);
+    // noise bed
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._noise();
+    src.loop = true;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 0.5;
+    const bedG = this.ctx.createGain(); bedG.gain.value = 0.05;
+    src.connect(lp); lp.connect(bedG); bedG.connect(level);
+    src.start(t, Math.random() * 1.5);
+    // random pops: short bright bandpassed bursts on a self-rescheduling timer
+    const handle = { src, level, popT: null, dead: false };
+    const pop = () => {
+      if (handle.dead || !this.ctx || this.ctx.state !== 'running') return;
+      const pt = this.ctx.currentTime;
+      const n = this.ctx.createBufferSource(); n.buffer = this._noise();
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 1100 + Math.random() * 2200; bp.Q.value = 6;
+      const pg = this.ctx.createGain();
+      pg.gain.setValueAtTime(0.0001, pt);
+      pg.gain.exponentialRampToValueAtTime(0.25 + Math.random() * 0.3, pt + 0.006);
+      pg.gain.exponentialRampToValueAtTime(0.0001, pt + 0.05 + Math.random() * 0.06);
+      n.connect(bp); bp.connect(pg); pg.connect(level);
+      n.start(pt, Math.random() * 2); n.stop(pt + 0.15);
+      handle.popT = setTimeout(pop, 60 + Math.random() * 420);
+    };
+    handle.popT = setTimeout(pop, 200);
+    this._fire = handle;
+  }
+
+  // 0..1; eased slightly so walking toward the hearth swells rather than steps.
+  setFireCrackleLevel(v) {
+    const h = this._fire;
+    if (!h || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    const target = Math.max(0.0001, Math.min(1, v)) * 0.9;
+    try { h.level.gain.setTargetAtTime(target, t, 0.15); } catch { /* context gone */ }
+  }
+
+  stopFireCrackle() {
+    const h = this._fire;
+    if (!h) return;
+    this._fire = null;
+    h.dead = true;
+    if (h.popT) clearTimeout(h.popT);
+    try {
+      const t = this.ctx.currentTime;
+      h.level.gain.cancelScheduledValues(t);
+      h.level.gain.setTargetAtTime(0.0001, t, 0.08);
+    } catch { /* context gone */ }
+    setTimeout(() => { try { h.src.stop(); } catch {} }, 300);
+  }
+
   play(name, opts = {}) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     // UI blips are synthesized, not sampled — softer and more pleasant.
