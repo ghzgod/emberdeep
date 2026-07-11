@@ -156,34 +156,59 @@ export function buildTavernInterior() {
   // y=2.55 rafters sliced across the view and read as mid-room walls that
   // blocked sight of the table areas.
 
-  // Recessed window openings on the side + entry walls, matching the
-  // exterior facade's fenestration (2 flanking the front door, 2 per long
-  // side) so the room isn't the solid, windowless box the user reported —
-  // rotating the camera to where an outside window sits now finds a real
-  // framed opening in here too, instead of a blank wall.
+  // Window openings you can SEE OUTSIDE through (Obsidian 721, replacing the
+  // opaque amber panes): the tavern interior is its own scene - there is no
+  // real town geometry beyond these walls to cut a hole to - so each larger
+  // opening holds a small painted daylight diorama (sky, meadow, tree line)
+  // recessed behind the frame. Self-lit (MeshBasic) so it reads as bright
+  // outdoors against the firelit room; each window's view is seeded so
+  // neighbouring windows don't show the identical postcard. Layout still
+  // matches the exterior facade's fenestration (2 flanking the front door,
+  // 2 per long side).
+  const makeWindowViewTexture = (seed) => {
+    const c = document.createElement('canvas');
+    c.width = 128; c.height = 128;
+    const g = c.getContext('2d');
+    const sky = g.createLinearGradient(0, 0, 0, 96);
+    sky.addColorStop(0, '#8fb2dd'); sky.addColorStop(1, '#cfdcea');
+    g.fillStyle = sky; g.fillRect(0, 0, 128, 96);
+    g.fillStyle = '#5d8a48'; g.fillRect(0, 88, 128, 40); // meadow
+    let s = seed >>> 0;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
+    for (let i = 0; i < 3; i++) { // distant tree line
+      const tx = 10 + rnd() * 108, th = 18 + rnd() * 16, tw = 14 + rnd() * 10;
+      g.fillStyle = '#3a5c30';
+      g.beginPath(); g.ellipse(tx, 88 - th * 0.5, tw * 0.5, th * 0.5, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#4a3826'; g.fillRect(tx - 1.5, 88 - th * 0.25, 3, th * 0.3);
+    }
+    g.fillStyle = 'rgba(255,255,255,0.65)'; // a soft cloud
+    g.beginPath(); g.ellipse(30 + rnd() * 70, 22 + rnd() * 18, 16, 6, 0, 0, Math.PI * 2); g.fill();
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  };
+  let winSeed = 11;
   const mkWindow = (x, z, roty) => {
     const grp = new THREE.Group();
-    // a darker recessed reveal set back into the wall gives the opening real
-    // depth instead of reading as a flat decal
-    const reveal = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.86, 0.1),
+    // deep reveal box gives the opening real wall thickness
+    const reveal = new THREE.Mesh(new THREE.BoxGeometry(1.46, 1.26, 0.12),
       new THREE.MeshStandardMaterial({ color: 0x241a12, roughness: 1 }));
-    reveal.position.z = -0.04;
+    reveal.position.z = -0.1;
     grp.add(reveal);
-    // warm amber pane (reads as the firelit room's glow reflected back, or a
-    // warm night sky outside — either way, alive, not a black hole)
-    const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6),
-      new THREE.MeshStandardMaterial({ color: 0xffb45e, emissive: 0xff8a2a, emissiveIntensity: 0.55, roughness: 0.6 }));
-    pane.position.z = 0.005;
-    grp.add(pane);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.08, 0.12), darkWood); top.position.y = 0.35;
-    const bot = top.clone(); bot.position.y = -0.35;
-    const l = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.78, 0.12), darkWood); l.position.x = -0.35;
-    const r = l.clone(); r.position.x = 0.35;
+    // the "outside": a painted daylight view recessed behind the frame
+    const view = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.1),
+      new THREE.MeshBasicMaterial({ map: makeWindowViewTexture(winSeed = (winSeed * 7 + 13) >>> 0) }));
+    view.position.z = -0.03;
+    grp.add(view);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.09, 0.14), darkWood); top.position.y = 0.6;
+    const bot = top.clone(); bot.position.y = -0.6;
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.3, 0.14), darkWood); l.position.x = -0.69;
+    const r = l.clone(); r.position.x = 0.69;
     grp.add(top, bot, l, r);
-    const mV = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.6, 0.04), darkWood); mV.position.z = 0.02;
-    const mH = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.04), darkWood); mH.position.z = 0.02;
+    const mV = new THREE.Mesh(new THREE.BoxGeometry(0.045, 1.1, 0.045), darkWood); mV.position.z = 0.03;
+    const mH = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.045, 0.045), darkWood); mH.position.z = 0.03;
     grp.add(mV, mH);
-    grp.position.set(x, 1.55, z); grp.rotation.y = roty;
+    grp.position.set(x, 1.7, z); grp.rotation.y = roty;
     group.add(grp);
   };
   // west wall (2, spaced away from the lantern at 3.5*TILE)
