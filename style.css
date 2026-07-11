@@ -978,6 +978,50 @@ body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster
   content: ''; position: absolute; top: 1px; right: 2px; width: 13px; height: 13px;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e04444' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 6.5h15'/%3E%3Cpath d='M8.5 6.5V5a1.5 1.5 0 0 1 1.5-1.5h4A1.5 1.5 0 0 1 15.5 5v1.5'/%3E%3Cpath d='M6.5 6.5 7.3 19a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12.5'/%3E%3Cpath d='M10 10.5v6M14 10.5v6'/%3E%3C/svg%3E") center / contain no-repeat;
 }
+/* ---------- Desktop two-pane inventory (TODO 708) ----------
+   Below 941px, and always in touch-mode (handset/tablet), the doll + stats +
+   bag grid stack vertically with page scroll (see the small-screens queries
+   below). On a real desktop viewport that stack forces scrolling for no
+   reason, so reflow into two columns instead: left = paper-doll + Offense/
+   Defense stats stacked; right = the bag grid, widened to 6 columns and
+   spanning the full height of the left column so nothing needs to scroll.
+   grid-template-areas repeats "grid" across the doll/stats rows - CSS grid
+   treats a repeated area name as one rectangular span, so #inv-grid runs the
+   full left-column height automatically without an extra wrapper element. */
+@media (min-width: 941px) {
+  body:not(.touch-mode) #inventory-screen.visible {
+    display: grid;
+    grid-template-columns: 440px minmax(460px, 640px);
+    grid-template-rows: auto auto 1fr auto auto;
+    grid-template-areas:
+      "heading heading"
+      "doll    grid"
+      "stats   grid"
+      "actions actions"
+      "hint    hint";
+    column-gap: 44px;
+    row-gap: 14px;
+    align-items: start;
+    justify-content: center;
+    padding-top: 5vh;
+  }
+  body:not(.touch-mode) #inventory-screen.visible > .screen-heading { grid-area: heading; width: 100%; text-align: center; }
+  body:not(.touch-mode) #inventory-screen.visible #paperdoll { grid-area: doll; margin: 0; }
+  body:not(.touch-mode) #inventory-screen.visible #inv-stats { grid-area: stats; margin: 0; }
+  body:not(.touch-mode) #inventory-screen.visible .inv-grid {
+    grid-area: grid;
+    align-content: start;
+    justify-content: start;
+    grid-template-columns: repeat(6, 68px);
+    gap: 12px;
+  }
+  /* #inv-btn-row (Drop all commons / bulk destroy) is appended by ui.js as a
+     sibling after .inv-grid; without a named area it falls into the grid's
+     implicit auto-placement and strands itself under the doll column. */
+  body:not(.touch-mode) #inventory-screen.visible > #inv-btn-row { grid-area: actions; justify-self: center; margin-top: 0 !important; }
+  body:not(.touch-mode) #inventory-screen.visible > .hint { grid-area: hint; text-align: center; margin-top: 0; }
+}
+
 /* Action-coded button borders (ClaudeCraft brief): equip green, neutral/drop
    gold, destructive red. Text-only labels, centered - no icons inside these
    buttons (icons offset lettering). Fill/shadow/hover/press inherit .menu-btn. */
