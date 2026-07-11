@@ -1328,13 +1328,16 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       // back wall + shelf of goods behind the keeper
       const backWall = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.7, 0.08), woodMat);
       backWall.position.set(0, 0.85, -0.9);
+      // Shelf raised above the keeper's head (Obsidian 726: at 1.25 it cut
+      // straight through their face when the amble drifted toward the back
+      // wall - see also the roam z clamp in updateVendors, game.js).
       const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.05, 0.3), darkWoodMat);
-      shelf.position.set(0, 1.25, -0.78);
+      shelf.position.set(0, 1.62, -0.78);
       const shelfGoods = new THREE.Group();
       for (let i = 0; i < 4; i++) {
         const gb = new THREE.Mesh(new THREE.BoxGeometry(0.22 + (i % 2) * 0.08, 0.18 + (i % 3) * 0.05, 0.2),
           new THREE.MeshStandardMaterial({ color: [0x7a5a3a, 0x4a5a6a, 0x6a4a5a, 0x5a6a4a][i], roughness: 0.9 }));
-        gb.position.set(-0.8 + i * 0.55, 1.37, -0.78);
+        gb.position.set(-0.8 + i * 0.55, 1.74, -0.78);
         shelfGoods.add(gb);
       }
       // four corner posts carry the awning

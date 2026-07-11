@@ -744,8 +744,10 @@ export class Game {
       const roam = v._roam || (v._roam = { target: home.clone(), idle: 1 + Math.random() * 2 });
 
       const dx = p.pos.x - (v.wx + k.position.x), dz = p.pos.z - (v.wz + k.position.z);
-      if (Math.hypot(dx, dz) < 4) {
-        // attentive: stop ambling and turn to face the player
+      // Face the player ONLY while their shop is actually open (Obsidian 726:
+      // town NPCs must not swivel at mere proximity - they turn when the
+      // interaction button is clicked, i.e. openShop sets activeVendor).
+      if (this.activeVendor === v && this.state === 'shop') {
         const faceYaw = Math.atan2(dx, dz);
         k.rotation.y += wrapAngle(faceYaw - k.rotation.y) * Math.min(1, dt * 4);
         k.position.y = home.y + Math.abs(Math.sin(this._vt * 1.1)) * 0.02;
@@ -761,10 +763,12 @@ export class Game {
           // clamp inside the rebuilt booth shell: side panels at local x +/-1.2,
           // back wall at z=-0.9, counter at z=+0.3 (keeperSideZ handles that
           // side) - so the amble never walks the keeper through the booth.
+          // z floor -0.45 (was -0.68): stay clear of the back-wall shelf's
+          // front edge so goods never intersect the keeper's head (726).
           roam.target.set(
             Math.max(-0.95, Math.min(0.95, home.x + Math.cos(a) * rad)),
             home.y,
-            Math.max(-0.68, Math.min(home.z + Math.sin(a) * rad, keeperSideZ)));
+            Math.max(-0.45, Math.min(home.z + Math.sin(a) * rad, keeperSideZ)));
           roam.idle = 1.5 + Math.random() * 2.5;
         }
       } else {
@@ -3770,8 +3774,12 @@ export class Game {
     } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story', 'notices', 'chatlog'].includes(this.state)) {
       // world is frozen; still render + light flicker for life
       this.updateTorches(dt, true);
-      // the vendor-facing camera ease keeps moving while the shop is open
-      if (this.state === 'shop' && this.player) this.updateCameraFollow(dt);
+      // the vendor-facing camera ease keeps moving while the shop is open,
+      // and so does the KEEPER's own turn toward the customer (Obsidian 726:
+      // vendors only face the player once the shop is open, and that facing
+      // is driven by updateVendors, which the frozen world would otherwise
+      // stop right when it matters).
+      if (this.state === 'shop' && this.player) { this.updateCameraFollow(dt); if (this.inTown && !this.inTavern) this.updateVendors(dt); }
       if (net.active) this.netFrozenTick(dt);
       if (this.state === 'chatlog' && this.input.wasPressed('Escape')) { this.state = 'playing'; this.ui.hideAll(); }
       if (this.state === 'inventory' && this.input.wasPressed('Escape') && this.ui.selectedItem) {
