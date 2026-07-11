@@ -10,3 +10,12 @@ shots/
 
 # local design specs — not published
 docs/superpowers/specs/
+
+# local verification artifacts (screenshots/harness scripts dropped in the repo root)
+verify-*.png
+verify_*.png
+verify_*.mjs
+emberdeep_check*.png
+fenwick-*.png
+cobweb*.txt
+bs
