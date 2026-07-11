@@ -364,6 +364,21 @@ function anchorToHeadBone(mesh, obj) {
   bone.attach(obj);
 }
 
+// Same attach() move for BODY-worn gear (Obsidian 725): the procedural gear
+// visuals (robe skirt, breastplate, tabard...) were parented to the hero
+// ROOT, so they sat frozen in rig space while the skinned body bobbed and
+// leaned through the walk cycle - the robe waist band visibly "not moving
+// with the player". Riding the hips/spine bone gives them the body's own
+// bounce/turn. Exported for updateHeroGear (game.js).
+export function anchorToBodyBone(mesh, obj) {
+  let bone = null;
+  mesh.traverse((o) => { if (!bone && o.isBone && /hips|pelvis|spine|torso|body/i.test(o.name)) bone = o; });
+  if (!bone) return false;
+  mesh.updateMatrixWorld(true);
+  bone.attach(obj);
+  return true;
+}
+
 function addEyeDiscs(mesh, headMesh, hex) {
   if (!headMesh) return;
   headMesh.geometry.computeBoundingBox();

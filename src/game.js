@@ -9,7 +9,7 @@ import { themeForFloor, actOfFloor, actFloorOf, makeGlowTexture } from './world/
 import { Player, xpForLevel } from './entities/player.js';
 import { Enemy, Boss, ENEMY_TYPES, ACT_BOSSES, buildEnemyMesh, buildBossMesh, resetEnemyAnimBudget } from './entities/enemies.js';
 import { attachEnemyModel, typeModelKey, bossModelKey } from './entities/enemyModel.js';
-import { buildAnimatedHero, tintHoodedHeadMap } from './entities/heroModel.js';
+import { buildAnimatedHero, tintHoodedHeadMap, anchorToBodyBone } from './entities/heroModel.js';
 import { CLASSES, buildHeroMesh } from './entities/classes.js';
 import { ProjectileSystem } from './entities/projectiles.js';
 import { LootSystem, generateGear, rollRarity, sellValue, gambleItem, dropLegendary, RARITIES, newItemId, WEAPON_ELEMENTS } from './entities/loot.js';
@@ -1970,7 +1970,9 @@ export class Game {
     const sig = classId + '|' + slots.map((s) => equipped[s]?.id ?? '-').join(',');
     if (mesh.userData.gearSig === sig) return;
     mesh.userData.gearSig = sig;
-    if (mesh.userData.gearVisual) { mesh.remove(mesh.userData.gearVisual); mesh.userData.gearVisual = null; }
+    // Remove via the ACTUAL parent: since Obsidian 725 the gear group rides a
+    // body bone (anchorToBodyBone below), so mesh.remove() would miss it.
+    if (mesh.userData.gearVisual) { mesh.userData.gearVisual.parent?.remove(mesh.userData.gearVisual); mesh.userData.gearVisual = null; }
     // The rogue's hood is its default headgear (split off from the head mesh so
     // it can toggle). A helmet covers the same crown, so hide the hood when one
     // is equipped and show it again when it comes off - but ONLY for classes
@@ -2613,6 +2615,11 @@ export class Game {
       grp.add(glow);
     }
     mesh.add(grp);
+    // Ride the body animation (Obsidian 725): root-parented gear sat frozen
+    // while the skinned body bobbed through the walk cycle - the mage robe's
+    // waist band was the visible offender. attach() preserves the world
+    // placement, so all the rig-space positions above stay correct.
+    anchorToBodyBone(mesh, grp);
     mesh.userData.gearVisual = grp;
     // Hand the collected hat-tip/hem/cloak refs to the per-frame sway animator
     // (see animateGearSway). Discarded and rebuilt whenever gear changes.
