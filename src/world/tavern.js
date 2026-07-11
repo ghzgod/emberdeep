@@ -229,27 +229,36 @@ export function buildTavernInterior() {
   // untouched — this only dresses its edges.
   const gapWidth = DOOR_GAP_W; // matches exit tile (8, 10) — see DOOR_GAP_W above
   const gapZ = H * TILE - TILE / 2;
-  const jambGeo = new THREE.BoxGeometry(0.16, wallH, 0.3);
-  const jambL = new THREE.Mesh(jambGeo, darkWood); jambL.position.set(gapCenterX - gapWidth / 2, wallH / 2, gapZ);
+  // Coplanarity rule (Obsidian 739): every frame piece keeps its top a
+  // visible margin BELOW the wall top - the old jambs/header ended exactly
+  // AT wallH, coplanar with the wall's own top face, which z-fought as a
+  // stuttering line from the overhead leaving angle.
+  const jambH = wallH - 0.06;
+  const jambGeo = new THREE.BoxGeometry(0.16, jambH, 0.3);
+  const jambL = new THREE.Mesh(jambGeo, darkWood); jambL.position.set(gapCenterX - gapWidth / 2, jambH / 2, gapZ);
   const jambR = jambL.clone(); jambR.position.x = gapCenterX + gapWidth / 2;
   const header = new THREE.Mesh(new THREE.BoxGeometry(gapWidth + 0.32, 0.2, 0.3), darkWood);
-  header.position.set(gapCenterX, wallH - 0.1, gapZ);
+  header.position.set(gapCenterX, wallH - 0.24, gapZ);
   group.add(jambL, jambR, header);
-  // door leaf, hinged at the west jamb and swung open into the room so it
-  // reads as a real door without blocking the walkway
-  const leafH = wallH - 0.3, leafW = gapWidth / 2 - 0.1;
-  const leafPivot = new THREE.Group();
-  leafPivot.position.set(gapCenterX - gapWidth / 2, 0, gapZ - 0.14);
-  // folded back against the inner wall (was -1.3, which swung the leaf out
-  // into the entrance walkway - the "glitchy plank by the entrance" report)
-  leafPivot.rotation.y = -2.95;
-  const leaf = new THREE.Mesh(new THREE.BoxGeometry(leafW, leafH, 0.08), darkWood);
-  leaf.position.set(leafW / 2, leafH / 2, 0);
-  const leafHandle = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8),
+  // CLOSED door leaf filling the gap at the wall's outer side (739: the old
+  // folded-open leaf left the doorway showing raw void from above - the
+  // "transparent door"). It sits ~2 units beyond the exit tile the player
+  // stands on, so nothing ever clips it, and the leave-interaction plays its
+  // door_open sound as before - the door just reads shut until you use it.
+  const leafH = wallH - 0.35;
+  const leaf = new THREE.Mesh(new THREE.BoxGeometry(gapWidth - 0.06, leafH, 0.1), darkWood);
+  leaf.position.set(gapCenterX, leafH / 2, gapZ + 0.8);
+  // plank lines: two vertical grooves so it reads as boards, not a slab
+  for (const gx of [-gapWidth / 6, gapWidth / 6]) {
+    const groove = new THREE.Mesh(new THREE.BoxGeometry(0.03, leafH - 0.1, 0.11),
+      new THREE.MeshStandardMaterial({ color: 0x33261a, roughness: 1 }));
+    groove.position.set(gapCenterX + gx, leafH / 2, gapZ + 0.8);
+    group.add(groove);
+  }
+  const leafHandle = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8),
     new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.35 }));
-  leafHandle.position.set(leafW - 0.15, leafH / 2, 0.06);
-  leafPivot.add(leaf, leafHandle);
-  group.add(leafPivot);
+  leafHandle.position.set(gapCenterX + gapWidth / 2 - 0.3, 1.1, gapZ + 0.72);
+  group.add(leaf, leafHandle);
 
   // ---- amber threshold glow just outside the gap: from inside, the exit
   // was a plain dark opening with nothing lit beyond it — a black hole (user
