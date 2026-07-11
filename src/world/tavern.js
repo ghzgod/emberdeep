@@ -823,6 +823,94 @@ export function buildTavernInterior() {
     patronMeshes.push({ mesh: patron, x: px, z: pz, drunk: def.name === 'drunk' });
   }
 
+  // ---- rotating visitors (Obsidian 722): every minute or two a different
+  // townsperson WALKS IN through the door, lingers at the bar or a table
+  // for a while (glancing at anyone nearby), then walks back out and leaves.
+  // One visitor at a time, purely client-side ambience (shows identically in
+  // single player and multiplayer), self-contained in a smokePuffs driver
+  // like Magda's amble. Bodies come from the same townsfolk builder, with a
+  // look rotation so consecutive visitors differ. ----
+  {
+    const VISITOR_LOOKS = [
+      { cls: 'drifter', gender: 'male', skin: 'tan' },
+      { cls: 'scout', gender: 'female', skin: 'light' },
+      { cls: 'villager', gender: 'male', skin: 'fair' },
+      { cls: 'cleric', gender: 'female', skin: 'tan' },
+    ];
+    const doorSpot = tileToWorld(8, 9.4);
+    const LINGER_SPOTS = [
+      { x: tileToWorld(12, 8).x - 1.3, z: tileToWorld(12, 8).z + 0.7, faceX: tileToWorld(12, 8).x, faceZ: tileToWorld(12, 8).z }, // beside the right table
+      { x: tileToWorld(6.5, 2).x + 1, z: tileToWorld(6.5, 2).z + 1.9, faceX: tileToWorld(6.5, 2).x + 1, faceZ: tileToWorld(6.5, 2).z }, // at the bar front
+      { x: tileToWorld(3, 8).x + 1.4, z: tileToWorld(3, 8).z - 0.6, faceX: tileToWorld(3, 8).x, faceZ: tileToWorld(3, 8).z }, // beside the left table
+      { x: tileToWorld(14, 6).x - 2.5, z: tileToWorld(14, 6).z + 0.8, faceX: tileToWorld(14, 6).x, faceZ: tileToWorld(14, 6).z }, // warming by the hearth (723)
+    ];
+    const vs = { mode: 'idle', waitT: 35 + Math.random() * 40, npc: null, group: null, spot: null, lookIdx: Math.floor(Math.random() * VISITOR_LOOKS.length) };
+    const VSPEED = 1.1;
+    const walkToward = (grp, tx, tz, dt) => {
+      const dx = tx - grp.position.x, dz = tz - grp.position.z;
+      const dist = Math.hypot(dx, dz);
+      const step = Math.min(dist, VSPEED * dt);
+      if (dist > 1e-4) {
+        grp.position.x += (dx / dist) * step;
+        grp.position.z += (dz / dist) * step;
+        grp.rotation.y = Math.atan2(dx, dz);
+      }
+      return dist - step;
+    };
+    const visitorDriver = {
+      kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1, _phase: 0,
+      get phase() { return this._phase; },
+      set phase(v) {
+        const dt = Math.min(0.1, Math.max(0, v - this._phase));
+        this._phase = v;
+        if (vs.mode === 'idle') {
+          vs.waitT -= dt;
+          if (vs.waitT <= 0) {
+            const look = VISITOR_LOOKS[vs.lookIdx = (vs.lookIdx + 1) % VISITOR_LOOKS.length];
+            const npc = buildNpcModel(look.cls, 'Visitor', { gender: look.gender, skinTone: look.skin });
+            if (!npc) { vs.waitT = 30; return; } // model not loaded yet; try later
+            vs.npc = npc;
+            vs.group = npc.mesh;
+            vs.group.position.set(doorSpot.x, 0, doorSpot.z + 0.6);
+            group.add(vs.group);
+            vs.spot = LINGER_SPOTS[Math.floor(Math.random() * LINGER_SPOTS.length)];
+            vs.mode = 'in';
+          }
+          return;
+        }
+        const prevX = vs.group.position.x, prevZ = vs.group.position.z;
+        if (vs.mode === 'in') {
+          if (walkToward(vs.group, vs.spot.x, vs.spot.z, dt) < 0.05) {
+            vs.mode = 'linger';
+            vs.waitT = 25 + Math.random() * 30;
+            vs.group.rotation.y = Math.atan2(vs.spot.faceX - vs.spot.x, vs.spot.faceZ - vs.spot.z);
+          }
+        } else if (vs.mode === 'linger') {
+          vs.waitT -= dt;
+          const hero = nearestHero(vs.group, 5);
+          if (hero) vs.npc.lookAt(hero.x, hero.z); else vs.npc.lookAt(null);
+          if (vs.waitT <= 0) vs.mode = 'out';
+        } else if (vs.mode === 'out') {
+          if (walkToward(vs.group, doorSpot.x, doorSpot.z + 0.8, dt) < 0.05) {
+            group.remove(vs.group);
+            // materials are per-instance clones; geometry is shared with the
+            // preloaded rigs and must NOT be disposed (same rule as the
+            // char-select preview teardown)
+            vs.group.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material)) o.material.dispose(); });
+            vs.npc = null; vs.group = null;
+            vs.mode = 'idle';
+            vs.waitT = 50 + Math.random() * 60;
+            return;
+          }
+        }
+        const moved = Math.hypot(vs.group.position.x - prevX, vs.group.position.z - prevZ);
+        vs.npc.tick(dt, dt > 0 ? moved / dt : 0);
+      },
+    };
+    visitorDriver._vs = vs; // exposed for headless verification probes
+    smokePuffs.push(visitorDriver);
+  }
+
   // ---- stone hearth with living fire, a mantel and a chimney breast ----
   const hearth = new THREE.Group();
   const stoneTexV = stoneTex.clone(); stoneTexV.needsUpdate = true; stoneTexV.repeat.set(1, 2);
