@@ -118,6 +118,28 @@ export class TouchControls {
       const slot = document.getElementById(id)?.querySelector('.util-icon');
       if (slot) slot.innerHTML = svgIcon(key);
     }
+    // Desktop hotkey chips (Obsidian 742): the potion bubble already wears
+    // its gold key chip, but the utility bubbles showed none - give each the
+    // same .act-key badge (live keybinds where one exists, ESC for settings).
+    // Touch devices have no keyboard, so skip there, same rule as the potion.
+    if (!document.body.classList.contains('touch-mode')) {
+      const kb = game.settings?.keybinds || {};
+      const label = (code) => !code ? '' : code === 'Escape' ? 'ESC' : code === 'Tab' ? 'TAB' : code.replace(/^Key|^Digit/, '');
+      const utilKeys = {
+        'touch-inv': label(kb.inventory || 'Tab'),
+        'touch-mic': label(kb.talk || 'KeyV'),
+        'touch-pause': 'ESC',
+      };
+      for (const [id, key] of Object.entries(utilKeys)) {
+        const el = document.getElementById(id);
+        if (el && key && !el.querySelector('.act-key')) {
+          const chip = document.createElement('span');
+          chip.className = 'act-key';
+          chip.textContent = key;
+          el.appendChild(chip);
+        }
+      }
+    }
 
     // touch buttons
     const bind = (id, fn) => {
