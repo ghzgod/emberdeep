@@ -4861,6 +4861,42 @@ export class Game {
       audio.setFireCrackleLevel(Math.max(0.06, Math.min(1, 2.2 / Math.max(1, d - 0.5))));
     }
 
+    // Ambient table-talk (Obsidian 718): every so often the regulars hold a
+    // short exchange with each other - three distinct voices, one turn at a
+    // time, each line anchored (bubble + caption) at its actual speaker.
+    // Turns wait for the previous line's audio to finish (npcSpeechActive)
+    // plus a small beat, and the whole thing yields instantly to any player
+    // conversation (talk prompts already gate on npcSpeechActive too).
+    if (this.inTavern && roaster.enabled) {
+      const speakerOf = (who) => {
+        if (who === 'magda') return { name: 'Magda', cast: { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, pos: this.dungeonMeshes.barkeepPos };
+        const pm = (this.dungeonMeshes.patronMeshes || []).find((p) => (who === 'drunk') === !!p.drunk);
+        if (!pm) return null;
+        return who === 'drunk'
+          ? { name: 'Tipsy Regular', cast: { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82 }, pos: pm }
+          : { name: 'Tavern Patron', cast: { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 }, pos: pm };
+      };
+      if (this._tavernConvo) {
+        this._convoGap -= dt;
+        if (this._convoGap <= 0 && !this.npcSpeechActive()) {
+          const turn = this._tavernConvo[this._convoIdx++];
+          if (!turn) { this._tavernConvo = null; this._convoT = 25 + Math.random() * 25; }
+          else {
+            const spk = speakerOf(turn.who);
+            if (spk) roaster.sayGated(this, spk.name, turn.text, spk.cast, spk.pos, { durationMs: 3400 });
+            this._convoGap = 1.2 + Math.random() * 0.8;
+          }
+        }
+      } else {
+        this._convoT = (this._convoT ?? 14) - dt;
+        if (this._convoT <= 0 && !this.npcSpeechActive()) {
+          this._tavernConvo = roaster.composeTavernConvo();
+          this._convoIdx = 0;
+          this._convoGap = 0;
+        }
+      }
+    } else if (this._tavernConvo) { this._tavernConvo = null; }
+
     // tavern smoke + hearth idle animation data from the mesh builder
     const puffs = this.dungeonMeshes.smokePuffs;
     if (puffs?.length) {

@@ -343,6 +343,40 @@ export class Roaster {
     } catch { hooks.onCancel?.(); }
   }
 
+  // ---- tavern table-talk (Obsidian 718) ----
+  // The three regulars hold short exchanges WITH EACH OTHER, each with a
+  // fixed personality: Magda the warm, teasing innkeeper; the Tavern Patron,
+  // a sharp-tongued traveling herbalist with an ear for gossip; and the
+  // Tipsy Regular, a cheerfully drunk teller of tall tales. Each turn offers
+  // line VARIANTS (same template-variation approach as composeVendorLine) so
+  // a replayed exchange doesn't repeat verbatim. In full-AI mode the turns
+  // play through each speaker's own Kokoro voice; battery saver runs the
+  // same conversation trees through the gendered Web Speech voices instead.
+  composeTavernConvo() {
+    const C = [
+      [['drunk', ["I swear the golem on the sign winked at me.", "That sign golem just winked. I saw it."]],
+       ['patron', ["That's the ale winking, dear.", "Sure it did. And my herbs sing lullabies."]],
+       ['magda', ["If the sign starts buying rounds, I'll worry.", "Long as it doesn't ask for a tab, we're fine."]]],
+      [['patron', ["Roads past the mill are crawling with imps again.", "Imps by the mill road again - thick as flies."]],
+       ['magda', ["Third traveler to say so this week.", "Aye, everyone's saying it. Bad season."]],
+       ['drunk', ["Imps? Wrestled one once. Tiny arms. Strong opinions.", "I fought an imp once. We're friends now. Sort of."]]],
+      [['magda', ["That's your third since noon, love.", "Your mug's emptier than my cellar again."]],
+       ['drunk', ["Counting's for tax men, Magda!", "A wizard told me ale counts as bread."]],
+       ['patron', ["He'll be singing by sundown.", "Somebody hide the lute before he finds it."]]],
+      [['magda', ["Hearth's drawing nice tonight.", "Fire's behaving itself for once."]],
+       ['patron', ["Best seat in Embervale, that couch.", "I'd trade my cart for an evening on that couch."]],
+       ['drunk', ["I called it first! ...where's my mug.", "That couch and I have an understanding."]]],
+      [['patron', ["Fenwick was shouting at the well again.", "Old Fenwick's arguing with the well. Again."]],
+       ['magda', ["He shouts at everything. Last week it was a chicken.", "The well never answers back. That's why he likes it."]],
+       ['drunk', ["The chicken started it.", "In his defense, that chicken had a look."]]],
+      [['drunk', ["One more floor, then I retire. I always say that.", "Someday I'll clear a floor myself. Someday."]],
+       ['magda', ["You've never set foot below, Bram.", "The closest you've been to the dungeon is the cellar."]],
+       ['patron', ["The stairs don't count, love.", "Falling down the cellar steps isn't delving."]]],
+    ];
+    const convo = C[Math.floor(Math.random() * C.length)];
+    return convo.map(([who, variants]) => ({ who, text: variants[Math.floor(Math.random() * variants.length)] }));
+  }
+
   // Show an animated ellipsis above the speaker (anchor) the instant a line is
   // queued, then swap it for the real caption the moment audio actually starts
   // playing -- never both at once, and never the caption before the voice.
