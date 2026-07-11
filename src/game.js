@@ -1135,6 +1135,7 @@ export class Game {
 
   openShop(vendor) {
     this.activeVendor = vendor;
+    vendor._shopOpen = true; // keeper head-glance gate (740, read in meshbuilder)
     this.state = 'shop';
     // Vendor-facing camera: ease camYaw so the camera sits behind the player
     // looking toward the vendor (the keeper turns to face the player, so this
@@ -1196,6 +1197,7 @@ export class Game {
   }
 
   closeShop() {
+    if (this.activeVendor) this.activeVendor._shopOpen = false; // release the glance gate (740)
     this.activeVendor = null;
     // release the vendor-facing turn: ease back to where the camera was
     if (this._preShopYaw !== undefined) {
@@ -3829,7 +3831,21 @@ export class Game {
     }
 
     this.ui.floaters.update(dt);
-    this.renderer.render(this.scene, this.camera);
+    // Idle render throttle (Obsidian 741): standing in town/tavern doing
+    // nothing renders every OTHER frame - the scene is near-static, so this
+    // halves steady-state GPU while "just chilling". Any input, movement,
+    // camera drag or ease snaps back to full rate the very next frame (the
+    // throttle only ever inserts a single skipped frame at a time, which is
+    // imperceptible even for the hearth fire).
+    const p_ = this.player;
+    const idleEligible = this.inTown && this.state === 'playing' && p_
+      && Math.abs(p_.moveDir.x) < 0.01 && Math.abs(p_.moveDir.z) < 0.01
+      && !this.input.mouse.down && !this.touch.joyActive && !this._yawEase;
+    this._idleT = idleEligible ? (this._idleT || 0) + dt : 0;
+    this._frameNo = (this._frameNo || 0) + 1;
+    if (!(this._idleT > 8 && this._frameNo % 2 === 1)) {
+      this.renderer.render(this.scene, this.camera);
+    }
     this.input.endFrame();
   }
 

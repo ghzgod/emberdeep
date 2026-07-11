@@ -75,9 +75,13 @@ export class Wanderer {
     // advance the modeled rig's idle animation (no-op for the box fallback)
     if (this.npc) this.npc.tick(dt);
 
+    // Face/track the player ONLY while a conversation is active (Obsidian
+    // 740, same rule as vendors 726 / tavern folk 735): speakTo stamps
+    // talkUntil; outside that window Fenwick minds his own wandering.
+    const talking = performance.now() < (this.talkUntil || 0);
     let moved = false;
-    if (dToPlayer < 3) {
-      // stop and face the hero — he only speaks when spoken to (interact prompt)
+    if (talking && dToPlayer < 6) {
+      // stop and face the hero for the exchange he's actually having
       this.target = null;
       this.mesh.rotation.y = Math.atan2(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
     } else {
@@ -110,7 +114,7 @@ export class Wanderer {
     // the mad prophet tracks the player; relax to rest otherwise. Composes on
     // top of the idle clip (see buildNpcModel.lookAt).
     if (this.npc) {
-      if (dToPlayer < 7) this.npc.lookAt(p.pos.x, p.pos.z);
+      if (talking && dToPlayer < 7) this.npc.lookAt(p.pos.x, p.pos.z);
       else this.npc.lookAt(null);
     }
   }
@@ -131,6 +135,7 @@ export class Wanderer {
   speakTo(game) {
     if (this.speakCooldown > 0) return;
     this.speakCooldown = 2.5;
+    this.talkUntil = performance.now() + 7000; // he faces you only for this exchange (740)
     const line = this.composeLine(game);
     roaster.sayGated(game, 'Old Fenwick', line, CAST, this.pos, { durationMs: 5000 });
   }

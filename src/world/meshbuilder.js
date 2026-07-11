@@ -1504,11 +1504,12 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
         // model feet sit at the keeper's local origin (ground), same as the
         // box keeper stood; the counter (0.8 tall) is in front of it.
         keeper.add(npc.mesh);
-        // Drive the model's idle mixer every frame through the smokePuffs tick
-        // (no game.js changes). With no explicit target the driver defaults to
-        // the nearest-hero glance (nearestHeroTarget), so the keeper's head
-        // tracks a close-by player on top of the body yaw updateVendors does.
-        pushNpcAnimDriver(smokePuffs, npc, null);
+        // Drive the model's idle mixer every frame through the smokePuffs
+        // tick (no game.js changes). Head-glance is gated on the shop being
+        // OPEN (Obsidian 740 - Torvald was still eye-tracking passersby even
+        // after 726 gated the body-turn): openShop/closeShop stamp
+        // v._shopOpen on this same vendor entry.
+        pushNpcAnimDriver(smokePuffs, npc, () => (v._shopOpen ? nearestHeroTarget(npc.mesh) : null));
       }
 
       // Keeper stands in the booth's open middle - behind the counter (front
