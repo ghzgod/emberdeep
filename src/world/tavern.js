@@ -115,7 +115,7 @@ export function buildTavernInterior() {
     group.add(m);
     // wainscot: a thin waist-high board panel on the inner face of the wall
     const wt = boardTex.clone(); wt.needsUpdate = true;
-    wt.repeat.set(horizontal ? w / TILE : d / TILE, 1);
+    wt.repeat.set((horizontal ? w : d) / TILE, 1);
     const wainMat = new THREE.MeshStandardMaterial({ map: wt, roughness: 0.85 });
     const panelT = 0.08; // panel thickness (along the wall's short axis)
     // Clearance off the wall's inner face: without this the panel's outer
@@ -125,8 +125,15 @@ export function buildTavernInterior() {
     // of real standoff (not a coplanar polygon-offset trick) fixes it for
     // good at any zoom/angle.
     const WALL_GAP = 0.03;
+    // Corner inset (Obsidian 751): full-length wainscot runs ended exactly
+    // ON the wall's own end planes and CROSSED the perpendicular wall's
+    // wainscot at room corners - both coplanar/overlap cases z-fought as a
+    // glitchy shimmer right at the corner tips (worst by the door gap).
+    // Every run now stops 1.05 short of each end, clear of any corner.
+    const wainLen = (horizontal ? w : d) - 2.1;
+    if (wainLen < 0.5) return;
     const wain = new THREE.Mesh(
-      new THREE.BoxGeometry(horizontal ? w : panelT, wainH, horizontal ? panelT : d), wainMat);
+      new THREE.BoxGeometry(horizontal ? wainLen : panelT, wainH, horizontal ? panelT : wainLen), wainMat);
     // seat the panel just proud of the wall's inner face, toward room center
     const dir = horizontal ? Math.sign((H * TILE) / 2 - z) : Math.sign((W * TILE) / 2 - x);
     // Standoff uses the wall's THICKNESS along its short axis (d for
@@ -450,6 +457,17 @@ export function buildTavernInterior() {
         if (hero) {
           const faceYaw = Math.atan2(hero.x - keeper.position.x, hero.z - keeper.position.z);
           keeper.rotation.y += wrapAngle(faceYaw - keeper.rotation.y) * Math.min(1, dt * 4);
+          tickWalk();
+          return;
+        }
+        // Table-talk (Obsidian 750): while an ambient exchange is running,
+        // face whoever she's trading lines with instead of chatting into
+        // the air. game.js stamps talkGate.magdaLook per turn.
+        const look = talkGate.magdaLook;
+        if (look && performance.now() < look.until) {
+          const faceYaw = Math.atan2(look.x - keeper.position.x, look.z - keeper.position.z);
+          keeper.rotation.y += wrapAngle(faceYaw - keeper.rotation.y) * Math.min(1, dt * 4);
+          barlow.lookAt(look.x, look.z);
           tickWalk();
           return;
         }
@@ -840,10 +858,17 @@ export function buildTavernInterior() {
           pnpc.tick(dt);
           const talking = performance.now() < pmEntry.talkUntil;
           const hero = talking ? nearestHero(pnpc.mesh, 6) : null;
-          if (hero) pnpc.lookAt(hero.x, hero.z); else pnpc.lookAt(null);
+          // Table-talk look target (750): stamped by game.js per exchange
+          // turn so patrons visibly converse WITH someone, not at the air.
+          const lookTo = (pmEntry.lookTo && performance.now() < pmEntry.lookTo.until) ? pmEntry.lookTo : null;
+          if (hero) pnpc.lookAt(hero.x, hero.z);
+          else if (lookTo) pnpc.lookAt(lookTo.x, lookTo.z);
+          else pnpc.lookAt(null);
           const targetYaw = hero
             ? Math.atan2(hero.x - patron.position.x, hero.z - patron.position.z)
-            : seatYaw;
+            : lookTo
+              ? Math.atan2(lookTo.x - patron.position.x, lookTo.z - patron.position.z)
+              : seatYaw;
           patron.rotation.y += wrapAngle(targetYaw - patron.rotation.y) * Math.min(1, dt * 4);
         },
       };
@@ -905,6 +930,7 @@ export function buildTavernInterior() {
             vs.group.position.set(doorSpot.x, 0, doorSpot.z + 0.6);
             group.add(vs.group);
             vs.spot = LINGER_SPOTS[Math.floor(Math.random() * LINGER_SPOTS.length)];
+            vs._greeted = false; // fresh visitor gets a fresh hello (750)
             vs.mode = 'in';
           }
           return;
@@ -962,7 +988,9 @@ export function buildTavernInterior() {
   smokePuffs.push({ mesh: mFlame, baseY: 1.83, phase: 2.4, speed: 4.5, kind: 'fire' });
   const mTankard = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.065, 0.15, 9), new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.6, roughness: 0.4 }));
   mTankard.position.set(-0.1, 1.7, 0.55);
-  const firebox = new THREE.Mesh(new THREE.BoxGeometry(0.34, 1.0, 1.3),
+  // depth trimmed so the dark opening's front face sits a hair INSIDE the
+  // stone surround's face (-0.35) instead of poking past it (748)
+  const firebox = new THREE.Mesh(new THREE.BoxGeometry(0.24, 1.0, 1.3),
     new THREE.MeshBasicMaterial({ color: 0x180c06 }));
   firebox.position.set(-0.22, 0.55, 0);
   const logs = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.9, 6),
@@ -996,25 +1024,35 @@ export function buildTavernInterior() {
   const flameTex = makeFlameTexture();
   const flames = [];
   const FLAME_COLS = [0xffc45e, 0xff9a3a, 0xff7a2a, 0xffd88a, 0xff8a3a];
+  // FLUSH quads, not billboards (Obsidian 748): camera-facing sprites swung
+  // out of the hearth and floated in front of the stone at side-on angles.
+  // These planes live IN the firebox-opening plane (a hair proud of the dark
+  // panel at x -0.39, still behind the stone face at -0.35), so the fire can
+  // never leave the fireplace no matter the camera - edge-on it thins away
+  // exactly like a real opening foreshortens.
+  const FLAME_X = -0.345; // in front of the dark panel (-0.34), inside the stone face (-0.35)
+  const flameQuadGeo = new THREE.PlaneGeometry(1, 1);
   for (let i = 0; i < 5; i++) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: flameTex, color: FLAME_COLS[i], transparent: true,
+    const sp = new THREE.Mesh(flameQuadGeo, new THREE.MeshBasicMaterial({
+      map: flameTex, color: FLAME_COLS[i], transparent: true, side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.9,
     }));
-    const bx = -0.52, bz = (i - 2) * 0.18; // proud of the surround face (-0.35) so the box can't occlude
-    sp.position.set(bx, 0.42, bz);
-    sp.scale.set(0.34 + (i % 2) * 0.1, 0.5 + (i % 3) * 0.12, 1);
+    const bz = (i - 2) * 0.18;
+    sp.position.set(FLAME_X - i * 0.0008, 0.42, bz); // tiny per-flame x stagger so the quads never coplane
+    sp.rotation.y = -Math.PI / 2; // face out of the hearth (-x)
+    sp.scale.set(0.3 + (i % 2) * 0.08, 0.46 + (i % 3) * 0.1, 1);
     hearth.add(sp);
-    flames.push({ sp, bx, bz, baseY: 0.42, baseSx: sp.scale.x, baseSy: sp.scale.y, ph: i * 1.7 });
+    flames.push({ sp, bz, baseY: 0.42, baseSx: sp.scale.x, baseSy: sp.scale.y, ph: i * 1.7 });
   }
   const embers = [];
   for (let i = 0; i < 6; i++) {
-    const em = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: flameTex, color: 0xffb050, transparent: true,
+    const em = new THREE.Mesh(flameQuadGeo, new THREE.MeshBasicMaterial({
+      map: flameTex, color: 0xffb050, transparent: true, side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0,
     }));
     em.scale.set(0.05, 0.05, 1);
-    em.position.set(-0.52, 0.3, 0);
+    em.rotation.y = -Math.PI / 2;
+    em.position.set(FLAME_X, 0.3, 0);
     hearth.add(em);
     embers.push({ em, t: Math.random() * 2, life: 1.2 + Math.random() * 1.2, dx: 0, dz: 0 });
   }
@@ -1043,7 +1081,9 @@ export function buildTavernInterior() {
           e.dx = (Math.random() - 0.5) * 0.12; e.dz = (Math.random() - 0.5) * 0.3;
         }
         const p = e.t / e.life;
-        e.em.position.set(-0.52 + e.dx * p, 0.32 + p * 1.05, e.dz * (0.4 + p));
+        // embers rise IN the opening plane (748): x pinned at the quad plane,
+        // capped rise so they fade before the opening's top edge
+        e.em.position.set(FLAME_X + e.dx * p * 0.05, 0.32 + p * 0.55, e.dz * (0.4 + p));
         e.em.material.opacity = p < 0.15 ? p / 0.15 * 0.85 : 0.85 * (1 - (p - 0.15) / 0.85);
         const s = 0.05 * (1 - p * 0.5);
         e.em.scale.set(s, s, 1);
