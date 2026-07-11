@@ -724,8 +724,10 @@ export class UI {
     renderer.setSize(w, h, false);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(34, w / h, 0.1, 30);
-    camera.position.set(0, 1.35, 3.4);
-    camera.lookAt(0, 0.85, 0);
+    // 2.9 (was 3.4): the 712 redesign made this pane the large left column
+    // and the old distance left the hero floating small inside it
+    camera.position.set(0, 1.3, 2.9);
+    camera.lookAt(0, 0.9, 0);
     // warm key + cool violet rim on a soft hemisphere, matching the game's
     // torchlit gold-on-dark-purple mood
     scene.add(new THREE.HemisphereLight(0xcdc4ea, 0x2a2033, 1.15));
