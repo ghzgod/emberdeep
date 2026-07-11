@@ -4986,19 +4986,28 @@ export class Game {
         });
       }
     }
-    // flicker — layered sines (not a random strobe) for a believable flame
+    // flicker — layered sines (not a random strobe) for a believable flame.
+    // TOWN LAMP POSTS ARE STEADY (Obsidian 729): they're oil/glass lamps, not
+    // open flames - no intensity flicker, no positional jitter, no pulsing
+    // glass - just a constant pool of light scaled by the day/night cycle.
+    // Dungeon torches and the tavern hearth keep the living-flame treatment.
     const now = performance.now() / 1000;
+    const steadyLamps = this.inTown && !this.inTavern;
     // In town the lamp-post lights follow the day/night cycle: full at night,
     // near-off by day. In the dungeon they always burn (nightScale stays 1).
-    const nightScale = this.inTown && !this.inTavern ? (this._townLampNight ?? 1) : 1;
+    const nightScale = steadyLamps ? (this._townLampNight ?? 1) : 1;
     this.torchLights.forEach((l, i) => {
-      l.intensity = (14 + Math.sin(now * 9 + i * 1.7) * 2.4 + Math.sin(now * 23 + i * 3.1) * 1.4) * nightScale;
+      l.intensity = steadyLamps ? 14 * nightScale
+        : (14 + Math.sin(now * 9 + i * 1.7) * 2.4 + Math.sin(now * 23 + i * 3.1) * 1.4) * nightScale;
       // tiny positional jitter (around the assigned torch base) so shadows shiver
-      if (l.visible && l._bx !== undefined) {
+      if (!steadyLamps && l.visible && l._bx !== undefined) {
         l.position.x = l._bx + Math.sin(now * 17 + i) * 0.04;
         l.position.z = l._bz + Math.cos(now * 19 + i * 1.3) * 0.04;
+      } else if (steadyLamps && l.visible && l._bx !== undefined) {
+        l.position.x = l._bx; l.position.z = l._bz;
       }
     });
+    if (steadyLamps) return; // no flame/glow pulse on lamp glass either
     for (let i = 0; i < torches.length; i++) {
       const f = torches[i].flame;
       if (f) {
