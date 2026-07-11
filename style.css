@@ -314,39 +314,44 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 }
 
 /* ---------- Notice board ---------- */
-/* Board layout: three side-by-side parchment columns (one per notice, in
-   board order), each a clickable preview. Stacks to a single column on
-   narrow portrait screens (see media query below). */
-#notices-list { width: min(92vw, 780px); max-height: 64vh; overflow-y: auto; }
-#notices-list.notice-columns {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start;
+/* Camera-zoomed-onto-the-board presentation (Obsidian 727): ONE wooden plank
+   panel - dark roof beam, plank seams, framed edges - with all three notices
+   pinned on it at the same side-by-side placement as the in-world board
+   mesh, every notice fully readable at once (no click-to-expand). */
+#notices-list { width: min(94vw, 900px); max-height: 70vh; overflow-y: auto; }
+#notices-list.notice-board-wood {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: start;
+  padding: 30px 24px 34px;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.16) 0 2px, transparent 2px 90px),
+    linear-gradient(180deg, #6b4a30, #5a3c26 55%, #4a3120);
+  border: 3px solid #332315; border-top: 16px solid #221710;
+  border-radius: 4px;
+  box-shadow: inset 0 0 34px rgba(0,0,0,0.5), 0 10px 26px rgba(0,0,0,0.65);
 }
-#notices-list.notice-expanded-view { display: flex; flex-direction: column; gap: 14px; width: min(90vw, 480px); }
 .notice-paper {
+  position: relative;
   background: linear-gradient(175deg, #efe6c8, #ddd0a8);
-  color: #2e2618; border-radius: 4px; padding: 14px 18px; text-align: left;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-  transform: rotate(-0.6deg);
+  color: #2e2618; border-radius: 2px; padding: 16px 16px 14px; text-align: left;
+  box-shadow: 0 5px 12px rgba(0,0,0,0.55);
+  transform: rotate(-1.6deg);
 }
-.notice-columns .notice-paper:nth-child(2) { transform: rotate(0.5deg); }
-.notice-columns .notice-paper:nth-child(3) { transform: rotate(-0.3deg); }
+/* pin: a little red tack at the top of each sheet */
+.notice-paper::before {
+  content: ''; position: absolute; top: -5px; left: 50%; margin-left: -5px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #e0685c, #8a2018 70%);
+  box-shadow: 0 2px 3px rgba(0,0,0,0.6);
+}
+.notice-board-wood .notice-paper:nth-child(2) { transform: rotate(0.4deg); margin-top: -8px; }
+.notice-board-wood .notice-paper:nth-child(3) { transform: rotate(1.8deg); }
 .notice-paper h4 { font-size: 15px; margin-bottom: 6px; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
 .notice-paper h4 .ui-ic { width: 1.1em; height: 1.1em; flex: none; }
 .notice-paper p { font-size: 13px; line-height: 1.55; font-style: italic; }
-/* Preview column: clip to a few lines so all three columns line up even
-   when notice bodies differ in length; click expands to the full text. */
-.notice-preview { cursor: pointer; transition: filter 0.15s, box-shadow 0.15s; }
-.notice-preview:hover { filter: brightness(1.06); box-shadow: 0 4px 10px rgba(0,0,0,0.5), 0 0 0 2px rgba(232,192,90,0.5); }
-.notice-preview p {
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.notice-expanded { transform: none; }
-.notice-back { align-self: flex-start; }
 
 @media (orientation: portrait) and (max-width: 720px) {
-  #notices-list.notice-columns { grid-template-columns: 1fr; }
-  .notice-preview p { -webkit-line-clamp: 2; }
+  #notices-list.notice-board-wood { grid-template-columns: 1fr; gap: 14px; padding: 22px 16px 24px; }
+  .notice-board-wood .notice-paper:nth-child(2) { margin-top: 0; }
 }
 
 /* ---------- Story cards ---------- */

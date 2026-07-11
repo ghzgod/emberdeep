@@ -908,13 +908,12 @@ export class UI {
   }
 
   // ---------- notice board ----------
-  // Three columns, one per notice, each a preview (title + a couple of
-  // lines) in board order; clicking a column expands it to the full notice
-  // with a back action. A parchment rustle plays on open instead of the
-  // generic UI-open blip.
+  // Camera-zoomed-onto-the-board view (Obsidian 727): one wooden plank panel
+  // with all three notices pinned side by side, every one fully readable at
+  // once - no preview/expand round-trip. A parchment rustle plays on open
+  // instead of the generic UI-open blip.
   openNotices(notices) {
     this._notices = notices;
-    this._noticeExpanded = -1;
     this.renderNotices();
     this.show('notices');
     audio.play('parchment_rustle');
@@ -923,39 +922,13 @@ export class UI {
   renderNotices() {
     const list = $('notices-list');
     list.innerHTML = '';
-    const notices = this._notices || [];
-    if (this._noticeExpanded >= 0 && notices[this._noticeExpanded]) {
-      list.classList.remove('notice-columns');
-      list.classList.add('notice-expanded-view');
-      const nt = notices[this._noticeExpanded];
+    list.classList.add('notice-board-wood');
+    for (const nt of this._notices || []) {
       const paper = document.createElement('div');
-      paper.className = 'notice-paper notice-expanded';
+      paper.className = 'notice-paper';
       paper.innerHTML = `<h4>${svgIcon(nt.icon || 'scroll')} ${nt.title}</h4><p>${nt.text}</p>`;
       list.appendChild(paper);
-      const back = document.createElement('button');
-      back.className = 'menu-btn small notice-back';
-      back.innerHTML = `${svgIcon('menu')} Back to board`;
-      back.onclick = () => {
-        audio.play('ui_click', { volume: 0.7 });
-        this._noticeExpanded = -1;
-        this.renderNotices();
-      };
-      list.appendChild(back);
-      return;
     }
-    list.classList.remove('notice-expanded-view');
-    list.classList.add('notice-columns');
-    notices.forEach((nt, i) => {
-      const paper = document.createElement('div');
-      paper.className = 'notice-paper notice-preview';
-      paper.innerHTML = `<h4>${svgIcon(nt.icon || 'scroll')} ${nt.title}</h4><p>${nt.text}</p>`;
-      paper.onclick = () => {
-        audio.play('ui_click', { volume: 0.7 });
-        this._noticeExpanded = i;
-        this.renderNotices();
-      };
-      list.appendChild(paper);
-    });
   }
 
   // ---------- story cards ----------
