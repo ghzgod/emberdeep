@@ -52,8 +52,20 @@ export function buildNpcModel(classId, name, opts = {}) {
     headBone,
     restQuat,
     _t: Math.random() * 10,
-    // Advance the idle animation. Call every frame the NPC is on screen.
-    tick(dt) { this.mixer.update(dt); },
+    // Advance the animation. Call every frame the NPC is on screen; pass the
+    // NPC's current movement speed (world units/sec) so the rig blends into
+    // its real WALK clip while moving (Obsidian 719: Magda used to glide with
+    // frozen legs because nothing ever fed the locomotion blender). Same
+    // setLocomotion + gait pipeline the player heroes and the char-select
+    // preview drive.
+    tick(dt, speed = 0) {
+      // setLocomotion takes 0..1; town NPCs amble at ~0.6 u/s, so /3 maps a
+      // full amble to ~0.2 - clearly walking, without a sprint timescale.
+      const s01 = Math.min(1, speed / 3);
+      if (hero.anim) hero.anim.setLocomotion(s01, dt, false);
+      this.mixer.update(dt);
+      if (hero.gait) hero.gait(dt, s01, false);
+    },
     // Cheap eyes-on-you: slerp the head bone a little toward a world point,
     // composed on top of the idle clip (same approach as enemyModel's
     // lookAtTarget - a subtle tracking nudge, never a hard snap). Restores
