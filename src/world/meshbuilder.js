@@ -2329,15 +2329,19 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // baked door art, this overlay IS the door the player sees, so scaling
       // it directly (rather than trying to coax the baked geometry taller)
       // is what actually makes it read ~2.2x hero height.
+      // Mask planes RETIRED (Obsidian 752): both the door mask and the
+      // baked-door patch below existed solely to hide the retired inn.glb's
+      // baked art. On the procedural shell they were the reported artifacts:
+      // the mask's edges read as a faint pale strip high on the wall / lying
+      // along the roof line, and the patch was a wall-colored slab popping
+      // out beside the door.
       const doorH = 1.9 * DS, doorW = 1.2 * DS;
-      const mask = new THREE.Mesh(new THREE.PlaneGeometry(doorW + 0.5 * DS, doorH + 0.5 * DS), plaster);
-      mask.position.set(doorX, doorH / 2 - 0.05 * DS, frontZ + 0.005 * DS);
       const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.1 * DS, doorH - 0.1 * DS, 0.08 * DS), timber);
       doorLeaf.position.set(doorX, doorH / 2, frontZ + 0.04 * DS);
       const handleMat = new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.35 });
       const doorHandle = new THREE.Mesh(new THREE.SphereGeometry(0.045 * DS, 8, 8), handleMat);
       doorHandle.position.set(doorX + 0.22 * DS, doorH / 2 - 0.05 * DS, frontZ + 0.09 * DS);
-      add(mask, doorLeaf, doorHandle);
+      add(doorLeaf, doorHandle);
       const step = new THREE.Mesh(new THREE.BoxGeometry(1.1 * DS, 0.14 * DS, 0.4 * DS), new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.95 }));
       step.position.set(doorX, 0.07 * DS, frontZ + 0.3 * DS);
       add(step);
@@ -2354,29 +2358,8 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
         add(doorGroup);
       });
 
-      // ---- baked-door patch: the modeled inn is a single merged mesh (see
-      // gltfToTemplate — every node name is lost, materials just get grouped
-      // into flat "pieces"), so its OWN baked front door can't be found or
-      // hidden by name. Measured live (raycast + pixel probes against the
-      // rendered model): that baked door sits dead-center of the front wall
-      // (local x=0), which is a DIFFERENT spot from doorX (fixed to the
-      // entry-trigger world point in game.js, off-limits to move) — so once
-      // the model swaps in, its real door reads as a second doorway next to
-      // the overlay one (user report, TODO 702/703: "two doors side by
-      // side"). Since the baked door is part of the model's own geometry it
-      // grows with S (the same factor driving node.scale.x/y), so this patch
-      // is sized off S too. Its half-width is clamped so it can never reach
-      // either front window (frontWin1X/frontWin2X, above) even at a bigger
-      // FACADE_SCALE — a slightly narrower patch beats eating a window.
-      const bakedDoorX = 0; // measured: the model's true front door center
-      const bakedHalfWRaw = 0.85 * (S / 1.8); // measured baked door footprint at S=1.8, scaled
-      const nearestFrontWinX = Math.abs(frontWin1X - bakedDoorX) < Math.abs(frontWin2X - bakedDoorX) ? frontWin1X : frontWin2X;
-      const winClearance = Math.abs(nearestFrontWinX - bakedDoorX) - 0.6 * S / 2 - 0.15;
-      const bakedHalfW = Math.max(0.5, Math.min(bakedHalfWRaw, winClearance));
-      const bakedH = 2.4 * (S / 1.8), bakedD = 0.9 * (S / 1.8);
-      const bakedMask = new THREE.Mesh(new THREE.BoxGeometry(bakedHalfW * 2, bakedH, bakedD), plaster);
-      bakedMask.position.set(bakedDoorX, bakedH / 2, frontZ - bakedD / 2 + 0.05 * (S / 1.8));
-      add(bakedMask);
+      // (baked-door patch removed with the inn.glb swap - see the mask note
+      // above, Obsidian 752)
 
       // hanging sign: an iron bracket bolted above the door, two chains, and
       // a real wooden board reading "Emberville Tavern".

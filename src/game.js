@@ -3941,7 +3941,10 @@ export class Game {
     // synchronously at cast time) but visually never faced/tracked the enemy.
     // Gate this to desktop so touch aim stays whatever clusterTap/clusterSwipe
     // last set it to.
-    if (!this.touch.enabled) {
+    // ...and never while seated on the fireside couch (Obsidian 747): the
+    // per-frame mouse raycast was overriding the seated stare-at-the-fire
+    // facing, so the hero's head chased the cursor from the couch.
+    if (!this.touch.enabled && !this.sittingOnCouch) {
       this._mouseNdc.set(
         (input.mouse.x / window.innerWidth) * 2 - 1,
         -(input.mouse.y / window.innerHeight) * 2 + 1
@@ -4838,7 +4841,10 @@ export class Game {
         const w = tileToWorld(this.dungeon.exit.x, this.dungeon.exit.y);
         if (near(w.x, w.z + 0.6, 1.6)) candidate = { label: 'Step outside', icon: '🚪', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTown({ fromTavern: true }); } };
       }
-      if (!candidate && this.dungeonMeshes.barkeepPos && near(this.dungeonMeshes.barkeepPos.x, this.dungeonMeshes.barkeepPos.z, 2.4)) {
+      // 3.8 (was 2.4, Obsidian 746): the bar rework (720) put Magda a full
+      // aisle + counter away from a customer standing at the bar front, past
+      // the old radius - across-the-counter talking must always reach her.
+      if (!candidate && this.dungeonMeshes.barkeepPos && near(this.dungeonMeshes.barkeepPos.x, this.dungeonMeshes.barkeepPos.z, 3.8)) {
         candidate = { label: 'Talk to Magda', icon: '🍺', talk: true, action: () => this.barkeepChat() };
       }
       if (!candidate) {
@@ -4888,8 +4894,13 @@ export class Game {
       }
     } else if (this.sittingOnCouch) this.sittingOnCouch = false;
 
-    // hearth crackle loudness tracks distance to the fire (717)
+    // hearth crackle loudness tracks distance to the fire (717). If the loop
+    // never started (Obsidian 749: the AudioContext was suspended at tavern
+    // entry, so startFireCrackle bailed silently and there was NO crackle at
+    // all), keep retrying here - the context resumes on the next user
+    // gesture and the fire starts talking.
     if (this.inTavern && this.dungeonMeshes.hearthPos) {
+      if (!audio._fire) audio.startFireCrackle();
       const h = this.dungeonMeshes.hearthPos;
       const d = Math.hypot(this.player.pos.x - h.x, this.player.pos.z - h.z);
       audio.setFireCrackleLevel(Math.max(0.06, Math.min(1, 2.2 / Math.max(1, d - 0.5))));
@@ -4912,17 +4923,65 @@ export class Game {
           ? { name: 'Tipsy Regular', cast: { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82, lite: 'expr-voice-2-m' }, pos: pm }
           : { name: 'Tavern Patron', cast: { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0, lite: 'expr-voice-3-f' }, pos: pm };
       };
+      // visitor speaker (750): resolved from the rotating-visitor driver so a
+      // fresh arrival can trade a greeting with the nearest patron
+      const visitorState = this.dungeonMeshes.smokePuffs?.find((p) => p._vs)?._vs;
+      const speakerOfAny = (who) => (who === '_visitor' && visitorState?.group)
+        ? { name: 'Traveler', cast: { female: false, vi: 5, pitch: 1.0, rate: 0.95, kokoro: 'am_adam', kSpeed: 0.95, lite: 'expr-voice-4-m' }, pos: visitorState.group.position }
+        : speakerOf(who);
       if (this._tavernConvo) {
         this._convoGap -= dt;
         if (this._convoGap <= 0 && !this.npcSpeechActive()) {
           const turn = this._tavernConvo[this._convoIdx++];
           if (!turn) { this._tavernConvo = null; this._convoT = 25 + Math.random() * 25; }
           else {
-            const spk = speakerOf(turn.who);
-            if (spk) roaster.sayGated(this, spk.name, turn.text, spk.cast, spk.pos, { durationMs: 3400 });
+            const spk = speakerOfAny(turn.who);
+            if (spk) {
+              roaster.sayGated(this, spk.name, turn.text, spk.cast, spk.pos, { durationMs: 3400 });
+              // Everyone in the exchange looks at whoever is talking, and
+              // the speaker looks back at the nearest other participant
+              // (Obsidian 750: they were chatting into the air).
+              const until = performance.now() + 5200;
+              const parts = [...new Set(this._tavernConvo.map((t) => t.who))];
+              const others = parts.filter((w) => w !== turn.who).map(speakerOfAny).filter(Boolean);
+              const nearestOther = others.sort((a, b) =>
+                Math.hypot(a.pos.x - spk.pos.x, a.pos.z - spk.pos.z) - Math.hypot(b.pos.x - spk.pos.x, b.pos.z - spk.pos.z))[0];
+              for (const who of parts) {
+                const part = speakerOfAny(who);
+                if (!part) continue;
+                const target = who === turn.who ? nearestOther?.pos : spk.pos;
+                if (!target) continue;
+                if (who === 'magda') {
+                  if (this.dungeonMeshes.talkGate) this.dungeonMeshes.talkGate.magdaLook = { x: target.x, z: target.z, until };
+                } else if (who !== '_visitor') {
+                  part.pos.lookTo = { x: target.x, z: target.z, until }; // pmEntry
+                } else if (visitorState?.group) {
+                  visitorState.group.rotation.y = Math.atan2(target.x - part.pos.x, target.z - part.pos.z);
+                }
+              }
+            }
             this._convoGap = 1.2 + Math.random() * 0.8;
           }
         }
+      } else if (visitorState?.mode === 'linger' && visitorState.group && !visitorState._greeted && !this.npcSpeechActive()) {
+        // A fresh visitor greets the room and the nearest patron answers (750)
+        visitorState._greeted = true;
+        const pms = this.dungeonMeshes.patronMeshes || [];
+        const nearestPm = pms.slice().sort((a, b) =>
+          Math.hypot(a.x - visitorState.group.position.x, a.z - visitorState.group.position.z)
+          - Math.hypot(b.x - visitorState.group.position.x, b.z - visitorState.group.position.z))[0];
+        const G = [
+          ['Evening, all. Any room by the fire?', 'Always room, traveler. Mind your boots.'],
+          ['Long road behind me. Is the ale as good as they say?', 'Better. Magda pours honest.'],
+          ['Cold out there tonight.', 'Then you found the right door. Sit.'],
+        ];
+        const pick = G[Math.floor(Math.random() * G.length)];
+        this._tavernConvo = [
+          { who: '_visitor', text: pick[0] },
+          { who: nearestPm?.drunk ? 'drunk' : 'patron', text: pick[1] },
+        ];
+        this._convoIdx = 0;
+        this._convoGap = 0.6;
       } else {
         this._convoT = (this._convoT ?? 14) - dt;
         if (this._convoT <= 0 && !this.npcSpeechActive()) {
