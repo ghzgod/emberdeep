@@ -146,6 +146,15 @@ function nearestHeroTarget(npcMesh) {
 export function pushNpcAnimDriver(smokePuffs, npc, getTarget) {
   if (!smokePuffs) return;
   const SPEED = 1;
+  // Track the rig's own position between ticks so ANY system that moves this NPC
+  // (vendor amble in updateVendors, future roamers, ...) makes it play the WALK
+  // blend proportional to how fast it actually moved - the same setLocomotion
+  // pipeline the player heroes use (Obsidian 825: "all npcs should show the walk
+  // animation like the player"). Stationary folk measure ~0 and stay idle. Only
+  // x/z count so the tiny breathing y-bob never reads as movement.
+  const _prev = new THREE.Vector3();
+  const _wp = new THREE.Vector3();
+  let _havePrev = false;
   const driver = {
     kind: 'firefly',
     mesh: new THREE.Object3D(), // dummy: firefly branch only sets its position.y
@@ -156,7 +165,15 @@ export function pushNpcAnimDriver(smokePuffs, npc, getTarget) {
     set phase(v) {
       const dt = Math.min(0.1, Math.max(0, (v - this._phase) / SPEED));
       this._phase = v;
-      npc.tick(dt);
+      // WORLD position: the mover is often an ancestor (the vendor keeper group
+      // ambles while npc.mesh sits at its local origin), so a local-position
+      // delta would always read zero. Refresh the ancestor chain then sample.
+      npc.mesh.updateWorldMatrix(true, false);
+      _wp.setFromMatrixPosition(npc.mesh.matrixWorld);
+      let moveSpeed = 0;
+      if (_havePrev && dt > 0) moveSpeed = Math.hypot(_wp.x - _prev.x, _wp.z - _prev.z) / dt;
+      _prev.copy(_wp); _havePrev = true;
+      npc.tick(dt, moveSpeed);
       const t = getTarget ? getTarget() : nearestHeroTarget(npc.mesh);
       if (t) npc.lookAt(t[0], t[1]); else npc.lookAt(null);
     },
