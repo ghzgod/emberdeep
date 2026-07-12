@@ -2106,8 +2106,9 @@ export class UI {
     const count = this.game.roomPlayerCount();
     if (count > 0) {
       playersEl.classList.remove('hidden');
-      playersEl.textContent = `Online (${count})`;
-      playersEl.title = `${count} heroes in this room`;
+      const room = this.game.roomName();
+      playersEl.textContent = room ? `${room} · ${count}` : `Online (${count})`;
+      playersEl.title = room ? `Room ${room} — ${count} heroes` : `${count} heroes in this room`;
     } else {
       playersEl.classList.add('hidden');
     }
