@@ -963,6 +963,15 @@ export function buildTavernInterior() {
           if (!qmodel || !patron.parent) { pnpc.mesh.visible = true; return; }
           qmodel.position.y = -0.18; // feet to floor, same as pnpc
           patron.add(qmodel);
+          // gentle procedural idle so she breathes/sways (no baked anims)
+          if (qmodel.userData.idle) {
+            let _ph = 0;
+            smokePuffs.push({
+              kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1,
+              get phase() { return _ph; },
+              set phase(v) { _ph = v; qmodel.userData.idle(v); },
+            });
+          }
         });
       }
 
