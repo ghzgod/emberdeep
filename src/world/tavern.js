@@ -1424,6 +1424,10 @@ export function generateTavernUpstairs() {
       (x === 0 || y === 0 || x === UW - 1 || y === UH - 1) ? WALL : FLOOR));
   for (const cx of U_PARTS) for (let y = 1; y <= 6; y++) grid[y][cx] = WALL;
   for (let x = 1; x < UW - 1; x++) if (!U_DOORGAPS.has(x)) grid[6][x] = WALL;
+  // The down-stairwell tile is a real hole in the floor (833): block it for
+  // collision so the hero can't walk into the opening, but the mesh builder
+  // skips drawing a wall pillar here - it's an open shaft, not a wall.
+  grid[9][8] = WALL;
   return {
     grid, size: Math.max(UW, UH), rooms: [],
     spawn: { x: 8, y: 8 },        // arrive on the hallway landing
@@ -1470,11 +1474,18 @@ export function buildTavernUpstairsInterior() {
   const hemi = new THREE.HemisphereLight(0xffdcb0, 0x241812, 1.15);
   group.add(hemi);
 
-  // floor
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(UW * TILE, 0.2, UH * TILE), floorMat);
-  floor.position.set((UW * TILE) / 2, -0.1, (UH * TILE) / 2);
-  floor.receiveShadow = true;
-  group.add(floor);
+  // floor with a real opening at the down-stairwell tile (8,9) -> world square
+  // x[16,18] z[18,20] (833): built as four slabs around the hole so you can see
+  // the descending flight + the lit floor below through the gap.
+  const HX0 = 16, HX1 = 18, HZ0 = 18, HZ1 = 20;
+  const addFloorSlab = (cx, cz, w, d) => {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(w, 0.2, d), floorMat);
+    s.position.set(cx, -0.1, cz); s.receiveShadow = true; group.add(s);
+  };
+  addFloorSlab((UW * TILE) / 2, HZ0 / 2, UW * TILE, HZ0);                       // north of hole
+  addFloorSlab((UW * TILE) / 2, (HZ1 + UH * TILE) / 2, UW * TILE, UH * TILE - HZ1); // south of hole
+  addFloorSlab(HX0 / 2, (HZ0 + HZ1) / 2, HX0, HZ1 - HZ0);                        // west of hole (mid band)
+  addFloorSlab((HX1 + UW * TILE) / 2, (HZ0 + HZ1) / 2, UW * TILE - HX1, HZ1 - HZ0); // east of hole (mid band)
 
   // walls derived straight from the collision grid so visuals and walkability
   // can never drift apart (the tavern hand-places; up here the room-and-hall
@@ -1484,6 +1495,7 @@ export function buildTavernUpstairsInterior() {
   const wallGeo = new THREE.BoxGeometry(TILE, wallH, TILE);
   for (let y = 0; y < UH; y++) for (let x = 0; x < UW; x++) {
     if (grid[y][x] !== WALL) continue;
+    if (x === 8 && y === 9) continue; // the down-stairwell hole - no pillar here (833)
     const w = tileToWorld(x, y);
     const seg = new THREE.Mesh(wallGeo, wallMat);
     seg.position.set(w.x, wallH / 2, w.z);
@@ -1514,20 +1526,41 @@ export function buildTavernUpstairsInterior() {
     }
   }
 
-  // stairwell back down: a dark opening in the floor by the landing with a rail,
-  // reading as "the way down" (the descend interact sits on tile 8,9).
-  const down = tileToWorld(8, 9);
-  const hole = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 1.4),
-    new THREE.MeshBasicMaterial({ color: 0x0d0805 }));
-  hole.position.set(down.x, 0.02, down.z); group.add(hole);
-  for (let i = 0; i < 3; i++) {
-    const step = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 0.35), plankMat);
-    step.position.set(down.x, -0.08 - i * 0.16, down.z + 0.5 - i * 0.35); group.add(step);
+  // stairwell back down (833): a REAL descending flight through the floor hole
+  // (x[16,18] z[18,20]) into a lit lower well, so you see steps going down to a
+  // warm wooden floor - not a flat black void. The descend interact sits just
+  // north of the opening on solid floor (stairsDownPos below).
+  const down = tileToWorld(8, 9);            // hole centre (17,19)
+  const DN = 6, dnRise = 0.32, dnRun = 0.3;  // 6 steps down, ~-1.9 total
+  for (let i = 0; i < DN; i++) {
+    const step = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.14, dnRun + 0.04), plankMat);
+    // descend SOUTH (+z) from the north lip of the hole, dropping each step
+    step.position.set(down.x, -dnRise * (i + 1) + 0.07, HZ0 + 0.2 + i * dnRun);
+    group.add(step);
   }
-  for (const px of [-0.85, 0.85]) {
+  const wellBottomY = -dnRise * DN;          // ~-1.92
+  // dark shaft walls on the west/east/south so the well reads as enclosed
+  const shaftMat = new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 1 });
+  const shaftH = -wellBottomY + 0.2;
+  for (const sx of [HX0 - 0.02, HX1 + 0.02]) {
+    const sw = new THREE.Mesh(new THREE.BoxGeometry(0.12, shaftH, HZ1 - HZ0 + 0.6), shaftMat);
+    sw.position.set(sx, wellBottomY / 2, (HZ0 + HZ1) / 2 + 0.1); group.add(sw);
+  }
+  const backW = new THREE.Mesh(new THREE.BoxGeometry(HX1 - HX0 + 0.3, shaftH, 0.12), shaftMat);
+  backW.position.set(down.x, wellBottomY / 2, HZ1 + 0.05); group.add(backW);
+  // a warm plank floor at the bottom of the well + a light so it's visibly lit
+  const wellFloor = new THREE.Mesh(new THREE.BoxGeometry(HX1 - HX0 + 0.3, 0.12, HZ1 - HZ0 + 0.6),
+    new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.9 }));
+  wellFloor.position.set(down.x, wellBottomY - 0.06, (HZ0 + HZ1) / 2 + 0.1); group.add(wellFloor);
+  const wellGlow = new THREE.PointLight(0xffb877, 6, 6, 1.8);
+  wellGlow.position.set(down.x, wellBottomY + 0.8, (HZ0 + HZ1) / 2); group.add(wellGlow);
+  // rail posts along the north lip of the opening (where you stand to descend)
+  for (const px of [-0.95, 0.95]) {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 8), darkWood);
-    post.position.set(down.x + px, 0.45, down.z - 0.7); group.add(post);
+    post.position.set(down.x + px, 0.45, HZ0 - 0.06); group.add(post);
   }
+  const lipRail = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.0, 8), darkWood);
+  lipRail.rotation.z = Math.PI / 2; lipRail.position.set(down.x, 0.9, HZ0 - 0.06); group.add(lipRail);
 
   // torch anchors for setupTorchLights: one glow per room + four along the
   // hallway so the whole landing reads warm (the shared point-light pool sizes
@@ -1552,7 +1585,7 @@ export function buildTavernUpstairsInterior() {
   return {
     group,
     torchPositions,
-    stairsDownPos: { x: down.x, z: down.z },
+    stairsDownPos: { x: down.x, z: 17.5 }, // north lip of the stairwell hole (solid floor)
     rosalindBedPos,
     // guard-friendly empties so the shared tavern per-frame code no-ops up here
     doorMeshes: new Map(), chestMeshes: [], stairsMesh: null,
