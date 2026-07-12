@@ -796,8 +796,12 @@ export function buildTavernInterior() {
   // GLB/glTF body when it's loaded, and keeps its box build as the fallback
   // so a patron is never invisible.
   const patronDefs = [
-    { tile: [3, 4], angle: 0.9, robe: 0x5a4a6a, hair: 0x3a2a1a, name: 'patron', cls: 'drifter', gender: 'female', skin: 'light', npcName: 'Tavern Patron' },
-    { tile: [12, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk', cls: 'cleric', gender: 'male', skin: 'fair', npcName: 'Tipsy Regular' },
+    // Not every patron is friendly (Obsidian 782): the drifter is a gruff
+    // regular who brushes strangers off. mood drives which line bank patronChat
+    // draws from; the tavern staff (Magda) are always civil, only these
+    // non-worker patrons carry a mood.
+    { tile: [3, 4], angle: 0.9, robe: 0x5a4a6a, hair: 0x3a2a1a, name: 'patron', cls: 'drifter', gender: 'female', skin: 'light', npcName: 'Tavern Patron', mood: 'rude' },
+    { tile: [12, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk', cls: 'cleric', gender: 'male', skin: 'fair', npcName: 'Tipsy Regular', mood: 'friendly' },
   ];
   for (const def of patronDefs) {
     const w = tileToWorld(def.tile[0], def.tile[1]);
@@ -833,7 +837,7 @@ export function buildTavernInterior() {
     // pmEntry is created up-front so the driver below and patronChat
     // (game.js) share it: patronChat stamps pmEntry.talkUntil when the
     // player actually opens a conversation.
-    const pmEntry = { mesh: patron, x: px, z: pz, drunk: def.name === 'drunk', talkUntil: 0 };
+    const pmEntry = { mesh: patron, x: px, z: pz, drunk: def.name === 'drunk', mood: def.mood || 'friendly', talkUntil: 0 };
     const pnpc = buildNpcModel(def.cls, def.npcName, { gender: def.gender, skinTone: def.skin });
     if (pnpc) {
       for (let i = patron.children.length - 1; i >= 0; i--) {
