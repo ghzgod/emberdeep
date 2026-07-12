@@ -2353,28 +2353,12 @@ export class UI {
         if (c.followUp) { this.game.followRosalindUpstairs(); return; }
         // "Buy her a drink" (822): not a reply - kick off the walk-to-bar beat.
         if (c.buyDrink) { this.game.buyRosalindDrink(pm); return; }
-        // Dismiss the picker the instant you choose (Obsidian 826): her reply
-        // then plays as a normal speech bubble over her head via flirtSelect,
-        // and once she's had her say the next choices come back so the banter
-        // keeps flowing. Hidden (not closed) so game.state stays 'flirt'.
+        // Dismiss the picker the instant you choose (Obsidian 826/848): her reply
+        // plays as a bubble over her head, and flirtSelect itself reveals the next
+        // choices AFTER she's actually spoken (onShown-gated) - so the UI just
+        // hides the picker here and lets the game drive the next reveal.
         $('flirt-dialog').classList.add('hidden');
-        const res = await this.game.flirtSelect(pm, c.tier);
-        if (this._flirtPm !== pm) return; // player walked off / left mid-reply
-        if (res.disliked || !res.choices.length) { this.closeFlirt(); return; }
-        clearTimeout(this._flirtReopen);
-        this._flirtReopen = setTimeout(() => {
-          if (this._flirtPm !== pm) return;
-          this._flirtMood(res.affinity);
-          // Once she's invited you up (Obsidian 829), the picker becomes a single
-          // "Follow her upstairs" action that takes you to her room; you can still
-          // Leave. Otherwise the normal reply choices come back.
-          if (res.invitedUpstairs) {
-            this._renderFlirtChoices([{ tier: 3, label: '💋 Follow her upstairs', followUp: true }]);
-          } else {
-            this._renderFlirtChoices(res.choices);
-          }
-          $('flirt-dialog').classList.remove('hidden');
-        }, 1600);
+        this.game.flirtSelect(pm, c.tier);
       };
       list.appendChild(btn);
     }

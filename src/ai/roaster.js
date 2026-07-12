@@ -440,7 +440,7 @@ export class Roaster {
   // A 1.5s safety-net timeout shows the caption regardless if no onStart ever
   // fires (headless/voiceless browsers, a failed generate(), etc.) so a line
   // is never silently lost.
-  sayGated(game, speaker, line, cast, anchor, { durationMs = 4200, show } = {}) {
+  sayGated(game, speaker, line, cast, anchor, { durationMs = 4200, show, onShown } = {}) {
     if (!this.enabled) return;
     this._clearGate(); // a new line supersedes whatever was pending; no stacked ellipses
     const hasBubble = !!(anchor && game?.ui?.floaters);
@@ -467,6 +467,9 @@ export class Roaster {
       if (hasBubble) game.ui.floaters.hideThinking();
       doShow();
       if (this._activeGate === gate) this._activeGate = null;
+      // Fires the instant her line actually SHOWS (thinking pill -> caption), so
+      // callers can reveal reply choices only AFTER she's spoken (Obsidian 848).
+      try { onShown && onShown(); } catch { /* caller hook must not break speech */ }
     };
     const cancel = () => {
       if (started) return;
