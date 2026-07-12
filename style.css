@@ -1472,6 +1472,11 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
   display: flex; align-items: center; justify-content: center;
   background: #141019; border: 1px solid var(--panel-border); border-radius: 8px;
 }
+/* real item glyph inside a shop/sell row + the buy-confirm modal (777) */
+.shop-item-pic { width: 30px; height: 30px; object-fit: contain; image-rendering: auto; }
+.shop-item-icon .ui-ic { width: 22px; height: 22px; }
+#buy-icon .shop-item-pic { width: 46px; height: 46px; }
+#buy-icon .ui-ic { width: 34px; height: 34px; }
 .shop-item .shop-item-name { flex: 1; min-width: 0; line-height: 1.25; }
 .shop-item .shop-item-name small { display: block; font-size: 11px; opacity: 0.55; font-style: italic; }
 .shop-item .shop-item-price {
