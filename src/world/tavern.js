@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, WALL } from './dungeon.js';
 import { TILE, tileToWorld, buildNpcModel } from './meshbuilder.js';
-import { buildQuaterniusFemale } from '../entities/quaterniusNpc.js';
+import { buildQuaterniusNpc } from '../entities/quaterniusNpc.js';
 import { makeWoodTexture, makePlankTexture, makeHearthStoneTexture, makeTavernSignTexture } from './textures.js';
 
 // ---- shared "where's the nearest player" lookup for the tavern's own NPC
@@ -952,28 +952,34 @@ export function buildTavernInterior() {
       pnpc.mesh.position.y = -0.18; // undo the stool-perch lift so feet reach the floor
       patron.add(pnpc.mesh);
 
-      // Rosalind (Obsidian 808/789): swap the shared KayKit NPC body for the
-      // distinct Quaternius FEMALE model once it loads (a real female shape, not
-      // the squished-male silhouette). Keep pnpc for the facing driver below but
-      // hide its mesh; the Quaternius model is a child of `patron` so it rides
-      // the group's turn-to-player yaw. Graceful: a failed load restores pnpc.
-      if (def.flirty) {
-        pnpc.mesh.visible = false;
-        buildQuaterniusFemale('femalePeasant', 1.7).then((qmodel) => {
-          if (!qmodel || !patron.parent) { pnpc.mesh.visible = true; return; }
-          qmodel.position.y = -0.18; // feet to floor, same as pnpc
-          patron.add(qmodel);
-          // gentle procedural idle so she breathes/sways (no baked anims)
-          if (qmodel.userData.idle) {
-            let _ph = 0;
-            smokePuffs.push({
-              kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1,
-              get phase() { return _ph; },
-              set phase(v) { _ph = v; qmodel.userData.idle(v); },
-            });
-          }
-        });
-      }
+      // Tavern patrons use the distinct Quaternius bodies, not the shared KayKit
+      // chibi (Obsidian 789/808): a real gendered human shape swapped in once it
+      // loads. Keep pnpc for the facing driver below but hide its mesh; the
+      // Quaternius model is a child of `patron` so it rides the turn-to-player
+      // yaw. Graceful: a failed load restores the KayKit body. Each gets a gentle
+      // procedural idle (the pack has no baked anims) so they breathe/sway.
+      pnpc.mesh.visible = false;
+      const qkey = def.gender === 'female' ? 'femalePeasant' : 'malePeasant';
+      buildQuaterniusNpc(qkey, 1.7).then((qmodel) => {
+        if (!qmodel || !patron.parent) { pnpc.mesh.visible = true; return; }
+        qmodel.position.y = -0.18; // feet to floor, same as pnpc
+        patron.add(qmodel);
+        // Re-bind the skinned meshes AFTER parenting under the (perched, turned,
+        // scaled) patron group - otherwise the glTF skeleton stays in its load-
+        // time space and the mesh renders in the stiff T-pose instead of the
+        // posed arms-down rest. Binding with the current world matrix locks the
+        // posed skeleton to the mesh in its final place in the graph.
+        patron.updateMatrixWorld(true);
+        qmodel.traverse((o) => { if (o.isSkinnedMesh) o.bind(o.skeleton, o.matrixWorld); });
+        if (qmodel.userData.idle) {
+          let _ph = 0;
+          smokePuffs.push({
+            kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1,
+            get phase() { return _ph; },
+            set phase(v) { _ph = v; qmodel.userData.idle(v); },
+          });
+        }
+      });
 
       // Body turn ONLY while the player is talking to this patron (Obsidian
       // 735, matching the vendor rule from 726): patronChat stamps
