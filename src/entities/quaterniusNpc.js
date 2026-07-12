@@ -11,7 +11,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const loader = new GLTFLoader();
-const MODEL_URL = { femalePeasant: 'models/quaternius/Female_Peasant.gltf' };
+const MODEL_URL = {
+  femalePeasant: 'models/quaternius/Female_Peasant.gltf',
+  malePeasant: 'models/quaternius/Male_Peasant.gltf',
+};
 
 // Loads a FRESH instance each call. SkeletonUtils.clone left the posed bones
 // un-bound to the skinned mesh here (the clone rendered in T-pose even with the
@@ -27,7 +30,7 @@ function loadFresh(key) {
 // Resolve to a posed, scaled Quaternius character, or null if it isn't available
 // (the caller keeps its procedural fallback). targetHeight is the desired world
 // height (KayKit heroes are ~1.6).
-export async function buildQuaterniusFemale(key = 'femalePeasant', targetHeight = 1.6) {
+export async function buildQuaterniusNpc(key = 'femalePeasant', targetHeight = 1.6) {
   const model = await loadFresh(key);
   if (!model) return null;
   const bones = {};
