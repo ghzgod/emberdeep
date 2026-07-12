@@ -47,6 +47,43 @@ export class Floaters {
     if (this._think) { this._think.el.remove(); this._think = null; }
   }
 
+  // Comic-style speech bubble ABOVE the speaker's head (Obsidian 780),
+  // replacing the fixed bottom subtitle bar for world NPCs. anchor is a LIVE
+  // position object (re-read every frame) so the bubble follows a moving
+  // speaker. Auto-expires after durationMs. One bubble at a time (speech is
+  // single-voice), so a new line supersedes the old.
+  showSpeech(anchor, speaker, text, durationMs = 4200) {
+    if (!anchor) return;
+    if (!this._speech) {
+      const el = document.createElement('div');
+      el.className = 'floater speech-bubble';
+      el.innerHTML = '<span class="sb-speaker"></span><span class="sb-text"></span>';
+      this.container.appendChild(el);
+      this._speech = { el, sp: el.querySelector('.sb-speaker'), tx: el.querySelector('.sb-text') };
+    }
+    this._speech.anchor = anchor;
+    this._speech.sp.textContent = speaker || '';
+    this._speech.tx.textContent = text || '';
+    this._speech.until = (this._now || 0) + durationMs / 1000;
+    this._speech.el.classList.remove('fading');
+    this.placeSpeech();
+  }
+
+  hideSpeech() {
+    if (this._speech) { this._speech.el.remove(); this._speech = null; }
+  }
+
+  placeSpeech() {
+    const s = this._speech;
+    if (!s || !s.anchor) return;
+    // ~2.4 units above the anchor origin - clears the head and any hat
+    this._v.set(s.anchor.x, (s.anchor.y ?? 0) + 2.4, s.anchor.z).project(this.camera);
+    if (this._v.z > 1) { s.el.style.opacity = '0'; return; }
+    s.el.style.opacity = '';
+    s.el.style.left = `${(this._v.x * 0.5 + 0.5) * window.innerWidth}px`;
+    s.el.style.top = `${(-this._v.y * 0.5 + 0.5) * window.innerHeight}px`;
+  }
+
   placeThink() {
     const t = this._think;
     if (!t || !t.anchor) return;
@@ -129,11 +166,18 @@ export class Floaters {
     // The "speaking soon" pill's dots pulse via CSS keyframes (staggered
     // delays); just keep it pinned to its world anchor as the camera moves.
     if (this._think) this.placeThink();
+    // Speech bubble (780): track the head, expire after its duration.
+    this._now = (this._now || 0) + dt;
+    if (this._speech) {
+      if (this._now >= this._speech.until) this.hideSpeech();
+      else this.placeSpeech();
+    }
   }
 
   clear() {
     for (const f of this.active) f.el.remove();
     this.active.length = 0;
     this.hideThinking();
+    this.hideSpeech();
   }
 }

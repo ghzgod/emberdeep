@@ -900,6 +900,37 @@ body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster
 }
 .floater.speak-soon span:nth-child(2) { animation-delay: 0.18s; }
 .floater.speak-soon span:nth-child(3) { animation-delay: 0.36s; }
+/* Comic speech bubble above a speaker's head (Obsidian 780): themed panel
+   with a downward tail, centred on the world-projected point (JS sets
+   left/top; the base .floater transform centres it). Sits ABOVE the head. */
+.floater.speech-bubble {
+  animation: sub-in 0.2s ease-out; display: block; max-width: 240px; text-align: left;
+  padding: 8px 13px 9px; white-space: normal;
+  background: linear-gradient(180deg, rgba(28,21,36,0.96), rgba(16,11,22,0.96));
+  border: 1px solid var(--gold); border-radius: 12px;
+  box-shadow: 0 5px 16px rgba(0,0,0,0.6), 0 0 12px rgba(232,192,90,0.12);
+  transition: opacity 0.3s ease;
+  /* lift the whole bubble up so its TAIL sits at the projected head point */
+  margin-top: -46px;
+}
+.floater.speech-bubble::after {
+  content: ''; position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%);
+  border-left: 8px solid transparent; border-right: 8px solid transparent;
+  border-top: 9px solid var(--gold);
+}
+.floater.speech-bubble::before {
+  content: ''; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%);
+  border-left: 7px solid transparent; border-right: 7px solid transparent;
+  border-top: 8px solid rgba(16,11,22,0.96); z-index: 1;
+}
+.floater.speech-bubble .sb-speaker {
+  display: block; color: var(--gold); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.5px; margin-bottom: 2px; text-shadow: 1px 1px 1px #000;
+}
+.floater.speech-bubble .sb-text {
+  display: block; color: var(--parchment); font-size: 13px; line-height: 1.4;
+  font-style: italic; text-shadow: 0 1px 2px #000;
+}
 @keyframes speak-soon-pulse {
   0%, 80%, 100% { opacity: 0.35; transform: scale(0.85); }
   40% { opacity: 1; transform: scale(1.15); }
