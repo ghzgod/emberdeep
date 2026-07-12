@@ -60,7 +60,12 @@ async function checkForUpdate(silent = false) {
       // player straight back into their most recent session after the reload
       // instead of parking them at the title menu.
       toast.onclick = () => {
-        try { sessionStorage.setItem('emberdeep-resume-v1', '1'); } catch { /* private mode */ }
+        // Only auto-resume into the game if the player was IN a session when
+        // they updated (Obsidian 779); clicking update from the menu returns
+        // to the menu. game._markInSession maintains 'emberdeep-in-game'.
+        try {
+          if (sessionStorage.getItem('emberdeep-in-game')) sessionStorage.setItem('emberdeep-resume-v1', '1');
+        } catch { /* private mode */ }
         location.replace(url.toString());
       };
       document.body.appendChild(toast);
