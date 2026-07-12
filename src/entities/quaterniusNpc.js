@@ -43,5 +43,20 @@ export async function buildQuaterniusFemale(key = 'femalePeasant', targetHeight 
   const size = new THREE.Vector3(); box.getSize(size);
   model.scale.setScalar(targetHeight / (size.y || 1.5));
   model.userData.quaternius = true;
+
+  // Gentle procedural IDLE (the pack has no baked anims): sway the spine/neck a
+  // few degrees around their rest pose so she breathes and shifts weight instead
+  // of standing like a statue. Caller ticks model.userData.idle(elapsedSeconds).
+  const idle = [];
+  for (const [b, ax, amp, freq, ph] of [
+    [bones.spine_02, 'x', 0.028, 1.1, 0],   // slow breathing lean
+    [bones.spine_03, 'z', 0.03, 0.65, 0.5], // subtle side-to-side weight shift
+    [bones.neck_01, 'z', 0.022, 0.65, 1.1], // head follows the sway a touch
+    [bones.upperarm_l, 'z', 0.02, 0.9, 0.3],
+    [bones.upperarm_r, 'z', 0.02, 0.9, 1.7],
+  ]) {
+    if (b) idle.push({ b, ax, base: b.rotation[ax], amp, freq, ph });
+  }
+  model.userData.idle = (t) => { for (const it of idle) it.b.rotation[it.ax] = it.base + Math.sin(t * it.freq + it.ph) * it.amp; };
   return model;
 }
