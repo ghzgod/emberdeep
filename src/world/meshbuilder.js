@@ -2364,15 +2364,20 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // hanging sign: an iron bracket bolted above the door, two chains, and
       // a real wooden board reading "Emberville Tavern".
       const ironMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.55, roughness: 0.5 });
+      // Sign lowered clear of the roofline (Obsidian 759): it hung up at
+      // ~2.35*S where the single-story roof eave overhangs the front wall, so
+      // the board clipped into the roof. Dropped to door-header height so it
+      // hangs in the open below the eave; also pushed a touch further out (+z)
+      // off the wall so the bracket clears the plaster.
       const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.06 * S, 0.06 * S, 0.7 * S), ironMat);
-      bracket.position.set(doorX + 0.85 * S, 2.35 * S, frontZ + 0.2 * S);
-      const chainL = new THREE.Mesh(new THREE.CylinderGeometry(0.014 * S, 0.014 * S, 0.3 * S, 5), ironMat);
-      chainL.position.set(doorX + 0.85 * S, 2.18 * S, frontZ - 0.05 * S);
+      bracket.position.set(doorX + 0.85 * S, 1.7 * S, frontZ + 0.28 * S);
+      const chainL = new THREE.Mesh(new THREE.CylinderGeometry(0.014 * S, 0.014 * S, 0.26 * S, 5), ironMat);
+      chainL.position.set(doorX + 0.85 * S, 1.55 * S, frontZ + 0.08 * S);
       const chainR = chainL.clone();
-      chainR.position.z = frontZ + 0.45 * S;
-      const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.06 * S, 0.5 * S, 0.9 * S),
+      chainR.position.z = frontZ + 0.48 * S;
+      const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.06 * S, 0.44 * S, 0.82 * S),
         new THREE.MeshStandardMaterial({ map: makeExteriorSignTexture(), roughness: 0.85 }));
-      signBoard.position.set(doorX + 0.85 * S, 1.95 * S, frontZ + 0.2 * S);
+      signBoard.position.set(doorX + 0.85 * S, 1.32 * S, frontZ + 0.28 * S);
       add(bracket, chainL, chainR, signBoard);
 
       facadeState = { objs, glowEntries };
