@@ -436,7 +436,14 @@ export class Game {
 
   // Everyone starts in their OWN town — guests included. A guest only joins
   // the host's world by stepping through the dungeon portal.
+  // Tracks whether the player is in an actual game session (vs the title/menu)
+  // so the update toast (main.js, Obsidian 779) only auto-resumes into the
+  // game when they were IN a game - clicking update from the menu returns to
+  // the menu, not into a session.
+  _markInSession(on) { try { if (on) sessionStorage.setItem('emberdeep-in-game', '1'); else sessionStorage.removeItem('emberdeep-in-game'); } catch { /* private mode */ } }
+
   enterWorld() {
+    this._markInSession(true);
     if (net.active && !net.isHost) {
       net.send({ t: 'hello', cls: this.player.classId, name: this.playerName(), gn: this.player.gender, sk: this.player.skinTone, hc: this.player.hairColor, ec: this.player.eyeColor, fs: this.player.faceShape, hs: this.player.hairStyle });
       this.localTown = true;
@@ -487,6 +494,7 @@ export class Game {
     audio.stopMusic();
     this._bossMusicOn = false;
     this.state = 'title';
+    this._markInSession(false); // back at the menu (779)
     this.ui.showHud(false);
     this.touch.setVisible(false);
     this.ui.showTitle();
