@@ -13,26 +13,64 @@ const ROOM_PREFIX = 'emberdeep-room-';
 // carrier-grade NAT) leaves the player stuck on "Connecting to room" forever.
 const HANDSHAKE_TIMEOUT_MS = 15000;
 
-// Explicit ICE servers. PeerJS only ships one STUN server by default, which is
-// not enough for mobile networks behind symmetric NAT. Several public STUN
-// servers plus a public TURN relay give the offer/answer a real chance to
-// complete instead of silently stalling with no error and no timeout.
-const PEER_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    {
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turn:openrelay.metered.ca:443?transport=tcp',
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
+// ICE servers. PeerJS ships one STUN server by default, which is not enough
+// for networks behind symmetric NAT (most home routers, all mobile carriers)
+// - those need a TURN RELAY to connect at all.
+//
+// Obsidian 758 (the recurring "cannot reach the room, timed out"): the free
+// openrelay.metered.ca TURN with the static 'openrelayproject' credentials is
+// DEPRECATED - Metered now issues per-account keys and the old shared creds no
+// longer reliably allocate a relay, so any join needing TURN silently failed
+// ICE and hit the timeout. Two mitigations here:
+//   1. Broad STUN redundancy + iceCandidatePoolSize so direct/reflexive paths
+//      get the best possible chance before a relay is even needed.
+//   2. An OPTIONAL free Metered API key (see fetchIceServers below): if the
+//      player pastes a key into localStorage 'emberdeep-turn-key', we fetch
+//      fresh working TURN credentials at connect time. Free tier is 20GB/mo -
+//      one key shared in the build makes cross-NAT co-op reliable for everyone.
+// The static TURN entries are kept as a best-effort fallback (they still work
+// on some networks / the TLS-443 path) but are no longer the only relay hope.
+const STUN_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:stun.services.mozilla.com:3478' },
+];
+const FALLBACK_TURN = {
+  urls: [
+    'turn:openrelay.metered.ca:80',
+    'turn:openrelay.metered.ca:443',
+    'turn:openrelay.metered.ca:443?transport=tcp',
   ],
+  username: 'openrelayproject',
+  credential: 'openrelayproject',
 };
+let PEER_CONFIG = {
+  iceServers: [...STUN_SERVERS, FALLBACK_TURN],
+  iceCandidatePoolSize: 4,
+};
+
+// If a Metered API key is configured, fetch fresh, WORKING TURN credentials at
+// runtime (the documented, reliable path) and fold them into PEER_CONFIG.
+// Cached for the session. No key -> we keep the STUN + static-TURN fallback.
+// Never throws: a failed fetch just leaves the fallback config in place.
+async function fetchIceServers() {
+  let key = null;
+  try { key = localStorage.getItem('emberdeep-turn-key') || (typeof __TURN_KEY__ !== 'undefined' ? __TURN_KEY__ : null); } catch { /* no storage */ }
+  if (!key) return PEER_CONFIG;
+  if (PEER_CONFIG._fetched) return PEER_CONFIG;
+  try {
+    const res = await fetch(`https://emberdeep.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(key)}`, { cache: 'no-store' });
+    if (res.ok) {
+      const servers = await res.json();
+      if (Array.isArray(servers) && servers.length) {
+        PEER_CONFIG = { iceServers: [...STUN_SERVERS, ...servers], iceCandidatePoolSize: 4, _fetched: true };
+      }
+    }
+  } catch { /* keep fallback */ }
+  return PEER_CONFIG;
+}
 
 export class Net {
   constructor() {
@@ -53,9 +91,25 @@ export class Net {
   emitLocal(type, msg, from) { this.handlers[type]?.(msg, from); }
 
   // Try to become host of the room; if the id is taken, join as guest.
-  start(room) {
+  async start(room) {
     this.roomId = ROOM_PREFIX + room.toLowerCase().replace(/[^a-z0-9]/g, '');
-    return this._claimOrJoin();
+    // pull fresh working TURN creds if a key is configured (758)
+    await fetchIceServers();
+    // Retry the whole claim/join a few times before surfacing a timeout
+    // (758): the public PeerJS broker and ICE gathering both fail
+    // TRANSIENTLY under load - a second attempt with a fresh peer very often
+    // succeeds where the first stalled, and one retry is invisible to the
+    // player behind the "Connecting…" spinner. Only 'timeout' and
+    // 'connect-failed' are retried; a real 'room_full'/'peer-unavailable'
+    // returns immediately.
+    let last = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      last = await this._claimOrJoin();
+      if (last.mode !== 'error') return last;
+      if (last.error !== 'timeout' && last.error !== 'connect-failed' && last.error !== 'network' && last.error !== 'server-error') return last;
+      await new Promise((r) => setTimeout(r, 600 + attempt * 400));
+    }
+    return last;
   }
 
   _claimOrJoin() {
