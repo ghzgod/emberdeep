@@ -1261,6 +1261,20 @@ export function buildTavernInterior() {
     { x: (W * TILE) / 2, y: 1.7, z: TILE * 1.6, flame: null },
   ];
 
+  // Seats the PLAYER can sit at too (Obsidian 792): every bar stool + table
+  // stool as a {x,z, faceX,faceZ, perchY, kind} the interact prompt in game.js
+  // offers "Sit here" for. Bar stools face the counter (-z); table stools face
+  // their table centre.
+  const seats = [];
+  for (const s of barStoolSlots) seats.push({ x: s.x, z: s.z, faceX: s.x, faceZ: s.z - 1, perchY: 0.44, kind: 'bar' });
+  for (const [tx, ty] of TABLE_TILES) {
+    const w = tileToWorld(tx, ty);
+    for (let s = 0; s < 3; s++) {
+      const a = (s / 3) * Math.PI * 2 + tx;
+      seats.push({ x: w.x + Math.cos(a) * 1.25, z: w.z + Math.sin(a) * 1.25, faceX: w.x, faceZ: w.z, perchY: 0.3, kind: 'table' });
+    }
+  }
+
   return {
     group,
     doorMeshes: new Map(),
@@ -1271,6 +1285,7 @@ export function buildTavernInterior() {
     portalMesh: null,
     returnPortalMesh: null,
     smokePuffs,
+    seats,
     // LIVE position (Obsidian 734): the keeper group's own Vector3, so the
     // talk prompt, chat anchor and thinking pill all track her as she
     // ambles instead of pointing at where she stood when the tavern built.
