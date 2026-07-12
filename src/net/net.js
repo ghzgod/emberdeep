@@ -102,12 +102,19 @@ export class Net {
     // player behind the "Connecting…" spinner. Only 'timeout' and
     // 'connect-failed' are retried; a real 'room_full'/'peer-unavailable'
     // returns immediately.
+    // Retry harder (758): the "network" error the friend hit = the free
+    // PeerJS cloud broker (0.peerjs.com) dropped the signaling socket, which
+    // is TRANSIENT under load. 5 attempts with growing backoff turns most of
+    // those flaky first-connects into a success, invisibly behind the
+    // "Connecting…" spinner. Only broker/ICE errors retry; room-full and
+    // real peer errors return immediately.
+    const RETRYABLE = new Set(['timeout', 'connect-failed', 'network', 'server-error', 'socket-error', 'socket-closed']);
     let last = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       last = await this._claimOrJoin();
       if (last.mode !== 'error') return last;
-      if (last.error !== 'timeout' && last.error !== 'connect-failed' && last.error !== 'network' && last.error !== 'server-error') return last;
-      await new Promise((r) => setTimeout(r, 600 + attempt * 400));
+      if (!RETRYABLE.has(last.error)) return last;
+      await new Promise((r) => setTimeout(r, 700 + attempt * 700));
     }
     return last;
   }
