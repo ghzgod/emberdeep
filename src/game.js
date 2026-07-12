@@ -1109,7 +1109,11 @@ export class Game {
         ? { female: true, vi: 2, pitch: 0.92, rate: 1.05, kokoro: 'af_sarah', kSpeed: 1.05 }
         : { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 };
     pm.talkUntil = performance.now() + 7000; // stool-swivel toward the player only mid-conversation (735)
-    const speaker = pm.drunk ? 'Tipsy Regular' : rude ? 'Surly Patron' : 'Tavern Patron';
+    // Bubble label = the patron's own NAME once they have one (other NPCs will
+    // refer to them by it - 781/787), else a descriptive stand-in. Read live
+    // each utterance, so the moment a patron is named the label updates itself
+    // (Obsidian 790).
+    const speaker = pm.name || (pm.drunk ? 'Tipsy Regular' : rude ? 'Surly Patron' : 'Tavern Patron');
     roaster.sayGated(this, speaker, line, cast, pm);
   }
 
