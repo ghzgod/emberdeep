@@ -135,6 +135,11 @@ export class Game {
     const firstVisit = !savedSettings;
     this.settings = Object.assign(
       { masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9, quality: 'medium', screenShake: true, voiceMode: 'ptt', voiceThreshold: 12, taunts: true, voiceChatVolume: 0.9, speechVolume: 0.9, camZoom: 1,
+        // 18+ mode (Obsidian 793): OFF by default and behind an age agreement.
+        // Gates ALL vulgar/NSFW dialogue - the rude patrons' crude brush-offs
+        // (782) and the flirty tavern NPC's sexual lines (783). With it off,
+        // rude NPCs are still dismissive but clean.
+        adult18: false,
         keybinds: { interact: 'KeyF', potion: 'KeyR', talk: 'KeyV', inventory: 'Tab', quests: 'KeyJ', mastery: 'KeyK' } },
       savedSettings || {}
     );
@@ -1076,14 +1081,24 @@ export class Game {
       'Maribel restocks whenever you come back through the portal. Handy woman.',
     ];
     // Rude patrons (Obsidian 782): non-worker regulars who don't want to talk.
-    // Curt, dismissive brush-offs instead of helpful tavern gossip.
-    const rudeLines = [
-      'Fuck off. I\'m drinking.',
-      'Do I look like I want company? Leave me alone.',
-      'Piss off, hero. Go bother someone who cares.',
-      'I didn\'t ask for a chat. Move along.',
-      'Not interested. Away with you.',
+    // Curt, dismissive brush-offs instead of helpful tavern gossip. The CRUDE
+    // versions are gated behind 18+ mode (Obsidian 793); with it off the same
+    // patron is still dismissive but keeps it clean.
+    const rudeCleanLines = [
+      'Not now. I\'m drinking.',
+      'Do I look like I want company? Leave me be.',
+      'Move along, hero. Bother someone who cares.',
+      'I didn\'t ask for a chat. Away with you.',
+      'Not interested. Off you go.',
     ];
+    const rudeVulgarLines = [
+      'Fuck off. I\'m drinking.',
+      'Piss off, hero. Go bother someone who gives a damn.',
+      'Do I look like I want company? Sod off.',
+      'Shut it and clear off before I make you.',
+      'Not interested. Fuck away with you.',
+    ];
+    const rudeLines = this.settings.adult18 ? rudeVulgarLines : rudeCleanLines;
     const rude = pm.mood === 'rude';
     const bank = rude ? rudeLines : pm.drunk ? drunkLines : soberLines;
     const line = bank[Math.floor(Math.random() * bank.length)];
