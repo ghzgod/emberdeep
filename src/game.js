@@ -1214,9 +1214,16 @@ export class Game {
           female ? '*hic* Well aren\'t YOU a sight. Buy a girl a drink, gorgeous?' : '*hic* Well hello, hero. Come to keep a lonely girl company?',
           'You\'ve got a look about you. Sit with me a while?',
         ]);
-    // She turns to face the player while you talk (uses the same talk gate).
+    // She SPEAKS first (voiced bubble over her head); the reply choices appear
+    // only AFTER she's had her say - never before you've seen/heard her line
+    // (Obsidian 841). She turns to face you via the same talk gate.
     roaster.sayGated(this, pm.name || 'Rosalind', opener, this._flirtVoice(), pm, { durationMs: 4800 });
-    this.ui.openFlirtDialog(pm, opener, this._flirtChoices(pm, female));
+    clearTimeout(this._flirtOpenTimer);
+    const delay = Math.min(4200, 1500 + opener.length * 45);
+    this._flirtOpenTimer = setTimeout(() => {
+      if (this.state !== 'flirt') return; // walked off / closed during her line
+      this.ui.openFlirtDialog(pm, opener, this._flirtChoices(pm, female));
+    }, delay);
   }
 
   // Four options, coldest → boldest. The boldest is tamer without 18+.
