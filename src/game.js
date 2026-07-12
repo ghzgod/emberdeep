@@ -293,7 +293,7 @@ export class Game {
     this.wireNet();
     const result = await net.start(room);
     if (result.mode === 'error') { net.stop(); return result; }
-    voice.attachToPeer(net.peer);
+    voice.attachToRoom(net.room);
     if (this.settings.voiceMode !== 'off') {
       voice.enable(this.settings.voiceMode, this.settings.voiceThreshold);
     }
@@ -1952,7 +1952,7 @@ export class Game {
     }
     if (res.mode === 'host') {
       this.becomeSimulationOwner();
-      voice.attachToPeer(net.peer);
+      voice.attachToRoom(net.room);
       if (this.settings.voiceMode !== 'off') voice.enable(this.settings.voiceMode, this.settings.voiceThreshold);
       net.broadcastRoster();
     } else {
