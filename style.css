@@ -1181,13 +1181,25 @@ body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster
 #act-card #act-list .menu-btn small { color: var(--muted); font-size: 11px; }
 
 /* Rosalind's flirt dialogue (Obsidian 783) */
-#flirt-dialog { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
+/* Non-modal (Obsidian 806): a dialogue panel pinned to the BOTTOM of the screen
+   so Rosalind and the tavern stay visible above it while you pick a reply - no
+   full-screen blackout, no centred modal. Only the panel itself is interactive
+   (the container is click-through), with a soft gradient scrim behind the panel
+   for readability. */
+#flirt-dialog {
+  position: fixed; inset: auto 0 0 0; z-index: 60;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 0 12px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(4,2,8,0.6) 0%, rgba(4,2,8,0.28) 45%, rgba(4,2,8,0) 78%);
+}
 #flirt-dialog.hidden { display: none; }
 #flirt-card {
-  min-width: 300px; max-width: min(90vw, 460px); max-height: 86vh; overflow: auto;
-  padding: 14px; text-align: center; color: var(--parchment);
+  pointer-events: auto;
+  width: 100%; max-width: min(94vw, 560px); max-height: 62vh; overflow: auto;
+  padding: 12px 14px; text-align: center; color: var(--parchment);
   background: var(--panel-grad); border: 2px solid var(--panel-brown); outline: 1px solid #000;
-  border-radius: 6px; box-shadow: var(--panel-shadows);
+  border-radius: 10px; box-shadow: var(--panel-shadows);
 }
 #flirt-head { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-bottom: 10px; border-bottom: 1px solid var(--title-divider); padding-bottom: 6px; }
 #flirt-head h2 { font-size: 16px; margin: 0; color: #ff9ac0; letter-spacing: 0.5px; text-shadow: 1px 1px 2px #000; }
