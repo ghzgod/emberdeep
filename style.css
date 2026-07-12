@@ -1205,8 +1205,10 @@ body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster
 #flirt-head h2 { font-size: 16px; margin: 0; color: #ff9ac0; letter-spacing: 0.5px; text-shadow: 1px 1px 2px #000; }
 #flirt-mood { font-size: 12px; font-weight: 700; }
 #flirt-line { font-style: italic; font-size: 14px; line-height: 1.45; margin-bottom: 14px; min-height: 2.4em; }
-#flirt-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+/* Two answers left, two right (Obsidian 827) instead of a tall stack. */
+#flirt-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
 #flirt-choices .flirt-choice { text-align: left; white-space: normal; }
+@media (max-width: 560px) { #flirt-choices { grid-template-columns: 1fr; } }
 .flirt-choice.flirt-tier0 { border-color: #5a6472; }
 .flirt-choice.flirt-tier2 { border-color: #b8637f; }
 .flirt-choice.flirt-tier3 { border-color: #ff6ea6; }

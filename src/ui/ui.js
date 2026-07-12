@@ -2330,7 +2330,11 @@ export class UI {
   openFlirtDialog(pm, line, choices) {
     this._flirtPm = pm;
     $('flirt-name').textContent = pm.name || 'Rosalind';
-    $('flirt-line').textContent = line;
+    // Her line is SPOKEN as a bubble over her head (flirtChat/flirtSelect call
+    // sayGated); the modal is purely the reply picker, so we no longer ALSO
+    // print her line in here (Obsidian 826: the response was doubling up - once
+    // inside the modal and once above her head).
+    $('flirt-line').textContent = '';
     this._flirtMood(pm.affinity || 0);
     this._renderFlirtChoices(choices);
     $('btn-flirt-leave').textContent = 'Leave';
@@ -2345,17 +2349,21 @@ export class UI {
       btn.textContent = c.label;
       btn.onclick = async () => {
         const pm = this._flirtPm;
-        // Brief "…" while her line is decided (canned or fast LLM), then show
-        // ONE final line - no start/stop/swap. Lock choices so a double-tap
-        // can't fire two replies.
-        $('flirt-line').textContent = '…';
-        list.querySelectorAll('button').forEach((b) => (b.disabled = true));
+        // Dismiss the picker the instant you choose (Obsidian 826): her reply
+        // then plays as a normal speech bubble over her head via flirtSelect,
+        // and once she's had her say the next choices come back so the banter
+        // keeps flowing. Hidden (not closed) so game.state stays 'flirt'.
+        $('flirt-dialog').classList.add('hidden');
         const res = await this.game.flirtSelect(pm, c.tier);
-        if (this._flirtPm !== pm) return; // dialog closed while we waited
-        $('flirt-line').textContent = res.line;
-        this._flirtMood(res.affinity);
-        this._renderFlirtChoices(res.choices);
-        if (res.disliked || !res.choices.length) $('btn-flirt-leave').textContent = 'Leave her be';
+        if (this._flirtPm !== pm) return; // player walked off / left mid-reply
+        if (res.disliked || !res.choices.length) { this.closeFlirt(); return; }
+        clearTimeout(this._flirtReopen);
+        this._flirtReopen = setTimeout(() => {
+          if (this._flirtPm !== pm) return;
+          this._flirtMood(res.affinity);
+          this._renderFlirtChoices(res.choices);
+          $('flirt-dialog').classList.remove('hidden');
+        }, 1600);
       };
       list.appendChild(btn);
     }
