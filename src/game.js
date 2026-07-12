@@ -1126,6 +1126,14 @@ export class Game {
   _flirtVoice() { return { female: true, vi: 3, pitch: 1.12, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.02 }; }
   _pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
+  // Stand the player up from a tavern stool (Obsidian 792). Bar seats step the
+  // hero off into the room so they don't stand up inside the counter overhang.
+  _standFromSeat() {
+    const s = this.seatedAt;
+    this.seatedAt = null;
+    if (s && s.kind === 'bar') this.player.pos.z = s.z + 0.7;
+  }
+
   flirtChat(pm) {
     if (pm.affinity == null) pm.affinity = 0;
     this.state = 'flirt';
@@ -5139,6 +5147,26 @@ export class Game {
           },
         };
       }
+      // Sit at any tavern stool (Obsidian 792): a sit/stand toggle on the
+      // interact prompt. Offers the nearest EMPTY seat (no patron on it); once
+      // seated, the same prompt becomes "Stand up" (and any movement also
+      // stands - see the pinning block below).
+      if (!candidate && this.seatedAt) {
+        candidate = { label: 'Stand up', icon: '🧍', action: () => this._standFromSeat() };
+      } else if (!candidate && !this.sittingOnCouch && this.dungeonMeshes.seats) {
+        let best = null, bestD = 1.4;
+        for (const s of this.dungeonMeshes.seats) {
+          const d = Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z);
+          if (d < bestD && !(this.dungeonMeshes.patronMeshes || []).some((pm) => Math.hypot(pm.x - s.x, pm.z - s.z) < 0.7)) { best = s; bestD = d; }
+        }
+        if (best) candidate = {
+          label: best.kind === 'bar' ? 'Sit at the bar' : 'Sit down', icon: '🪑', action: () => {
+            this.seatedAt = best;
+            this.player.pos.x = best.x; this.player.pos.z = best.z;
+            audio.play('ui_click', { volume: 0.5 });
+          },
+        };
+      }
     }
 
     // While an NPC line is still audibly playing, hold every TALK prompt back
@@ -5168,6 +5196,21 @@ export class Game {
         p.mesh.position.y += 0.34; // perched on the cushion, not standing in it
       }
     } else if (this.sittingOnCouch) this.sittingOnCouch = false;
+
+    // Seated on a tavern stool (Obsidian 792): pin to the seat, face the bar
+    // or table, perch at seat height; any movement input stands back up.
+    if (this.inTavern && this.seatedAt) {
+      const s = this.seatedAt;
+      const p = this.player;
+      if (Math.abs(p.moveDir.x) > 0.01 || Math.abs(p.moveDir.z) > 0.01) {
+        this._standFromSeat();
+      } else {
+        p.pos.x = s.x; p.pos.z = s.z;
+        p.aimAngle = Math.atan2(s.faceZ - s.z, s.faceX - s.x);
+        p.faceAimTimer = Math.max(p.faceAimTimer, 0.3);
+        p.mesh.position.y += s.perchY; // perched on the stool, not standing through it
+      }
+    } else if (this.seatedAt) this.seatedAt = null;
 
     // hearth crackle loudness tracks distance to the fire (717). If the loop
     // never started (Obsidian 749: the AudioContext was suspended at tavern
