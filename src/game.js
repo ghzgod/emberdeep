@@ -29,7 +29,7 @@ import { learner } from './ai/learner.js';
 import { roaster } from './ai/roaster.js';
 import { llm } from './ai/llm.js';
 import { STORIES } from './story.js';
-import { generateTavernInterior, buildTavernInterior } from './world/tavern.js';
+import { generateTavernInterior, buildTavernInterior, generateTavernUpstairs, buildTavernUpstairsInterior } from './world/tavern.js';
 import { Wanderer } from './entities/wanderer.js';
 import { TouchControls } from './core/touch.js';
 
@@ -255,6 +255,7 @@ export class Game {
     this.destructibleWallHits = {};
     this.inTown = false;
     this.inTavern = false;
+    this.inUpstairs = false; // tavern upstairs rooms (800)
     this.slotId = null;
     this.shopCooldown = 0;
     this.activeVendor = null;
@@ -693,6 +694,7 @@ export class Game {
     this.teardownFloor();
     this.inTown = true;
     this.inTavern = true;
+    this.inUpstairs = false;
     this.dungeon = generateTavernInterior();
     this.dungeonMeshes = buildTavernInterior();
     this.scene.add(this.dungeonMeshes.group);
@@ -719,11 +721,42 @@ export class Game {
     this.stairsCooldown = 1.5;
   }
 
+  // ---------------- tavern upstairs rooms (Obsidian 800) ----------------
+  // A separate lamplit interior above the tavern: a hallway landing with four
+  // guest-room doorways, the rightmost being Rosalind's. Reached from the stair
+  // base on the tavern floor; left again via the stairwell back down. Shares the
+  // tavern flag (inTavern) so the guarded per-frame tavern code no-ops safely,
+  // plus inUpstairs to swap the stair interacts and the floor label.
+  loadTavernUpstairs(opts = {}) {
+    this.teardownFloor();
+    this.inTown = true;
+    this.inTavern = true;
+    this.inUpstairs = true;
+    this.dungeon = generateTavernUpstairs();
+    this.dungeonMeshes = buildTavernUpstairsInterior();
+    this.scene.add(this.dungeonMeshes.group);
+    this.openedDoors = new Set();
+    const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
+    this.player.pos.set(spawn.x, 0, spawn.z);
+    this.setTownAtmosphere(true);
+    const theme = themeForFloor(1);
+    this.setupTorchLights({ ...theme, accent: 0xffb877 });
+    this.ui.minimap.setDungeon(this.dungeon);
+    this.ui.showFloorBanner('THE SLEEPING GOLEM', 'Upstairs — guest rooms', true);
+    audio.playMusic('tavern');
+    audio.startAmbience('tavern');
+    // no ambient table-talk up here (no patrons) - keep the shared driver a no-op
+    this._tavernConvoPlans = [];
+    this._tavernPlanIdx = 0;
+    this.stairsCooldown = 1.5;
+  }
+
   // ---------------- town ----------------
   loadTown(opts = {}) {
     this.teardownFloor();
     this.inTown = true;
     this.inTavern = false;
+    this.inUpstairs = false;
     const theme = themeForFloor(1);
     this.dungeon = generateTown();
     this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme);
@@ -1714,6 +1747,7 @@ export class Game {
   }
 
   floorLabelText() {
+    if (this.inUpstairs) return '🍺 The Sleeping Golem — Upstairs';
     if (this.inTavern) return '🍺 The Sleeping Golem';
     if (this.inTown) return '🏘️ Embervale';
     if (this.floor > MAX_FLOOR) return `🌀 Depths ${this.floor}`;
@@ -5196,6 +5230,16 @@ export class Game {
         const w = tileToWorld(this.dungeon.exit.x, this.dungeon.exit.y);
         if (near(w.x, w.z + 0.6, 1.6)) candidate = { label: 'Step outside', icon: '🚪', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTown({ fromTavern: true }); } };
       }
+      // Staircase to the upstairs rooms (Obsidian 800): ascend from the base on
+      // the tavern floor, descend from the stairwell up top.
+      if (!candidate && !this.inUpstairs && this.dungeon.stairsUp && this.stairsCooldown <= 0
+        && near(30.4, 20.6, 2.2)) {
+        candidate = { label: 'Head upstairs', icon: '🪜', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTavernUpstairs(); } };
+      }
+      if (!candidate && this.inUpstairs && this.dungeonMeshes.stairsDownPos && this.stairsCooldown <= 0
+        && near(this.dungeonMeshes.stairsDownPos.x, this.dungeonMeshes.stairsDownPos.z, 2.0)) {
+        candidate = { label: 'Head downstairs', icon: '🪜', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTavern(); } };
+      }
       // 3.8 (was 2.4, Obsidian 746): the bar rework (720) put Magda a full
       // aisle + counter away from a customer standing at the bar front, past
       // the old radius - across-the-counter talking must always reach her.
@@ -5316,7 +5360,7 @@ export class Game {
     // Turns wait for the previous line's audio to finish (npcSpeechActive)
     // plus a small beat, and the whole thing yields instantly to any player
     // conversation (talk prompts already gate on npcSpeechActive too).
-    if (this.inTavern && roaster.enabled) {
+    if (this.inTavern && !this.inUpstairs && roaster.enabled) {
       // cast.lite = KittenTTS voice id (738): ambient chatter synthesizes on
       // the tiny CPU engine; kokoro ids remain the fallback voices.
       const speakerOf = (who) => {
