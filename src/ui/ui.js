@@ -2349,6 +2349,8 @@ export class UI {
       btn.textContent = c.label;
       btn.onclick = async () => {
         const pm = this._flirtPm;
+        // The "follow her upstairs" payoff (829): not a reply - take her up.
+        if (c.followUp) { this.game.followRosalindUpstairs(); return; }
         // Dismiss the picker the instant you choose (Obsidian 826): her reply
         // then plays as a normal speech bubble over her head via flirtSelect,
         // and once she's had her say the next choices come back so the banter
@@ -2361,7 +2363,14 @@ export class UI {
         this._flirtReopen = setTimeout(() => {
           if (this._flirtPm !== pm) return;
           this._flirtMood(res.affinity);
-          this._renderFlirtChoices(res.choices);
+          // Once she's invited you up (Obsidian 829), the picker becomes a single
+          // "Follow her upstairs" action that takes you to her room; you can still
+          // Leave. Otherwise the normal reply choices come back.
+          if (res.invitedUpstairs) {
+            this._renderFlirtChoices([{ tier: 3, label: '💋 Follow her upstairs', followUp: true }]);
+          } else {
+            this._renderFlirtChoices(res.choices);
+          }
           $('flirt-dialog').classList.remove('hidden');
         }, 1600);
       };

@@ -1259,7 +1259,26 @@ export class Game {
     roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 5200 });
     pm.talkUntil = performance.now() + 12000;
     const end = pm.affinity <= -3; // she's had enough of a cold shoulder
-    return { line, affinity: pm.affinity, disliked: end, choices: end ? [] : this._flirtChoices(pm, female) };
+    // The EARNED payoff (Obsidian 829): once she's genuinely into you (smitten,
+    // built up over several exchanges) in 18+ mode and you make the forward move,
+    // she invites you to her room upstairs - the UI then offers "Follow her
+    // upstairs" which takes you up to her room.
+    const invitedUpstairs = adult && tier === 3 && pm.affinity >= 5 && (pm._flirtEx || 0) >= 4;
+    if (invitedUpstairs) pm._invitedUpstairs = true;
+    return { line, affinity: pm.affinity, disliked: end, invitedUpstairs, choices: end ? [] : this._flirtChoices(pm, female) };
+  }
+
+  // The "follow her upstairs" payoff (Obsidian 829): close the flirt, go up to
+  // the guest floor and drop the hero in Rosalind's room (SE). Only reachable
+  // once she's invited you (18+, earned) - the UI gates the button on that.
+  followRosalindUpstairs() {
+    this.ui.closeFlirt?.();
+    audio.play('door_open');
+    this.loadTavernUpstairs();
+    // stand in her room (SE), clear of the collision-blocked bed
+    this.player.pos.set(23, 0, 18);
+    this.player.visualAngle = Math.PI; // face into the room
+    this.ui.floaters?.spawn(this.player.pos, 'You follow Rosalind upstairs…', 'crit');
   }
 
   // Ask the keyless LLM (Pollinations) for Rosalind's next line, in character
