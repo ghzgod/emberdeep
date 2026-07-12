@@ -627,7 +627,10 @@ export class Game {
     this.enemies = [];
     if (this.deathMarkers) { for (const d of this.deathMarkers) this.scene.remove(d.mesh); this.deathMarkers = []; }
     if (this.wallMarks) { for (const d of this.wallMarks) this.disposeMarkEntry(d); this.wallMarks = []; }
-    if (this.impactFlashes) { for (const f of this.impactFlashes) this.scene.remove(f.sprite); this.impactFlashes = []; }
+    // flash sprites are a persistent pool (753): remove them from the scene
+    // on teardown and drop the pool so the next floor rebuilds it fresh
+    if (this._flashPool) { for (const s of this._flashPool) this.scene.remove(s); this._flashPool = null; }
+    if (this.impactFlashes) this.impactFlashes = [];
     if (this.boss) { this.scene.remove(this.boss.mesh); this.boss = null; }
     for (const z of this.zones) if (z.mesh) this.scene.remove(z.mesh);
     this.zones = [];
@@ -1463,6 +1466,13 @@ export class Game {
     this.refreshEnvironmentReflection();
 
     if (net.isHost) this.broadcastWorld();
+
+    // Pre-compile every shader program the freshly-built floor needs
+    // (Obsidian 753): without this, WebGL compiles each material variant the
+    // first frame it becomes visible - enemies stepping into view, the first
+    // fireball, the first loot beam - and each compile is a visible mid-
+    // combat hitch. Doing it here folds the cost into the loading screen.
+    try { this.renderer.compile(this.scene, this.camera); } catch { /* best-effort */ }
 
     // floor ready + player placed: drop the loading screen.
     this.ui.setLoadingProgress(1, 'Ready');
@@ -4604,10 +4614,14 @@ export class Game {
   addWallMark(x, z, opts = {}) {
     const size = opts.size ?? (0.3 + Math.random() * 0.25);
     const opacity = opts.opacity ?? 0.4;
+    // shared unit circle scaled per-decal (753) - same churn fix as the
+    // wall-impact marks
+    this._markCircleGeo ||= new THREE.CircleGeometry(1, 10);
     const mesh = new THREE.Mesh(
-      new THREE.CircleGeometry(size, 10),
+      this._markCircleGeo,
       new THREE.MeshBasicMaterial({ color: opts.color ?? 0x000000, transparent: true, opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 })
     );
+    mesh.scale.setScalar(size);
     mesh.rotation.x = -Math.PI / 2;
     mesh.rotation.z = Math.random() * Math.PI;
     mesh.position.set(x, 0.03, z);
@@ -4636,10 +4650,16 @@ export class Game {
     const baseColor = new THREE.Color(0x18120d);
     if (opts.tint) baseColor.lerp(new THREE.Color(opts.tint), 0.12);
     const size = 0.26 + Math.random() * 0.1;
+    // shared UNIT geometries scaled per-mesh (753): every impact used to
+    // upload a fresh plane + box geometry then dispose them seconds later -
+    // pure GPU churn in the hottest combat path
+    this._markPlaneGeo ||= new THREE.PlaneGeometry(1, 1.1);
+    this._markChipGeo ||= new THREE.BoxGeometry(1, 1, 0.6);
     const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(size, size * 1.1),
+      this._markPlaneGeo,
       new THREE.MeshBasicMaterial({ color: baseColor, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide })
     );
+    plane.scale.setScalar(size);
     plane.position.set(px, y, pz);
     plane.rotation.y = rotY;
     this.scene.add(plane);
@@ -4650,7 +4670,8 @@ export class Game {
     const chipMat = new THREE.MeshBasicMaterial({ color: 0x18120f, transparent: true, opacity: 0.85 });
     for (let i = 0; i < chipCount; i++) {
       const s = 0.05 + Math.random() * 0.05;
-      const chip = new THREE.Mesh(new THREE.BoxGeometry(s, s, s * 0.6), chipMat.clone());
+      const chip = new THREE.Mesh(this._markChipGeo, chipMat.clone());
+      chip.scale.setScalar(s);
       chip.position.set(
         px + (Math.random() - 0.5) * 0.3 - nx * 0.02,
         y + (Math.random() - 0.5) * 0.3,
@@ -4674,7 +4695,12 @@ export class Game {
   }
 
   disposeMarkEntry(d) {
-    for (const mesh of d.meshes) { this.scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); }
+    // geometry is SHARED across all marks since 753 - dispose materials only
+    for (const mesh of d.meshes) {
+      this.scene.remove(mesh);
+      if (mesh.geometry !== this._markPlaneGeo && mesh.geometry !== this._markChipGeo && mesh.geometry !== this._markCircleGeo) mesh.geometry.dispose();
+      mesh.material.dispose();
+    }
   }
 
   // Ages out wall marks over their fadeAfter window (last third of life fades
@@ -4698,14 +4724,35 @@ export class Game {
 
   // A brief additive glow-sprite flash at an impact point, on top of the
   // particle burst, so the hit reads as a punchy flash and not just sparks.
+  // POOLED (Obsidian 753): impacts fire many times per second in combat and
+  // each used to allocate a fresh Sprite+SpriteMaterial - constant GC churn
+  // and first-variant shader work, i.e. stutter. A fixed pool of 14 sprites
+  // is recycled instead; overflow steals the oldest live flash.
   spawnImpactFlash(x, y, z, color = 0xfff0d0) {
     if (!this.impactFlashes) this.impactFlashes = [];
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: this._glowTex, color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.9,
-    }));
+    if (!this._flashPool) {
+      this._flashPool = [];
+      for (let i = 0; i < 14; i++) {
+        const s = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: this._glowTex, color: 0xffffff, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0,
+        }));
+        s.visible = false;
+        this.scene.add(s);
+        this._flashPool.push(s);
+      }
+    }
+    let sprite = this._flashPool.find((s) => !s.visible);
+    if (!sprite) { // steal the oldest live flash
+      const oldest = this.impactFlashes.shift();
+      sprite = oldest ? oldest.sprite : this._flashPool[0];
+      const idx = this.impactFlashes.findIndex((f) => f.sprite === sprite);
+      if (idx >= 0) this.impactFlashes.splice(idx, 1);
+    }
+    sprite.material.color.set(color);
+    sprite.material.opacity = 0.9;
     sprite.position.set(x, y, z);
     sprite.scale.setScalar(0.5);
-    this.scene.add(sprite);
+    sprite.visible = true;
     this.impactFlashes.push({ sprite, life: 0.18, maxLife: 0.18 });
   }
 
@@ -4715,7 +4762,9 @@ export class Game {
       const f = this.impactFlashes[i];
       f.life -= dt;
       if (f.life <= 0) {
-        this.scene.remove(f.sprite); f.sprite.material.dispose();
+        // pooled (753): hide for reuse - never remove/dispose pool sprites
+        f.sprite.visible = false;
+        f.sprite.material.opacity = 0;
         this.impactFlashes.splice(i, 1);
         continue;
       }
