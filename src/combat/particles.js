@@ -61,6 +61,65 @@ export class ParticleSystem {
     this.systems.push({ mesh, positions, velocities, rotSpeeds, scale, life, maxLife: life });
   }
 
+  // Gore burst (Obsidian 757): wet blood spray + chunky tumbling gib bits.
+  // Unlike burst(), this is NON-emissive (blood is wet meat, not glowing
+  // magic), mixes droplet and chunk sizes, and falls hard (gravity ~1.6x) so
+  // the bits arc out and hit the floor. Two colors: a bright arterial spray
+  // and darker meat chunks. One InstancedMesh, so one draw call.
+  gore(x, y, z, opts = {}) {
+    const count = opts.count ?? 26;
+    const speed = opts.speed ?? 5;
+    const life = opts.life ?? 0.8;
+    const spray = new THREE.Color(opts.spray ?? 0xd42020);   // bright arterial red
+    const chunk = new THREE.Color(opts.chunk ?? 0x8a1010);   // dark meat
+    const positions = new Float32Array(count * 3);
+    const velocities = [];
+    const rotSpeeds = [];
+    const scales = [];
+    const colorArr = [];
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = x; positions[i * 3 + 1] = y; positions[i * 3 + 2] = z;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const s = speed * (0.35 + Math.random() * 0.7);
+      velocities.push(new THREE.Vector3(
+        Math.sin(phi) * Math.cos(theta) * s,
+        Math.abs(Math.cos(phi)) * s * (opts.up ?? 1.0) + 1.2, // pop up then arc down
+        Math.sin(phi) * Math.sin(theta) * s
+      ));
+      rotSpeeds.push(new THREE.Vector3(
+        (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14
+      ));
+      // ~1/3 are big meat chunks, the rest fine spray droplets
+      const isChunk = Math.random() < 0.34;
+      scales.push((isChunk ? 0.14 + Math.random() * 0.12 : 0.05 + Math.random() * 0.05) / 0.5);
+      colorArr.push(isChunk ? chunk : spray);
+    }
+    // slight self-illumination so blood reads as vivid red even in the dim
+    // dungeon (real MeshStandard bits go muddy-dark under low light); per
+    // profile so bone/stone don't glow red (passed in by the caller)
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 0.5, metalness: 0.0, flatShading: true,
+      transparent: true, opacity: 1, depthWrite: false, vertexColors: true,
+      emissive: opts.emissive ?? 0x330000, emissiveIntensity: opts.emissiveIntensity ?? 0.5,
+    });
+    const mesh = new THREE.InstancedMesh(SHARD_GEO, mat, count);
+    mesh.frustumCulled = false;
+    for (let i = 0; i < count; i++) {
+      _dummy.position.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+      _dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      _dummy.scale.setScalar(scales[i]);
+      _dummy.updateMatrix();
+      mesh.setMatrixAt(i, _dummy.matrix);
+      mesh.setColorAt(i, colorArr[i]);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.scene.add(mesh);
+    // per-instance scales so the update loop keeps each bit's own size
+    this.systems.push({ mesh, positions, velocities, rotSpeeds, scale: 1, perScale: scales, life, maxLife: life, gravity: 10 });
+  }
+
   // Directional cone stream (the Dungeon Lord's fire breath): particles spawn
   // along a forward-biased cone from (x,y,z) toward dir, warm-colored and
   // additive-blended so overlapping flame reads bright/hot rather than muddy.
@@ -167,16 +226,19 @@ export class ParticleSystem {
       const s = this.systems[i];
       s.life -= dt;
       const pos = s.positions;
+      const grav = s.gravity ?? 6;
       for (let j = 0; j < s.velocities.length; j++) {
         const v = s.velocities[j];
-        if (!s.noGravity) v.y -= 6 * dt; // fire breath rises/drifts instead of falling
+        if (!s.noGravity) v.y -= grav * dt; // fire breath rises/drifts instead of falling
         pos[j * 3] += v.x * dt;
         pos[j * 3 + 1] += v.y * dt;
         pos[j * 3 + 2] += v.z * dt;
+        // gore bits settle onto the floor instead of sinking through it
+        if (s.perScale && pos[j * 3 + 1] < 0.04) { pos[j * 3 + 1] = 0.04; v.set(0, 0, 0); }
         const rv = s.rotSpeeds[j];
         _dummy.position.set(pos[j * 3], pos[j * 3 + 1], pos[j * 3 + 2]);
         _dummy.rotation.set(rv.x * s.life, rv.y * s.life, rv.z * s.life);
-        _dummy.scale.setScalar(s.scale);
+        _dummy.scale.setScalar(s.perScale ? s.perScale[j] : s.scale);
         _dummy.updateMatrix();
         s.mesh.setMatrixAt(j, _dummy.matrix);
       }

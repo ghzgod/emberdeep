@@ -41,6 +41,7 @@ export const ENEMY_TYPES = {
     aggroRange: 10, radius: 0.4,
     sounds: { hurt: 'skeleton_hurt', death: 'skeleton_death' },
     color: 0xd8d4c8,
+    gore: 'bone', // undead: bone shards + pale dust, no blood pool (757)
   },
   spider: {
     name: 'Cave Spider',
@@ -57,6 +58,7 @@ export const ENEMY_TYPES = {
     aggroRange: 11, radius: 0.35,
     sounds: { hurt: 'spider_hurt', death: 'spider_death' },
     color: 0x3a3a44,
+    gore: 'ichor',
   },
   imp: {
     name: 'Imp',
@@ -66,6 +68,7 @@ export const ENEMY_TYPES = {
     aggroRange: 12, radius: 0.35,
     sounds: { hurt: 'imp_hurt', death: 'imp_death', shoot: 'imp_shoot' },
     color: 0xc85a3a,
+    gore: 'blood',
   },
   golem: {
     name: 'Stone Golem',
@@ -75,6 +78,7 @@ export const ENEMY_TYPES = {
     aggroRange: 9, radius: 0.6,
     sounds: { hurt: 'golem_hurt', death: 'golem_death', special: 'golem_slam' },
     color: 0x7a7a85,
+    gore: 'stone',
   },
   ghost: {
     name: 'Wraith',
@@ -84,6 +88,7 @@ export const ENEMY_TYPES = {
     aggroRange: 12, radius: 0.4,
     sounds: { hurt: 'imp_hurt', death: 'imp_death' },
     color: 0xbcd0e8,
+    gore: 'ether',
   },
   ghoul: {
     name: 'Ghoul',
@@ -93,6 +98,7 @@ export const ENEMY_TYPES = {
     aggroRange: 11, radius: 0.36,
     sounds: { hurt: 'skeleton_hurt', death: 'skeleton_death' },
     color: 0x8a9a6a,
+    gore: 'blood',
   },
   witch: {
     name: 'Witch',
@@ -102,6 +108,7 @@ export const ENEMY_TYPES = {
     aggroRange: 12, radius: 0.36,
     sounds: { hurt: 'imp_hurt', death: 'imp_death', shoot: 'imp_shoot' },
     color: 0x2a4a3a,
+    gore: 'blood',
   },
   warlock: {
     name: 'Warlock',
@@ -111,6 +118,7 @@ export const ENEMY_TYPES = {
     aggroRange: 12, radius: 0.38,
     sounds: { hurt: 'imp_hurt', death: 'imp_death', shoot: 'imp_shoot' },
     color: 0x4a3a6a,
+    gore: 'blood',
   },
   demon: {
     name: 'Demon',
@@ -120,6 +128,7 @@ export const ENEMY_TYPES = {
     aggroRange: 10, radius: 0.5,
     sounds: { hurt: 'golem_hurt', death: 'golem_death' },
     color: 0x8a2a2a,
+    gore: 'blood',
   },
 };
 
