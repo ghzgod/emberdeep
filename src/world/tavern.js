@@ -1328,27 +1328,29 @@ export function buildTavernInterior() {
   landing.position.set(0, topY - 0.07, -STEPS * runZ - 0.6);
   landing.castShadow = landing.receiveShadow = true;
   stairGrp.add(landing);
-  // outer stringer (closes the open side so it doesn't float)
+  // outer stringer along the WALL side (east, +x): hidden against the east wall,
+  // closes the underside so the flight isn't floating boxes.
   const stringerBox = new THREE.Mesh(
     new THREE.BoxGeometry(0.12, topY, STEPS * runZ), darkWood);
   stringerBox.position.set(stepW / 2 + 0.06, topY / 2, -(STEPS * runZ) / 2 + runZ / 2);
   stairGrp.add(stringerBox);
-  // banister posts + rail along the open (west) side
-  for (let i = 0; i <= STEPS; i += 3) {
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.95, 8), darkWood);
-    post.position.set(stepW / 2 + 0.06, i * riseY + 0.47, -i * runZ);
+  // Banister on the OPEN (west, -x) side (Obsidian 836/837): the old rail sat on
+  // the +x WALL side, so its posts drove through the east wall and the top one
+  // poked into the black void above it - the "floating post / weird shape". Now
+  // posts rise with the flight on the room side, joined by a raked handrail.
+  const railX = -(stepW / 2 + 0.06);
+  for (let i = 0; i <= STEPS; i += 2) {
+    const treadTop = (i < STEPS ? i * riseY + riseY : topY);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 8), darkWood);
+    post.position.set(railX, treadTop + 0.45, -i * runZ);
     stairGrp.add(post);
   }
-  const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, STEPS * runZ * 1.05, 8), darkWood);
+  const railLen = Math.hypot(topY, STEPS * runZ);
+  const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, railLen * 1.02, 8), darkWood);
   rail.rotation.x = Math.atan2(topY, STEPS * runZ) + Math.PI / 2;
-  rail.position.set(stepW / 2 + 0.06, topY / 2 + 0.45, -(STEPS * runZ) / 2);
+  rail.position.set(railX, (riseY + topY) / 2 + 0.9, -(STEPS * runZ) / 2);
   stairGrp.add(rail);
-  // dark recessed opening at the back of the landing (reads as "the way up"),
-  // kept below the 3.3 wall top so nothing pokes over the roofline.
-  const upVoid = new THREE.Mesh(new THREE.BoxGeometry(stepW - 0.15, 0.36, 0.05),
-    new THREE.MeshBasicMaterial({ color: 0x0d0805 }));
-  upVoid.position.set(0, topY + 0.16, -STEPS * runZ - 1.28);
-  stairGrp.add(upVoid);
+  // (the dark recessed "upVoid" box at the top is removed - Obsidian 837)
   // base at the SE clear tile, rising north
   stairGrp.position.set(30.4, 0, 20.6);
   group.add(stairGrp);
