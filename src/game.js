@@ -5390,6 +5390,33 @@ export class Game {
       audio.setFireCrackleLevel(Math.max(0.06, Math.min(1, 2.2 / Math.max(1, d - 0.5))));
     }
 
+    // Rosalind approaches YOU the first time (Obsidian 828): the very first time
+    // you linger near her in the tavern she leaves her spot, walks over and opens
+    // the conversation herself (she speaks first) - you never have to approach her
+    // that first time. Once met, she stays put and you talk to her normally.
+    if (this.inTavern && !this.inUpstairs && !this._rosalindMet && this.state === 'playing' && !this.npcSpeechActive()) {
+      const rp = (this.dungeonMeshes.patronMeshes || []).find((p) => p.flirty);
+      if (rp && rp.mesh) {
+        const dx = this.player.pos.x - rp.mesh.position.x, dz = this.player.pos.z - rp.mesh.position.z;
+        const dist = Math.hypot(dx, dz) || 1;
+        this._tavernDwell = (this._tavernDwell || 0) + dt;
+        if (this._rosalindApproaching || (this._tavernDwell > 2.5 && dist < 9)) {
+          this._rosalindApproaching = true;
+          rp.talkUntil = performance.now() + 1500; // face you as she comes over
+          if (dist > 2.0) {
+            const step = Math.min(dist - 1.9, 1.7 * dt);
+            rp.mesh.position.x += (dx / dist) * step;
+            rp.mesh.position.z += (dz / dist) * step;
+            rp.x = rp.mesh.position.x; rp.z = rp.mesh.position.z; // keep interact/anchor in sync
+          } else {
+            this._rosalindMet = true;
+            this._rosalindApproaching = false;
+            this.flirtChat(rp); // she opens the conversation herself
+          }
+        }
+      }
+    }
+
     // Ambient table-talk (Obsidian 718): every so often the regulars hold a
     // short exchange with each other - three distinct voices, one turn at a
     // time, each line anchored (bubble + caption) at its actual speaker.
