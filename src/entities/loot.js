@@ -346,6 +346,39 @@ export function statLabel(stat, val) {
 }
 
 // ---------------- World drops ----------------
+// SHARED geometries + fixed-color materials (Obsidian 753): every drop used
+// to allocate its own geometry and material, so a busy fight grew the GPU
+// geometry/program pools mid-combat - each first-upload/compile is a frame
+// hitch. Drops never dispose (they only scene.remove), so sharing is safe.
+const GOLD_GEO = new THREE.CylinderGeometry(0.14, 0.14, 0.06, 10);
+const GOLD_MAT = new THREE.MeshStandardMaterial({ color: 0xe8c05a, metalness: 0.7, roughness: 0.3 });
+const BOTTLE_GEO = new THREE.SphereGeometry(0.16, 8, 8);
+const BOTTLE_MAT = new THREE.MeshStandardMaterial({ color: 0xd93a3a, roughness: 0.3 });
+const NECK_GEO = new THREE.CylinderGeometry(0.05, 0.05, 0.12, 6);
+const NECK_MAT = new THREE.MeshStandardMaterial({ color: 0x6a4a2a });
+const SACK_GEO = new THREE.SphereGeometry(0.26, 8, 8);
+const SACK_MAT = new THREE.MeshStandardMaterial({ color: 0x8a6534, roughness: 0.9 });
+const TIE_GEO = new THREE.CylinderGeometry(0.07, 0.1, 0.12, 6);
+const TIE_MAT = new THREE.MeshStandardMaterial({ color: 0x5a3f1e, roughness: 1 });
+const GEAR_GEO = new THREE.OctahedronGeometry(0.22);
+const BEAM_GEO = new THREE.CylinderGeometry(0.06, 0.14, 2.4, 8, 1, true);
+const HALO_GEO = new THREE.SphereGeometry(0.34, 10, 8);
+const SPARK_GEO = new THREE.SphereGeometry(0.03, 5, 5);
+// per-rarity gear/beam materials, built once on first use
+const GEAR_MATS = new Map(); // color -> { gear, beam }
+function rarityMats(color) {
+  let m = GEAR_MATS.get(color);
+  if (!m) {
+    m = {
+      gear: new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.5, roughness: 0.4 }),
+      beam: new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, side: THREE.DoubleSide }),
+    };
+    GEAR_MATS.set(color, m);
+  }
+  return m;
+}
+const BAG_BEAM_MAT = new THREE.MeshBasicMaterial({ color: 0xe8c05a, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+
 export class LootSystem {
   constructor(scene) {
     this.scene = scene;
@@ -353,10 +386,7 @@ export class LootSystem {
   }
 
   dropGold(x, z, amount) {
-    const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.14, 0.14, 0.06, 10),
-      new THREE.MeshStandardMaterial({ color: 0xe8c05a, metalness: 0.7, roughness: 0.3 })
-    );
+    const mesh = new THREE.Mesh(GOLD_GEO, GOLD_MAT);
     mesh.position.set(x + (Math.random() - 0.5) * 0.6, 0.15, z + (Math.random() - 0.5) * 0.6);
     this.scene.add(mesh);
     this.drops.push({ kind: 'gold', amount, mesh, x: mesh.position.x, z: mesh.position.z, bob: Math.random() * 6 });
@@ -364,15 +394,9 @@ export class LootSystem {
 
   dropPotion(x, z) {
     const g = new THREE.Group();
-    const bottle = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 8, 8),
-      new THREE.MeshStandardMaterial({ color: 0xd93a3a, roughness: 0.3 })
-    );
+    const bottle = new THREE.Mesh(BOTTLE_GEO, BOTTLE_MAT);
     bottle.position.y = 0.2;
-    const neck = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 0.12, 6),
-      new THREE.MeshStandardMaterial({ color: 0x6a4a2a })
-    );
+    const neck = new THREE.Mesh(NECK_GEO, NECK_MAT);
     neck.position.y = 0.4;
     g.add(bottle, neck);
     g.position.set(x, 0, z);
@@ -383,21 +407,12 @@ export class LootSystem {
   // Very rare: expands inventory capacity by 3 (max 24).
   dropBag(x, z) {
     const g = new THREE.Group();
-    const sack = new THREE.Mesh(
-      new THREE.SphereGeometry(0.26, 8, 8),
-      new THREE.MeshStandardMaterial({ color: 0x8a6534, roughness: 0.9 })
-    );
+    const sack = new THREE.Mesh(SACK_GEO, SACK_MAT);
     sack.scale.y = 1.15;
     sack.position.y = 0.28;
-    const tie = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.07, 0.1, 0.12, 6),
-      new THREE.MeshStandardMaterial({ color: 0x5a3f1e, roughness: 1 })
-    );
+    const tie = new THREE.Mesh(TIE_GEO, TIE_MAT);
     tie.position.y = 0.58;
-    const beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.06, 0.14, 2.4, 8, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xe8c05a, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
-    );
+    const beam = new THREE.Mesh(BEAM_GEO, BAG_BEAM_MAT);
     beam.position.y = 1.2;
     g.add(sack, tie, beam);
     g.position.set(x, 0, z);
@@ -408,35 +423,41 @@ export class LootSystem {
   dropGear(x, z, item, did = null) {
     const color = RARITIES[item.rarity].color;
     const g = new THREE.Group();
-    const box = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.22),
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.5, roughness: 0.4 })
-    );
+    // shared per-rarity materials (753); epic/legendary get their own
+    // brighter variants so the shared base is never mutated per-drop
+    const epicTier = item.rarity === 'legendary' || item.rarity === 'epic';
+    const epic = item.rarity === 'legendary';
+    const matKey = epicTier ? color ^ 0x1000000 : color; // separate cache slot for the hot variant
+    let mats = GEAR_MATS.get(matKey);
+    if (!mats) {
+      mats = rarityMats(color);
+      if (epicTier) {
+        mats = {
+          gear: mats.gear.clone(), beam: mats.beam.clone(),
+          halo: new THREE.MeshBasicMaterial({ color, transparent: true, opacity: epic ? 0.22 : 0.14, depthWrite: false }),
+          spark: new THREE.MeshBasicMaterial({ color: epic ? 0xfff2c0 : 0xe6c8ff }),
+        };
+        mats.beam.opacity = epic ? 0.42 : 0.3;
+        mats.gear.emissiveIntensity = epic ? 0.95 : 0.65;
+      }
+      GEAR_MATS.set(matKey, mats);
+    }
+    const box = new THREE.Mesh(GEAR_GEO, mats.gear);
     box.position.y = 0.35;
     // light beam for visibility
-    const beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.06, 0.14, 2.4, 8, 1, true),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, side: THREE.DoubleSide })
-    );
+    const beam = new THREE.Mesh(BEAM_GEO, mats.beam);
     beam.position.y = 1.2;
     g.add(box, beam);
     // Epic pinnacle (and, lighter, Super Rare) get a glow halo + orbiting stardust.
     let sparkles = null;
-    if (item.rarity === 'legendary' || item.rarity === 'epic') {
-      const epic = item.rarity === 'legendary';
-      beam.material.opacity = epic ? 0.42 : 0.3;
-      box.material.emissiveIntensity = epic ? 0.95 : 0.65;
-      const halo = new THREE.Mesh(
-        new THREE.SphereGeometry(0.34, 10, 8),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: epic ? 0.22 : 0.14, depthWrite: false })
-      );
+    if (epicTier) {
+      const halo = new THREE.Mesh(HALO_GEO, mats.halo);
       halo.position.y = 0.35;
       g.add(halo);
       sparkles = new THREE.Group();
       const n = epic ? 7 : 4;
-      const sMat = new THREE.MeshBasicMaterial({ color: epic ? 0xfff2c0 : 0xe6c8ff });
       for (let i = 0; i < n; i++) {
-        const s = new THREE.Mesh(new THREE.SphereGeometry(0.03, 5, 5), sMat);
+        const s = new THREE.Mesh(SPARK_GEO, mats.spark);
         const a = (i / n) * Math.PI * 2;
         s.position.set(Math.cos(a) * 0.32, 0.35 + Math.sin(a * 1.5) * 0.12, Math.sin(a) * 0.32);
         sparkles.add(s);
