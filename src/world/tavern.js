@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { FLOOR, WALL } from './dungeon.js';
 import { TILE, tileToWorld, buildNpcModel } from './meshbuilder.js';
-import { buildQuaterniusNpc } from '../entities/quaterniusNpc.js';
 import { makeWoodTexture, makePlankTexture, makeHearthStoneTexture, makeTavernSignTexture } from './textures.js';
 
 // ---- shared "where's the nearest player" lookup for the tavern's own NPC
@@ -869,14 +868,17 @@ export function buildTavernInterior() {
     // regular who brushes strangers off. mood drives which line bank patronChat
     // draws from; the tavern staff (Magda) are always civil, only these
     // non-worker patrons carry a mood.
-    { tile: [3, 4], angle: 0.9, robe: 0x5a4a6a, hair: 0x3a2a1a, name: 'patron', cls: 'drifter', gender: 'female', skin: 'light', npcName: 'Tavern Patron', mood: 'rude' },
-    { tile: [12, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk', cls: 'cleric', gender: 'male', skin: 'fair', npcName: 'Tipsy Regular', mood: 'friendly' },
-    // Rosalind (Obsidian 783): the tavern's drunk flirt. A named regular the
-    // player can chat up through a branching, affinity-driven dialogue; her
-    // tone warms or cools with the player's replies and turns overtly sexual
-    // only in 18+ mode (793). Carries a real given name so other systems and
-    // her own bubble use "Rosalind" (790).
-    { tile: [8, 8], angle: 1.4, robe: 0x9a2f57, hair: 0x6a2338, name: 'flirt', cls: 'drifter', gender: 'female', skin: 'light', npcName: 'Rosalind', given: 'Rosalind', mood: 'friendly', flirty: true },
+    // Distinct looks off the SHARED hero library (Obsidian 789 rev): different
+    // class rig + skin/hair/style/face per patron so no two read the same, the
+    // same variety the char-creator exposes.
+    { tile: [3, 4], angle: 0.9, name: 'patron', cls: 'scout', gender: 'female', skin: 'tan', hairColor: 'darkbrown', hairStyle: 'bun', faceShape: 'round', eyeColor: 'green', npcName: 'Tavern Patron', mood: 'rude' },
+    { tile: [12, 4], angle: -2.0, name: 'drunk', cls: 'villager', gender: 'male', skin: 'brown', hairColor: 'grey', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown', npcName: 'Tipsy Regular', mood: 'friendly' },
+    // Rosalind (Obsidian 783/808): the tavern flirt. A named regular the player
+    // can chat up through a branching, affinity-driven dialogue; her tone warms
+    // or cools with the player's replies and turns overtly sexual only in 18+
+    // mode (793). `slutty` post-tints her shared-rig outfit to a crimson bodice
+    // + bare legs so she reads as the alluring one (808) without a bespoke mesh.
+    { tile: [8, 8], angle: 1.4, name: 'flirt', cls: 'drifter', gender: 'female', skin: 'light', hairColor: 'auburn', hairStyle: 'long', faceShape: 'narrow', eyeColor: 'violet', npcName: 'Rosalind', given: 'Rosalind', mood: 'friendly', flirty: true, slutty: true },
   ];
   // ---- seat picking (Obsidian 788): each patron's "AI" decides whether to
   // STAND, sit at a TABLE, or sit at the BAR, then claims a free slot of that
@@ -945,7 +947,22 @@ export function buildTavernInterior() {
     // (game.js) share it: patronChat stamps pmEntry.talkUntil when the
     // player actually opens a conversation.
     const pmEntry = { mesh: patron, x: px, z: pz, drunk: def.name === 'drunk', mood: def.mood || 'friendly', seat: slot.seat, name: def.given || null, flirty: !!def.flirty, affinity: 0, talkUntil: 0 };
-    const pnpc = buildNpcModel(def.cls, def.npcName, { gender: def.gender, skinTone: def.skin });
+    const pnpc = buildNpcModel(def.cls, def.npcName, {
+      gender: def.gender, skinTone: def.skin,
+      hairColor: def.hairColor, hairStyle: def.hairStyle,
+      faceShape: def.faceShape, eyeColor: def.eyeColor,
+    });
+    // Rosalind's skimpy look (Obsidian 808): recolour the shared rig's torso to
+    // a crimson bodice and her legs to her skin tone so she reads as bare-legged
+    // - the most "revealing" the KayKit chibi allows without new geometry.
+    if (pnpc && def.slutty) {
+      const skinHex = 0xf3c9a6; // 'light' skin tone, matches def.skin
+      pnpc.mesh.traverse((o) => {
+        if (!o.isMesh || !o.material || !o.name) return;
+        if (/_Body$/i.test(o.name)) { o.material = o.material.clone(); o.material.color.setHex(0x8a1f3a); }
+        else if (/_Leg/i.test(o.name)) { o.material = o.material.clone(); o.material.color.setHex(skinHex); }
+      });
+    }
     if (pnpc) {
       for (let i = patron.children.length - 1; i >= 0; i--) {
         const c = patron.children[i];
@@ -955,34 +972,13 @@ export function buildTavernInterior() {
       pnpc.mesh.position.y = -0.18; // undo the stool-perch lift so feet reach the floor
       patron.add(pnpc.mesh);
 
-      // Tavern patrons use the distinct Quaternius bodies, not the shared KayKit
-      // chibi (Obsidian 789/808): a real gendered human shape swapped in once it
-      // loads. Keep pnpc for the facing driver below but hide its mesh; the
-      // Quaternius model is a child of `patron` so it rides the turn-to-player
-      // yaw. Graceful: a failed load restores the KayKit body. Each gets a gentle
-      // procedural idle (the pack has no baked anims) so they breathe/sway.
-      pnpc.mesh.visible = false;
-      const qkey = def.gender === 'female' ? 'femalePeasant' : 'malePeasant';
-      buildQuaterniusNpc(qkey, 1.7).then((qmodel) => {
-        if (!qmodel || !patron.parent) { pnpc.mesh.visible = true; return; }
-        qmodel.position.y = -0.18; // feet to floor, same as pnpc
-        patron.add(qmodel);
-        // Re-bind the skinned meshes AFTER parenting under the (perched, turned,
-        // scaled) patron group - otherwise the glTF skeleton stays in its load-
-        // time space and the mesh renders in the stiff T-pose instead of the
-        // posed arms-down rest. Binding with the current world matrix locks the
-        // posed skeleton to the mesh in its final place in the graph.
-        patron.updateMatrixWorld(true);
-        qmodel.traverse((o) => { if (o.isSkinnedMesh) o.bind(o.skeleton, o.matrixWorld); });
-        if (qmodel.userData.idle) {
-          let _ph = 0;
-          smokePuffs.push({
-            kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1,
-            get phase() { return _ph; },
-            set phase(v) { _ph = v; qmodel.userData.idle(v); },
-          });
-        }
-      });
+      // NOTE (Obsidian 789/808): the Quaternius body swap was reverted here. The
+      // skinned peasant rig, re-bound under the seated/perched patron group,
+      // corrupted its bind-inverse (the qmodel carries its own uniform scale, so
+      // binding with the world matrix flung the arm vertices across the room -
+      // the "long arms spanning the whole tavern" bug). The stable procedural
+      // KayKit body (pnpc) is kept; a distinct human rig needs to be added at
+      // its own unscaled world anchor, not rebound under a transformed parent.
 
       // Body turn ONLY while the player is talking to this patron (Obsidian
       // 735, matching the vendor rule from 726): patronChat stamps
@@ -1128,17 +1124,31 @@ export function buildTavernInterior() {
   smokePuffs.push({ mesh: mFlame, baseY: 1.83, phase: 2.4, speed: 4.5, kind: 'fire' });
   const mTankard = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.065, 0.15, 9), new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.6, roughness: 0.4 }));
   mTankard.position.set(-0.1, 1.7, 0.55);
-  // depth trimmed so the dark opening's front face sits a hair INSIDE the
-  // stone surround's face (-0.35) instead of poking past it (748)
-  const firebox = new THREE.Mesh(new THREE.BoxGeometry(0.24, 1.0, 1.3),
-    new THREE.MeshBasicMaterial({ color: 0x180c06 }));
-  firebox.position.set(-0.22, 0.55, 0);
+  // Real inset firebox (Obsidian: "make the fire inset ... a black box for the
+  // fire to be within like a real fireplace"). A dark cavity BACKDROP box whose
+  // front face sits a touch proud of the stone (-0.40 vs the -0.35 face, so it
+  // never gets occluded like the old flush panel), with the flames burning just
+  // in front of it and a proud stone frame (jambs + lintel + hearthstone) around
+  // the opening so you look INTO the black box past the frame - the recessed
+  // "inside a fireplace" read.
+  const firebox = new THREE.Mesh(new THREE.BoxGeometry(0.30, 1.15, 1.45),
+    new THREE.MeshBasicMaterial({ color: 0x0b0603 }));
+  firebox.position.set(-0.25, 0.55, 0); // front face at x -0.40
+  // stone frame proud of the flames (x -0.50) that turns the opening into a recess
+  const frameMat = hearthMat;
+  const fbTop = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 1.5), frameMat);
+  fbTop.position.set(-0.46, 1.12, 0);
+  const fbBase = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 1.5), frameMat);
+  fbBase.position.set(-0.44, 0.06, 0);
+  const fbJambL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.1, 0.16), frameMat);
+  fbJambL.position.set(-0.46, 0.6, -0.62);
+  const fbJambR = fbJambL.clone(); fbJambR.position.z = 0.62;
   const logs = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.9, 6),
     new THREE.MeshStandardMaterial({ color: 0x2e1c10, roughness: 1 }));
   logs.rotation.x = Math.PI / 2;
   logs.position.set(-0.3, 0.25, 0);
   const logs2 = logs.clone(); logs2.position.set(-0.3, 0.38, 0.12); logs2.rotation.set(Math.PI / 2, 0, 0.2);
-  hearth.add(surround, chimney, mantel, mCandle, mFlame, mTankard, firebox, logs, logs2);
+  hearth.add(surround, chimney, mantel, mCandle, mFlame, mTankard, firebox, fbTop, fbBase, fbJambL, fbJambR, logs, logs2);
   // Living fire (Obsidian 717, replacing the three solid cones that read as
   // plastic party hats): a cluster of additive billboard flame sprites - the
   // standard Three.js real-time fire treatment (soft radial-gradient
@@ -1175,7 +1185,9 @@ export function buildTavernInterior() {
   // -0.35, so the opaque brick depth-occluded them and the firebox looked empty
   // - "no real fire inside it"). Pushed to -0.5 so they're ~0.15 proud of the
   // face, unmistakably burning in the opening from the overhead camera.
-  const FLAME_X = -0.5;
+  // Just proud of the black firebox backdrop's front face (-0.40) so the flames
+  // read as burning INSIDE the recessed box, framed by the proud stone jambs.
+  const FLAME_X = -0.46;
   const flameQuadGeo = new THREE.PlaneGeometry(1, 1);
   // Fuller fire (Obsidian 796): the old 5 thin quads read as a faint glow, not
   // flames. Now 8 broader, taller tongues fill the firebox opening so real
@@ -1298,7 +1310,9 @@ export function buildTavernInterior() {
   // landing + a dark doorway that reads as "the rooms are up here". The base
   // sits at the interact tile the flirty "somewhere quieter" payoff points to.
   const stairGrp = new THREE.Group();
-  const STEPS = 9, riseY = 0.32, runZ = 0.44, stepW = 1.6;
+  // stepW widened 1.6 -> 2.1 (Obsidian: "stairs too skinny"); still clears the
+  // east interior wall (base x 30.4 + half-width 1.05 = 31.45 < ~31.5).
+  const STEPS = 9, riseY = 0.32, runZ = 0.44, stepW = 2.1;
   for (let i = 0; i < STEPS; i++) {
     const tread = new THREE.Mesh(new THREE.BoxGeometry(stepW, riseY, runZ + 0.03), plankMat);
     tread.position.set(0, i * riseY + riseY / 2, -i * runZ);
