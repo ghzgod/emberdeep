@@ -1144,18 +1144,10 @@ export class Game {
     this.activeVendor = vendor;
     vendor._shopOpen = true; // keeper head-glance gate (740, read in meshbuilder)
     this.state = 'shop';
-    // Vendor-facing camera: ease camYaw so the camera sits behind the player
-    // looking toward the vendor (the keeper turns to face the player, so this
-    // frames their face). The turn is clamped so it never swings more than a
-    // limited arc, and the pre-shop yaw is restored on close. The easing is
-    // driven by updateCameraFollow, which keeps running in the shop state.
-    if (this.player && vendor.wx !== undefined) {
-      const desired = Math.atan2(this.player.pos.x - vendor.wx, this.player.pos.z - vendor.wz);
-      const MAX_VENDOR_TURN = 1.1; // radians, roughly 63 degrees
-      const d = Math.max(-MAX_VENDOR_TURN, Math.min(MAX_VENDOR_TURN, this._angDiff(desired, this.camYaw)));
-      this._preShopYaw = this.camYaw;
-      this._yawEase = { target: this.camYaw + d };
-    }
+    // Camera stays put on shop open (Obsidian 765): the old vendor-facing
+    // yaw ease swung the whole background to frame the keeper, which the
+    // player found jarring - the keeper still turns to face you (740), that's
+    // enough. No _yawEase, so nothing to restore on close either.
     this.touch.setVisible(false); // touch buttons aren't needed at a counter
     this.ui.openShop(vendor);
     this.greetFromVendor(vendor);
@@ -1206,11 +1198,7 @@ export class Game {
   closeShop() {
     if (this.activeVendor) this.activeVendor._shopOpen = false; // release the glance gate (740)
     this.activeVendor = null;
-    // release the vendor-facing turn: ease back to where the camera was
-    if (this._preShopYaw !== undefined) {
-      this._yawEase = { target: this._preShopYaw };
-      this._preShopYaw = undefined;
-    }
+    // (no camera restore needed - the shop no longer swings the camera, 765)
     this.state = 'playing';
     this.ui.hideAll();
     this.touch.setVisible(true);
