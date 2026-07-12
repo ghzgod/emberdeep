@@ -1,6 +1,13 @@
-// Voice chat over the same PeerJS connections used for gameplay.
+// Voice chat over the SAME Trystero room used for gameplay (Obsidian 758/768).
 // Modes: 'off' | 'ptt' (hold V / hold the mic button) | 'auto' (voice-activated
 // with an adjustable trigger threshold, set in Settings).
+//
+// Trystero meshes audio automatically: room.addStream(stream) sends the mic to
+// every peer, room.onPeerStream(stream, id) delivers theirs. So the old manual
+// PeerJS call-dialing (one MediaConnection per pair) is gone - no more peer.call
+// / answer bookkeeping. Muting still works by toggling the track's `enabled`.
+
+import { selfId } from 'trystero/nostr';
 
 const HANGOVER_MS = 450; // keep transmitting briefly after you stop speaking
 
@@ -10,9 +17,9 @@ export class VoiceChat {
     this.threshold = 12;       // 0-100, auto-detect trigger level
     this.stream = null;
     this.track = null;
-    this.calls = new Map();    // peerId -> MediaConnection
     this.audioEls = new Map(); // peerId -> <audio>
-    this.peer = null;
+    this.room = null;          // Trystero room (shared with net)
+    this.sentTo = new Set();   // peers our stream has been pushed to
     this.myId = null;
     this.ptt = false;
     this.level = 0;
@@ -24,13 +31,46 @@ export class VoiceChat {
 
   get active() { return !!this.stream; }
 
-  attachToPeer(peer) {
-    this.peer = peer;
-    this.myId = peer.id;
-    peer.on('call', (call) => {
-      call.answer(this.stream || undefined);
-      this._wireCall(call);
-    });
+  // Attach to the shared Trystero room. net OWNS onPeerJoin/onPeerLeave (single
+  // assignable properties), so voice only takes onPeerStream (to play incoming
+  // audio) and relies on the roster-driven syncPeers() below for send/cleanup.
+  attachToRoom(room) {
+    if (!room) return;
+    const changed = this.room !== room;
+    this.room = room;
+    this.myId = (typeof selfId !== 'undefined' ? selfId : null);
+    if (changed) room.onPeerStream = (stream, peerId) => this._playRemote(peerId, stream);
+    if (this.stream) this._sendStreamTo();
+  }
+
+  // Called by the game on every 'peers' roster update. Push our mic to any
+  // newly-seen peer and drop audio elements for peers that have left.
+  syncPeers(ids) {
+    if (!this.room) return;
+    if (this.stream) for (const id of ids) if (id !== this.myId) this._sendStreamTo(id);
+    for (const id of [...this.audioEls.keys()]) if (!ids.includes(id)) this._removePeer(id);
+  }
+
+  _sendStreamTo(peerId) {
+    if (!this.room || !this.stream) return;
+    try {
+      if (peerId) { if (!this.sentTo.has(peerId)) { this.room.addStream(this.stream, { target: peerId }); this.sentTo.add(peerId); } }
+      else { this.room.addStream(this.stream); } // broadcast to all current peers
+    } catch { /* addStream can race a leaving peer; ignore */ }
+  }
+
+  _playRemote(peerId, remote) {
+    let el = this.audioEls.get(peerId);
+    if (!el) {
+      el = document.createElement('audio');
+      el.autoplay = true;
+      el.style.display = 'none';
+      document.body.appendChild(el);
+      this.audioEls.set(peerId, el);
+    }
+    el.volume = this.outputVolume ?? 0.9;
+    el.srcObject = remote;
+    el.play().catch(() => {});
   }
 
   async enable(mode, threshold) {
@@ -81,13 +121,9 @@ export class VoiceChat {
     this._buf = new Uint8Array(this._analyser.fftSize);
     this._monitor = setInterval(() => this._tick(), 60);
 
-    // add our audio into any calls that were answered before the mic existed
-    for (const call of this.calls.values()) {
-      try {
-        const sender = call.peerConnection?.getSenders?.().find((s) => !s.track || s.track.kind === 'audio');
-        if (sender && !sender.track) sender.replaceTrack(this.track);
-      } catch { /* renegotiation not critical */ }
-    }
+    // the mic now exists - push it into the shared Trystero room so every peer
+    // (current and future) receives it.
+    if (this.room) this._sendStreamTo();
   }
 
   // Settings "mic test": keep the mic un-muted so the level meter reads input
@@ -156,51 +192,13 @@ export class VoiceChat {
     }
   }
 
-  // Ensure exactly one call per peer pair: the lexicographically smaller id dials.
-  syncPeers(ids) {
-    if (!this.peer || this.mode === 'off') return;
-    for (const id of ids) {
-      if (id === this.myId || this.calls.has(id)) continue;
-      if (this.myId < id && this.stream) {
-        const call = this.peer.call(id, this.stream);
-        this._wireCall(call);
-      }
-    }
-    // drop calls to peers that left
-    for (const [id, call] of this.calls) {
-      if (!ids.includes(id)) {
-        try { call.close(); } catch {}
-        this._removePeer(id);
-      }
-    }
-  }
-
   setOutputVolume(v) {
     this.outputVolume = v;
     for (const el of this.audioEls.values()) el.volume = v;
   }
 
-  _wireCall(call) {
-    this.calls.set(call.peer, call);
-    call.on('stream', (remote) => {
-      let el = this.audioEls.get(call.peer);
-      if (!el) {
-        el = document.createElement('audio');
-        el.autoplay = true;
-        el.style.display = 'none';
-        document.body.appendChild(el);
-        this.audioEls.set(call.peer, el);
-      }
-      el.volume = this.outputVolume ?? 0.9;
-      el.srcObject = remote;
-      el.play().catch(() => {});
-    });
-    call.on('close', () => this._removePeer(call.peer));
-    call.on('error', () => this._removePeer(call.peer));
-  }
-
   _removePeer(id) {
-    this.calls.delete(id);
+    this.sentTo.delete(id);
     const el = this.audioEls.get(id);
     if (el) { el.remove(); this.audioEls.delete(id); }
   }
@@ -208,10 +206,10 @@ export class VoiceChat {
   disable() {
     clearInterval(this._monitor);
     this._monitor = null;
-    for (const call of this.calls.values()) { try { call.close(); } catch {} }
+    if (this.room && this.stream) { try { this.room.removeStream(this.stream); } catch { /* ignore */ } }
     for (const el of this.audioEls.values()) el.remove();
-    this.calls.clear();
     this.audioEls.clear();
+    this.sentTo.clear();
     if (this.track) this.track.stop();
     if (this.stream) this.stream.getTracks().forEach((t) => t.stop());
     try { this._ctx?.close(); } catch {}

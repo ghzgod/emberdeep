@@ -1,310 +1,244 @@
-import Peer from 'peerjs';
+import { joinRoom, selfId } from 'trystero/nostr';
 
-// Co-op multiplayer over WebRTC (PeerJS public broker), up to 4 players.
-// The first player to claim the room id becomes HOST and is authoritative for
-// enemies, loot and world state. Guests simulate only their own hero and send
-// inputs/damage events. Single-player never touches this module.
-
-const MAX_GUESTS = 3; // host + 3 = 4 players
-const ROOM_PREFIX = 'emberdeep-room-';
-
-// How long we wait for any single handshake stage before giving up. Without
-// this a failed join (dead room id, ICE that never connects on a phone's
-// carrier-grade NAT) leaves the player stuck on "Connecting to room" forever.
-const HANDSHAKE_TIMEOUT_MS = 15000;
-
-// ICE servers. PeerJS ships one STUN server by default, which is not enough
-// for networks behind symmetric NAT (most home routers, all mobile carriers)
-// - those need a TURN RELAY to connect at all.
+// Co-op multiplayer over WebRTC, up to 4 players (Obsidian 758).
 //
-// Obsidian 758 (the recurring "cannot reach the room, timed out"): the free
-// openrelay.metered.ca TURN with the static 'openrelayproject' credentials is
-// DEPRECATED - Metered now issues per-account keys and the old shared creds no
-// longer reliably allocate a relay, so any join needing TURN silently failed
-// ICE and hit the timeout. Two mitigations here:
-//   1. Broad STUN redundancy + iceCandidatePoolSize so direct/reflexive paths
-//      get the best possible chance before a relay is even needed.
-//   2. An OPTIONAL free Metered API key (see fetchIceServers below): if the
-//      player pastes a key into localStorage 'emberdeep-turn-key', we fetch
-//      fresh working TURN credentials at connect time. Free tier is 20GB/mo -
-//      one key shared in the build makes cross-NAT co-op reliable for everyone.
-// The static TURN entries are kept as a best-effort fallback (they still work
-// on some networks / the TLS-443 path) but are no longer the only relay hope.
-const STUN_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' },
-  { urls: 'stun:stun.services.mozilla.com:3478' },
-];
-const FALLBACK_TURN = {
-  urls: [
-    'turn:openrelay.metered.ca:80',
-    'turn:openrelay.metered.ca:443',
-    'turn:openrelay.metered.ca:443?transport=tcp',
-  ],
-  username: 'openrelayproject',
-  credential: 'openrelayproject',
-};
-let PEER_CONFIG = {
-  iceServers: [...STUN_SERVERS, FALLBACK_TURN],
-  iceCandidatePoolSize: 4,
-};
+// WHY THIS EXISTS: the old PeerJS transport signalled through the free public
+// broker 0.peerjs.com, which is rate-limited and frequently drops the signaling
+// socket ("Connection failed (network)") - the recurring "my buddy can't join
+// my room" bug. Trystero replaces that single broker with DECENTRALISED
+// signaling over public nostr relays (many WSS relays, no account, no key to
+// leak), so there is no one broker to be unreachable. The actual media/data
+// path is still plain WebRTC.
+//
+// Trystero is a MESH (every peer connects to every peer), but the game is
+// HOST-AUTHORITATIVE (one peer simulates enemies/loot/world; the rest send
+// inputs). So we elect a host on top of the mesh:
+//   host = the peer with the EARLIEST join time (tiebreak: smaller selfId).
+// This is stable (the first person in the room stays host) and self-healing
+// (when the host leaves, the next-earliest peer automatically becomes host -
+// that IS host migration, for free). Every peer computes the same winner from
+// the shared presence table, so they always agree on who the host is.
 
-// If a Metered API key is configured, fetch fresh, WORKING TURN credentials at
-// runtime (the documented, reliable path) and fold them into PEER_CONFIG.
-// Cached for the session. No key -> we keep the STUN + static-TURN fallback.
-// Never throws: a failed fetch just leaves the fallback config in place.
-async function fetchIceServers() {
-  let key = null;
-  try { key = localStorage.getItem('emberdeep-turn-key') || (typeof __TURN_KEY__ !== 'undefined' ? __TURN_KEY__ : null); } catch { /* no storage */ }
-  if (!key) return PEER_CONFIG;
-  if (PEER_CONFIG._fetched) return PEER_CONFIG;
-  try {
-    const res = await fetch(`https://emberdeep.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(key)}`, { cache: 'no-store' });
-    if (res.ok) {
-      const servers = await res.json();
-      if (Array.isArray(servers) && servers.length) {
-        PEER_CONFIG = { iceServers: [...STUN_SERVERS, ...servers], iceCandidatePoolSize: 4, _fetched: true };
-      }
-    }
-  } catch { /* keep fallback */ }
-  return PEER_CONFIG;
-}
+const MAX_PLAYERS = 4; // host + 3 guests
+const ROOM_PREFIX = 'emberdeep-room-';
+const APP_ID = 'emberdeep-coop-v1';
+// Curated, known-reliable public nostr relays for signaling (Obsidian 758).
+// Trystero's built-in defaults include dead/test relays (e.g. testrelay.top),
+// so we pin our own well-established set - only signaling handshakes pass
+// through them (tiny WS messages), never game traffic, which is direct WebRTC.
+const RELAY_URLS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.nostr.band',
+  'wss://relay.primal.net',
+  'wss://nostr.mom',
+  'wss://relay.snort.social',
+];
+// How long to gather presence from existing peers before settling host/guest.
+// The newcomer needs to hear the current host's (earlier) join time so it
+// doesn't wrongly claim host; peer discovery over nostr is well under this.
+const ELECTION_MS = 2000;
 
 export class Net {
   constructor() {
-    this.mode = 'off';        // off | host | guest
-    this.peer = null;
-    this.conns = new Map();   // host: peerId -> DataConnection
-    this.hostConn = null;     // guest: connection to host
-    this.handlers = {};
-    this.playerCount = 1;
+    this.mode = 'off';         // off | host | guest
+    this.room = null;
     this.roomId = null;
-    this.lastRoster = [];     // full peer-id roster, used for host migration
+    this.handlers = {};
+    this.selfId = selfId;
+    // presence table: peerId -> { jt (join time ms), id }. Includes self.
+    this.presence = new Map();
+    this.hostId = null;
+    this.conns = new Map();    // host: guestId -> true (mirrors the guest set)
+    this.lastRoster = [];      // [all peer ids] incl. self - used by voice + migration
+    this.playerCount = 1;
+    this._joinTime = 0;
+    this._sendMsg = null;
+    this._settled = false;
   }
 
   get active() { return this.mode !== 'off'; }
   get isHost() { return this.mode === 'host'; }
+  // Back-compat shim: callers read net.peer?.id (the local peer id). Voice now
+  // attaches to net.room, but this keeps net.peer.id working.
+  get peer() { return this.mode === 'off' ? null : { id: this.selfId }; }
 
   on(type, fn) { this.handlers[type] = fn; }
   emitLocal(type, msg, from) { this.handlers[type]?.(msg, from); }
 
-  // Try to become host of the room; if the id is taken, join as guest.
   async start(room) {
     this.roomId = ROOM_PREFIX + room.toLowerCase().replace(/[^a-z0-9]/g, '');
-    // pull fresh working TURN creds if a key is configured (758)
-    await fetchIceServers();
-    // Retry the whole claim/join a few times before surfacing a timeout
-    // (758): the public PeerJS broker and ICE gathering both fail
-    // TRANSIENTLY under load - a second attempt with a fresh peer very often
-    // succeeds where the first stalled, and one retry is invisible to the
-    // player behind the "Connecting…" spinner. Only 'timeout' and
-    // 'connect-failed' are retried; a real 'room_full'/'peer-unavailable'
-    // returns immediately.
-    // Retry harder (758): the "network" error the friend hit = the free
-    // PeerJS cloud broker (0.peerjs.com) dropped the signaling socket, which
-    // is TRANSIENT under load. 5 attempts with growing backoff turns most of
-    // those flaky first-connects into a success, invisibly behind the
-    // "Connecting…" spinner. Only broker/ICE errors retry; room-full and
-    // real peer errors return immediately.
-    const RETRYABLE = new Set(['timeout', 'connect-failed', 'network', 'server-error', 'socket-error', 'socket-closed']);
-    let last = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      last = await this._claimOrJoin();
-      if (last.mode !== 'error') return last;
-      if (!RETRYABLE.has(last.error)) return last;
-      await new Promise((r) => setTimeout(r, 700 + attempt * 700));
+    this._joinTime = Date.now();
+    this._settled = false;
+    this.presence = new Map([[this.selfId, { jt: this._joinTime, id: this.selfId }]]);
+
+    try {
+      this.room = joinRoom({ appId: APP_ID, relayConfig: { urls: RELAY_URLS } }, this.roomId);
+    } catch (err) {
+      return { mode: 'error', error: 'join-failed' };
     }
-    return last;
-  }
 
-  _claimOrJoin() {
-    return new Promise((resolve) => {
-      const hostPeer = new Peer(this.roomId, { config: PEER_CONFIG });
-      let settled = false;
+    // Two channels: 'msg' carries the game's {t,...} payloads; 'pres' carries
+    // presence records for host election. Trystero 0.25 actions expose
+    // { send, onMessage } (assign the handler) rather than a [send, get] tuple.
+    const msgAction = this.room.makeAction('msg');
+    const presAction = this.room.makeAction('pres');
+    this._sendMsg = (data, target) => { try { msgAction.send(data, target != null ? { target } : undefined); } catch { /* peer left mid-send */ } };
+    this._sendPres = (data, target) => { try { presAction.send(data, target != null ? { target } : undefined); } catch { /* peer left mid-send */ } };
 
-      // If the broker never answers (offline, blocked, or the socket stalls),
-      // neither 'open' nor 'error' may ever fire. Fail fast instead of hanging.
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        try { hostPeer.destroy(); } catch {}
-        resolve({ mode: 'error', error: 'timeout' });
-      }, HANDSHAKE_TIMEOUT_MS);
+    msgAction.onMessage = (data, ctx) => this._onGameMsg(data, ctx.peerId);
+    presAction.onMessage = (data, ctx) => {
+      this.presence.set(ctx.peerId, { jt: data.jt, id: ctx.peerId });
+      this._reelect();
+    };
 
-      hostPeer.on('open', () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        this.mode = 'host';
-        this.peer = hostPeer;
-        hostPeer.on('connection', (conn) => this._acceptGuest(conn));
-        resolve({ mode: 'host' });
-      });
-
-      hostPeer.on('error', (err) => {
-        if (settled) return;
-        if (err.type === 'unavailable-id') {
-          settled = true;
-          clearTimeout(timer);
-          hostPeer.destroy();
-          this._joinAsGuest(this.roomId).then(resolve);
-        } else {
-          settled = true;
-          clearTimeout(timer);
-          resolve({ mode: 'error', error: err.type });
-        }
-      });
-    });
-  }
-
-  // Host migration: when the simulating peer leaves, the surviving peer with
-  // the lowest id takes over the room id; everyone else reconnects. From the
-  // players' point of view the room simply stays alive.
-  async migrate(shouldHost) {
-    const oldPeer = this.peer;
-    this.mode = 'off';
-    this.conns.clear();
-    this.hostConn = null;
-    if (shouldHost) {
-      try { oldPeer?.destroy(); } catch {}
-      for (let attempt = 0; attempt < 8; attempt++) {
-        await new Promise((r) => setTimeout(r, attempt === 0 ? 800 : 1600));
-        const res = await this._claimOrJoin();
-        if (res.mode !== 'error') return res;
-      }
-      return { mode: 'error', error: 'migration-failed' };
-    }
-    // rejoining guests keep their peer; retry until the new host is up
-    for (let attempt = 0; attempt < 8; attempt++) {
-      await new Promise((r) => setTimeout(r, 2000 + attempt * 500));
-      const res = await new Promise((resolve) => {
-        const conn = this.peer.connect(this.roomId, { reliable: true });
-        const to = setTimeout(() => { try { conn.close(); } catch {} resolve(null); }, 4000);
-        conn.on('open', () => {
-          clearTimeout(to);
-          this.mode = 'guest';
-          this.hostConn = conn;
-          this.playerCount = 2;
-          conn.on('data', (msg) => this.emitLocal(msg.t, msg, 'host'));
-          conn.on('close', () => this.emitLocal('host_left', {}));
-          conn.on('error', () => this.emitLocal('host_left', {}));
-          resolve({ mode: 'guest' });
-        });
-        conn.on('error', () => { clearTimeout(to); resolve(null); });
-      });
-      if (res) return res;
-    }
-    return { mode: 'error', error: 'migration-failed' };
-  }
-
-  _acceptGuest(conn) {
-    if (this.conns.size >= MAX_GUESTS) {
-      conn.on('open', () => {
-        conn.send({ t: 'room_full' });
-        setTimeout(() => conn.close(), 300);
-      });
-      return;
-    }
-    conn.on('open', () => {
-      this.conns.set(conn.peer, conn);
-      this.playerCount = 1 + this.conns.size;
-      this.emitLocal('guest_joined', { id: conn.peer });
-      this.broadcastRoster();
-    });
-    conn.on('data', (msg) => this.emitLocal(msg.t, msg, conn.peer));
-    const drop = () => {
-      if (this.conns.delete(conn.peer)) {
-        this.playerCount = 1 + this.conns.size;
-        this.emitLocal('guest_left', { id: conn.peer });
+    // onPeer* are assignable properties in 0.25. net OWNS onPeerJoin/onPeerLeave
+    // (presence + migration); voice owns onPeerStream (they share this room).
+    this.room.onPeerJoin = (peerId) => {
+      // Tell the newcomer our join time so they elect correctly, and note them.
+      this._sendPres({ jt: this._joinTime, id: this.selfId }, peerId);
+      if (!this.presence.has(peerId)) this.presence.set(peerId, { jt: Infinity, id: peerId });
+      this._reelect();
+    };
+    this.room.onPeerLeave = (peerId) => {
+      const wasHost = peerId === this.hostId;
+      this.presence.delete(peerId);
+      this.conns.delete(peerId);
+      this._greeted?.delete?.(peerId);
+      this._reelect();
+      if (wasHost) {
+        // The simulating peer left; the game re-homes the room (onHostLost ->
+        // migrate()). Our _reelect has already picked the new host locally.
+        this.emitLocal('host_left', {});
+      } else if (this.isHost) {
+        this.emitLocal('guest_left', { id: peerId });
         this.broadcastRoster();
       }
     };
-    conn.on('close', drop);
-    conn.on('error', drop);
+
+    // Announce ourselves to everyone already here.
+    this._sendPres({ jt: this._joinTime, id: this.selfId });
+
+    // Collect presence, then settle into host or guest.
+    await new Promise((r) => setTimeout(r, ELECTION_MS));
+
+    // Enforce the 4-player cap: if we're not among the 4 earliest joiners, bail.
+    const ordered = [...this.presence.values()].sort(this._cmp);
+    const myRank = ordered.findIndex((p) => p.id === this.selfId);
+    if (myRank >= MAX_PLAYERS) {
+      try { this.room.leave(); } catch { /* ignore */ }
+      this.room = null; this.mode = 'off';
+      return { mode: 'error', error: 'room_full' };
+    }
+
+    this._settled = true;
+    this._reelect(true);
+    return { mode: this.mode };
   }
 
-  _joinAsGuest(roomId) {
-    return new Promise((resolve) => {
-      const peer = new Peer(undefined, { config: PEER_CONFIG });
-      let settled = false;
+  // Order peers: earliest join time wins; ties broken by smaller id.
+  _cmp(a, b) { return a.jt - b.jt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); }
 
-      // The join can stall silently at two points: waiting for our own peer to
-      // open against the broker, and waiting for the data channel to the host
-      // to open. PeerJS often emits no 'error' when the host id is unreachable
-      // or ICE never connects, so without this timeout the guest is stuck on
-      // "Connecting to room" forever. This is the reported bug.
-      const finish = (result) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (result.mode !== 'guest') { try { peer.destroy(); } catch {} }
-        resolve(result);
-      };
-      const timer = setTimeout(() => finish({ mode: 'error', error: 'timeout' }), HANDSHAKE_TIMEOUT_MS);
+  // Recompute who the host is and update our own mode + the host's guest list.
+  // `announce` is true only for the initial settle so we don't fire join/host
+  // events during the pre-settle gathering window.
+  _reelect(announce = false) {
+    if (!this.room) return;
+    const ordered = [...this.presence.values()].sort(this._cmp);
+    const winner = ordered[0];
+    const newHostId = winner ? winner.id : this.selfId;
+    const becameHost = newHostId === this.selfId && this.mode !== 'host';
+    this.hostId = newHostId;
+    const newMode = newHostId === this.selfId ? 'host' : 'guest';
 
-      peer.on('open', () => {
-        const conn = peer.connect(roomId, { reliable: true });
-        conn.on('open', () => {
-          this.mode = 'guest';
-          this.peer = peer;
-          this.hostConn = conn;
-          this.playerCount = 2;
-          finish({ mode: 'guest' });
-        });
-        conn.on('data', (msg) => {
-          if (msg.t === 'room_full') {
-            this.emitLocal('room_full', msg);
-            return;
-          }
-          this.emitLocal(msg.t, msg, 'host');
-        });
-        conn.on('close', () => this.emitLocal('host_left', {}));
-        conn.on('error', () => {
-          // Before the channel opens this means the join failed; after it opens
-          // it means we lost the host. 'settled' tells the two cases apart.
-          if (settled) this.emitLocal('host_left', {});
-          else finish({ mode: 'error', error: 'connect-failed' });
-        });
-      });
-      peer.on('error', (err) => finish({ mode: 'error', error: err.type }));
-    });
+    if (this.isHost) {
+      // keep the guest set in sync with live peers
+      for (const id of this.presence.keys()) if (id !== this.selfId) this.conns.set(id, true);
+      for (const id of [...this.conns.keys()]) if (!this.presence.has(id)) this.conns.delete(id);
+    }
+
+    const prevMode = this.mode;
+    this.mode = newMode;
+    this.lastRoster = ordered.map((p) => p.id);
+    this.playerCount = this.presence.size;
+
+    if (!this._settled && !announce) return;
+
+    if (becameHost) {
+      // Rebuild the guest list and let listeners know (initial host or a
+      // migration where we were promoted).
+      this.conns = new Map();
+      for (const id of this.presence.keys()) if (id !== this.selfId) this.conns.set(id, true);
+      if (prevMode === 'guest') this.emitLocal('became_host', {});
+      this.broadcastRoster();
+    }
   }
 
-  // Everyone learns the full peer-id roster (used for voice-chat mesh calls).
+  _onGameMsg(data, peerId) {
+    if (!data || typeof data.t !== 'string') return;
+    if (data.t === 'room_full') { this.emitLocal('room_full', data); return; }
+    // A guest only ever receives from the host; the host receives from guests.
+    const from = peerId === this.hostId ? 'host' : peerId;
+    // Host observes new guests through their first 'hello'.
+    if (this.isHost && data.t === 'hello' && !this._greeted?.has?.(peerId)) {
+      (this._greeted ||= new Set()).add(peerId);
+      this.emitLocal('guest_joined', { id: peerId });
+      this.broadcastRoster();
+    }
+    this.emitLocal(data.t, data, from);
+  }
+
+  // Host migration is automatic in the mesh (_reelect on the host leaving picks
+  // the next-earliest peer). This just waits for the peer set to settle and
+  // reports the resulting role so the game can promote/rejoin. `shouldHost` is
+  // the game's own guess; we honour our deterministic election instead.
+  async migrate() {
+    // give onPeerLeave/_reelect a beat to converge across the surviving mesh
+    await new Promise((r) => setTimeout(r, 600));
+    this._reelect(true);
+    if (this.mode === 'off' || !this.room) return { mode: 'error', error: 'migration-failed' };
+    return { mode: this.mode };
+  }
+
+  // Everyone learns the full peer-id roster (voice mesh + migration).
   broadcastRoster() {
-    if (this.mode !== 'host') return;
-    const ids = [this.peer.id, ...this.conns.keys()];
+    if (!this.isHost) return;
+    const ids = [...this.presence.keys()];
     this.lastRoster = ids;
     this.send({ t: 'peers', ids });
     this.emitLocal('peers', { ids });
   }
 
-  // host: relay to all guests except one id (used for chat, so the sender
-  // doesn't receive an echo of their own message)
+  // host: relay to all guests except one id (chat, so the sender gets no echo)
   sendExcept(msg, exceptId) {
-    if (this.mode !== 'host') return;
-    for (const [id, c] of this.conns) if (id !== exceptId) c.send(msg);
+    if (!this.isHost || !this._sendMsg) return;
+    const targets = [...this.conns.keys()].filter((id) => id !== exceptId);
+    if (targets.length) this._sendMsg(msg, targets);
   }
 
-  // host: send to all guests (or one guest by id); guest: send to host
+  // host: to all guests (or one by id); guest: to the host only.
   send(msg, toId = null) {
-    if (this.mode === 'host') {
-      if (toId) this.conns.get(toId)?.send(msg);
-      else for (const c of this.conns.values()) c.send(msg);
-    } else if (this.mode === 'guest' && this.hostConn?.open) {
-      this.hostConn.send(msg);
+    if (!this._sendMsg || this.mode === 'off') return;
+    if (this.isHost) {
+      if (toId) this._sendMsg(msg, toId);
+      else if (this.conns.size) this._sendMsg(msg, [...this.conns.keys()]);
+    } else if (this.hostId) {
+      this._sendMsg(msg, this.hostId);
     }
   }
 
   stop() {
-    try { this.peer?.destroy(); } catch {}
-    this.peer = null;
-    this.conns.clear();
-    this.hostConn = null;
+    try { this.room?.leave(); } catch { /* ignore */ }
+    this.room = null;
     this.mode = 'off';
+    this.hostId = null;
+    this.presence = new Map();
+    this.conns.clear();
+    this.lastRoster = [];
     this.playerCount = 1;
+    this._sendMsg = null;
+    this._greeted = null;
+    this._settled = false;
   }
 }
 
