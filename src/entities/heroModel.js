@@ -150,7 +150,25 @@ export async function preloadHeroModels(onProgress) {
   await Promise.all(entries.map(async ([classId, file]) => {
     try {
       const gltf = await loader.loadAsync(import.meta.env.BASE_URL + file);
-      const box = new THREE.Box3().setFromObject(gltf.scene);
+      // Normalize by the BODY height, not the full scene (Obsidian 762): the
+      // scene bbox includes every baked weapon variant (a tall 2H staff, a
+      // raised crossbow) and hats/hoods, which get hidden at build time - so
+      // dividing by the full height scaled classes with tall props DOWN,
+      // leaving their actual bodies different sizes in the preview and world.
+      // Measure only the character meshes (skip held weapons + headgear) so
+      // all three classes stand at the same real height.
+      const WEAPON_RE = /1H_|2H_|Knife|Throwable|Bow|Crossbow|Shield|Wand|Staff|Spellbook|\bBook\b|Dagger|Sword|Axe|Mace|Hammer|Spear|Quiver/i;
+      const HAT_RE = /_(Hat|Helmet)\b|Hat$|Helmet$/i;
+      const bodyBox = new THREE.Box3();
+      let anyBody = false;
+      gltf.scene.updateMatrixWorld(true);
+      gltf.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        if (WEAPON_RE.test(o.name) || HAT_RE.test(o.name)) return;
+        bodyBox.expandByObject(o);
+        anyBody = true;
+      });
+      const box = anyBody ? bodyBox : new THREE.Box3().setFromObject(gltf.scene);
       const height = box.max.y - box.min.y || 1;
       loaded.set(classId, {
         scene: gltf.scene,
