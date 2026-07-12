@@ -1028,13 +1028,22 @@ export function buildTavernInterior() {
       // pmEntry.talkUntil; outside that window they keep facing their table
       // - no proximity eye-tracking, no stool-swivel stalking.
       const seatYaw = patron.rotation.y;
+      // Track the patron's world position so a scripted walk (Rosalind's approach
+      // 828 / the buy-a-drink beat 822) plays the WALK blend instead of gliding.
+      const _prevWp = new THREE.Vector3(), _curWp = new THREE.Vector3();
+      let _havePrevWp = false;
       const patronDriver = {
         kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1, _phase: 0,
         get phase() { return this._phase; },
         set phase(v) {
           const dt = Math.min(0.1, Math.max(0, v - this._phase));
           this._phase = v;
-          pnpc.tick(dt);
+          patron.updateWorldMatrix(true, false);
+          _curWp.setFromMatrixPosition(patron.matrixWorld);
+          let moveSpeed = 0;
+          if (_havePrevWp && dt > 0) moveSpeed = Math.hypot(_curWp.x - _prevWp.x, _curWp.z - _prevWp.z) / dt;
+          _prevWp.copy(_curWp); _havePrevWp = true;
+          pnpc.tick(dt, moveSpeed);
           // The drunk keeps his mug hand raised toward his face (Obsidian 843):
           // re-applied AFTER the mixer so the idle clip doesn't drop the arm.
           if (pmEntry.drunk) {
