@@ -1287,6 +1287,53 @@ export function buildTavernInterior() {
   mat.position.set(exitW.x, 0.02, exitW.z + 0.6);
   group.add(mat);
 
+  // ---- staircase to the upstairs rooms (Obsidian 800) ----
+  // A real wooden flight in the clear SE corner (east of the hearth at world
+  // ~29,13; south of it), rising NORTH (-z) against the east wall up to a
+  // landing + a dark doorway that reads as "the rooms are up here". The base
+  // sits at the interact tile the flirty "somewhere quieter" payoff points to.
+  const stairGrp = new THREE.Group();
+  const STEPS = 9, riseY = 0.32, runZ = 0.44, stepW = 1.6;
+  for (let i = 0; i < STEPS; i++) {
+    const tread = new THREE.Mesh(new THREE.BoxGeometry(stepW, riseY, runZ + 0.03), plankMat);
+    tread.position.set(0, i * riseY + riseY / 2, -i * runZ);
+    tread.castShadow = tread.receiveShadow = true;
+    stairGrp.add(tread);
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(stepW, riseY, 0.04), darkWood);
+    riser.position.set(0, i * riseY + riseY / 2, -i * runZ + runZ / 2);
+    stairGrp.add(riser);
+  }
+  const topY = STEPS * riseY;               // 2.88
+  // top landing platform
+  const landing = new THREE.Mesh(new THREE.BoxGeometry(stepW, 0.14, 1.5), plankMat);
+  landing.position.set(0, topY - 0.07, -STEPS * runZ - 0.6);
+  landing.castShadow = landing.receiveShadow = true;
+  stairGrp.add(landing);
+  // outer stringer (closes the open side so it doesn't float)
+  const stringerBox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, topY, STEPS * runZ), darkWood);
+  stringerBox.position.set(stepW / 2 + 0.06, topY / 2, -(STEPS * runZ) / 2 + runZ / 2);
+  stairGrp.add(stringerBox);
+  // banister posts + rail along the open (west) side
+  for (let i = 0; i <= STEPS; i += 3) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.95, 8), darkWood);
+    post.position.set(stepW / 2 + 0.06, i * riseY + 0.47, -i * runZ);
+    stairGrp.add(post);
+  }
+  const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, STEPS * runZ * 1.05, 8), darkWood);
+  rail.rotation.x = Math.atan2(topY, STEPS * runZ) + Math.PI / 2;
+  rail.position.set(stepW / 2 + 0.06, topY / 2 + 0.45, -(STEPS * runZ) / 2);
+  stairGrp.add(rail);
+  // dark recessed opening at the back of the landing (reads as "the way up"),
+  // kept below the 3.3 wall top so nothing pokes over the roofline.
+  const upVoid = new THREE.Mesh(new THREE.BoxGeometry(stepW - 0.15, 0.36, 0.05),
+    new THREE.MeshBasicMaterial({ color: 0x0d0805 }));
+  upVoid.position.set(0, topY + 0.16, -STEPS * runZ - 1.28);
+  stairGrp.add(upVoid);
+  // base at the SE clear tile, rising north
+  stairGrp.position.set(30.4, 0, 20.6);
+  group.add(stairGrp);
+
   // flame refs removed (717): the sprite fire animates itself via its own
   // driver above; updateTorches only needs the light positions.
   const torchPositions = [
