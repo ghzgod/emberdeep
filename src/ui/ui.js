@@ -1284,6 +1284,13 @@ export class UI {
     shake.checked = s.screenShake;
     shake.onchange = () => { s.screenShake = shake.checked; this.game.saveSettings(); };
 
+    // Desktop click-to-attack (Obsidian 769): on by default; disable here.
+    const mouseAtk = $('set-mouse-attack');
+    if (mouseAtk) {
+      mouseAtk.checked = s.mouseAttack !== false;
+      mouseAtk.onchange = () => { s.mouseAttack = mouseAtk.checked; this.game.saveSettings(); };
+    }
+
     // "In-Game AI" and "In-Game Natural Voices" are two independent-looking
     // toggles that both drive the same underlying full-AI state (NOT battery
     // saver). Checked = the heavy features are on. Each toggle, the FIRST time

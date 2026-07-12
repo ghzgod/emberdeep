@@ -4048,10 +4048,18 @@ export class Game {
     // clicking a co-op hero opens their inspect panel and eats the click
     const inspected = this.tryInspectClick();
     if (!this.inTown && !inspected) {
-      // NOTE: basic attack is NEVER triggered by a raw canvas click/tap here -
-      // only .act-basic / ability buttons (clusterTap/clusterSwipe) can fire
-      // it (TODO 684). Digit1-4 remain keyboard shortcuts for the four
-      // ability slots, unaffected by this rule (they're not the basic attack).
+      // Desktop click-to-attack (Obsidian 769, reversing the strict
+      // button-only rule of 684 by user request): a left-click IN THE WORLD
+      // fires the basic attack toward the cursor (the desktop raycast above
+      // already keeps aimDir on the cursor). On by default; the Mouse Attack
+      // setting disables it. Touch is unaffected (no mouse), and clicks on UI
+      // buttons never reach the canvas mousedown listener, so the cluster
+      // buttons still work independently. tryInspectClick already ate clicks
+      // on co-op heroes.
+      if (!this.touch.enabled && this.settings.mouseAttack !== false && input.mouse.clicked) {
+        p.tryBasicAttack(this);
+      }
+      // Digit1-4 remain keyboard shortcuts for the four ability slots.
       if (input.wasPressed('Digit1')) p.tryAbility(0, this);
       if (input.wasPressed('Digit2')) p.tryAbility(1, this);
       if (input.wasPressed('Digit3')) p.tryAbility(2, this);
