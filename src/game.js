@@ -932,6 +932,13 @@ export class Game {
     return net.isHost ? 1 + net.conns.size : Math.max(2, (net.lastRoster?.length || 2));
   }
 
+  // Human-readable room name for the HUD (empty when solo). Strips the
+  // internal 'emberdeep-room-' prefix and shows what the player typed.
+  roomName() {
+    if (!net.active || !net.roomId) return '';
+    return net.roomId.replace(/^emberdeep-room-/, '').toUpperCase();
+  }
+
   // Quest log data: main quest chain (one act boss per act) + run stats.
   questState() {
     const themeNames = [null, 'The Old Halls', 'The Rotting Depths', 'The Ember Vaults', 'The Sunless Court', 'The Abyssal Throne'];
@@ -3290,16 +3297,18 @@ export class Game {
         const oz = i === 0 ? 0 : (Math.random() - 0.5) * size * 1.6;
         this.addWallMark(x + ox, z + oz, {
           size: (i === 0 ? size : size * 0.55) * (0.85 + Math.random() * 0.35),
-          opacity: i === 0 ? opacity : opacity * 0.7, color, fadeAfter: 32,
+          opacity: i === 0 ? opacity : opacity * 0.7, color, fadeAfter: 50,
         });
       }
     };
     if (profile === 'blood') {
-      this.particles.gore(x, 0.8, z, { count: Math.round(28 * big) });
-      pool(0x8a1212, 0.62 * big, 0.72, e.isBoss ? 5 : 3); // bright, wet, visible in the dim
+      // Way gorier (757): a heavy gib burst + a wide multi-blob blood pool that
+      // reads clearly on the floor and lingers.
+      this.particles.gore(x, 0.8, z, { count: Math.round(46 * big) });
+      pool(0x9c1414, 0.9 * big, 0.82, e.isBoss ? 9 : 6); // bright, wet, splattered
     } else if (profile === 'ichor') {
-      this.particles.gore(x, 0.8, z, { count: Math.round(24 * big), spray: 0x5a7a1a, chunk: 0x38520f, emissive: 0x0a1a00, emissiveIntensity: 0.4 });
-      pool(0x3a5210, 0.55 * big, 0.62, 3);
+      this.particles.gore(x, 0.8, z, { count: Math.round(38 * big), spray: 0x5a7a1a, chunk: 0x38520f, emissive: 0x0a1a00, emissiveIntensity: 0.4 });
+      pool(0x3a5210, 0.78 * big, 0.7, 5);
     } else if (profile === 'bone') {
       this.particles.gore(x, 0.8, z, { count: Math.round(18 * big), spray: 0xf0ece0, chunk: 0xc8c2b0, life: 0.6, up: 0.8, emissive: 0x1a1815, emissiveIntensity: 0.35 });
       // faint pale dust smear, no wet pool
@@ -4691,7 +4700,13 @@ export class Game {
     mesh.scale.setScalar(size);
     mesh.rotation.x = -Math.PI / 2;
     mesh.rotation.z = Math.random() * Math.PI;
-    mesh.position.set(x, 0.03, z);
+    // Ground decals sit at 0.15, NOT ~0.03 (757 re-fix): the dungeon floor is
+    // relief hex tiles + rubble that rise well above the 0-height base plane,
+    // so a decal at 0.03 was buried under the tile surface and invisible in
+    // play. Verified with a pixel A/B: 0.05 clipped almost entirely, 0.12+
+    // read as a flat pool on the ground. 0.15 clears the hex rims and light
+    // rubble while still lying flush from the top-down camera.
+    mesh.position.set(x, 0.15, z);
     // add to the scene (pre-existing bug found via 757: pushMarkEntry only
     // TRACKS meshes for fade/cap - it never added them, so every ground
     // decal from addWallMark (AoE scorches, burn marks, blood pools) was
@@ -4762,7 +4777,7 @@ export class Game {
   // each entry fades out over ~fadeAfter seconds via updateWallMarks().
   pushMarkEntry(meshes, baseOpacities, fadeAfter) {
     if (!this.wallMarks) this.wallMarks = [];
-    if (this.wallMarks.length >= 22) this.disposeMarkEntry(this.wallMarks.shift());
+    if (this.wallMarks.length >= 48) this.disposeMarkEntry(this.wallMarks.shift());
     this.wallMarks.push({ meshes, baseOpacities, age: 0, fadeAfter });
   }
 
