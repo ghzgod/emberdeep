@@ -218,6 +218,15 @@ export class Game {
     window.addEventListener('blur', failsafeStopMovement);
     document.addEventListener('visibilitychange', () => { if (document.hidden) failsafeStopMovement(); });
 
+    // Flush an up-to-date save (incl. exact position) right before the page
+    // goes away, so a REFRESH resumes exactly where you were (Obsidian 791).
+    // pagehide covers mobile/bfcache where beforeunload is unreliable.
+    const saveOnHide = () => {
+      if (this.player && this.state !== 'title' && this.slotId) { this.savePending = true; this.flushSave(); }
+    };
+    window.addEventListener('pagehide', saveOnHide);
+    window.addEventListener('beforeunload', saveOnHide);
+
     this.state = 'loading';
     this.player = null;
     this.enemies = [];
@@ -369,8 +378,14 @@ export class Game {
     // guests resume their hero in single player (a room can't be silently
     // rejoined after a reload); a first-ever visit has no saves, so this can
     // never race the battery-saver modal below.
+    // Auto-resume on reload. Two triggers:
+    //  - emberdeep-resume-v1: one-shot stamp from the update toast (730/779).
+    //  - emberdeep-in-game: set for the whole time the player is in a session
+    //    and CLEARED on quit-to-title, so it survives a plain page REFRESH but
+    //    not a fresh tab or a deliberate return to the menu. This is what makes
+    //    "refresh -> land exactly where I was" work (Obsidian 791).
     try {
-      if (sessionStorage.getItem('emberdeep-resume-v1')) {
+      if (sessionStorage.getItem('emberdeep-resume-v1') || sessionStorage.getItem('emberdeep-in-game')) {
         sessionStorage.removeItem('emberdeep-resume-v1');
         const recent = SaveManager.listSaves()[0];
         if (recent) { this.continueGame(recent.id); return; }
@@ -431,11 +446,20 @@ export class Game {
     // A mid-dungeon refresh drops you back onto the floor you were fighting on,
     // not town. Enemies respawn for that floor (exact combat state isn't saved).
     // MP guests always rejoin through the host's world instead.
+    // Resume EXACTLY where the hero stood (Obsidian 791): the floor/town layout
+    // is deterministic for this slot, so the same map regenerates. loadFloor/
+    // loadTown position the player at the spawn from a DEFERRED loading stage,
+    // which would clobber a position set here - so stash it and let the spawn
+    // code apply it right after it sets the spawn (enemies still respawn; exact
+    // combat state isn't saved). Guarded against missing/old saves.
+    this._resumePos = (typeof data.px === 'number' && typeof data.pz === 'number') ? { x: data.px, z: data.pz } : null;
     if (data.inDungeon && this.floor >= 1 && !(net.active && !net.isHost)) {
       this.loadFloor(this.floor);
       this.enterPlaying();
     } else {
       this.enterWorld();
+      // resume back inside the tavern if that's where the refresh happened (791)
+      if (data.inTavern && this.inTown && this.loadTavern) { try { this.loadTavern(); } catch { /* fall back to town */ } }
     }
   }
 
@@ -717,6 +741,10 @@ export class Game {
         : this.dungeon.spawn;
     const spawn = tileToWorld(spawnTile.x, spawnTile.y);
     this.player.pos.set(spawn.x, 0, spawn.z);
+    // Resume-exact override (791): a refresh in town lands the hero where they
+    // stood. Safe to apply unconditionally - _resumePos is only ever set by
+    // continueGame and cleared on first use, so normal town arrivals never see it.
+    if (this._resumePos) { this.player.pos.set(this._resumePos.x, 0, this._resumePos.z); this._resumePos = null; }
     this.player.dead = false;
     // Reaching town resets combat cooldowns so the hero starts a fresh delve
     // with everything ready (no leftover ability/attack timers from the fight
@@ -1542,6 +1570,9 @@ export class Game {
     // the in-flight load. Bail out - the world is being torn down anyway.
     if (!this.player) { this._loading = false; return; }
     this.player.pos.set(spawn.x, 0, spawn.z);
+    // Resume-exact override (Obsidian 791): a refresh mid-dungeon drops the hero
+    // back on the very tile they were standing on, not the floor entrance.
+    if (this._resumePos) { this.player.pos.set(this._resumePos.x, 0, this._resumePos.z); this._resumePos = null; }
     this.player.dead = false;
 
     // Safe zone: the ring around the return portal. Inside it the player takes
@@ -3838,6 +3869,11 @@ export class Game {
       player: this.player.toSave(),
       floor: Math.max(1, this.floor),
       inDungeon: !this.inTown, // were we mid-dungeon (vs town/tavern) when saved?
+      inTavern: !!this.inTavern, // resume back INTO the tavern, not just town (791)
+      // Exact position (Obsidian 791): floors/town are deterministically seeded
+      // from the slot id, so storing where the hero stood lets a refresh drop
+      // them back on the identical layout at the very same spot.
+      px: this.player.pos.x, pz: this.player.pos.z,
       kills: this.kills,
       deaths: this.deaths,
       bossDefeated: this.bossDefeated,
