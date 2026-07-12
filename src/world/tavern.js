@@ -207,23 +207,48 @@ export function buildTavernInterior() {
   let winSeed = 11;
   const mkWindow = (x, z, roty) => {
     const grp = new THREE.Group();
-    // deep reveal box gives the opening real wall thickness
-    const reveal = new THREE.Mesh(new THREE.BoxGeometry(1.46, 1.26, 0.12),
-      new THREE.MeshStandardMaterial({ color: 0x241a12, roughness: 1 }));
-    reveal.position.z = -0.1;
-    grp.add(reveal);
-    // the "outside": a painted daylight view recessed behind the frame
-    const view = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.1),
-      new THREE.MeshBasicMaterial({ map: makeWindowViewTexture(winSeed = (winSeed * 7 + 13) >>> 0) }));
-    view.position.z = -0.03;
-    grp.add(view);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.09, 0.14), darkWood); top.position.y = 0.6;
-    const bot = top.clone(); bot.position.y = -0.6;
-    const l = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.3, 0.14), darkWood); l.position.x = -0.69;
+    // Genuinely 3D "outside" (Obsidian 824): a shallow shadow-box that juts a
+    // little INTO the room (there's no space behind - the wall is solid there
+    // and would occlude a recessed view, as the deep version proved) holding
+    // REAL geometry - a sky backdrop, a receding ground plane and trees at
+    // staggered depth - so it reads as looking out with actual parallax, not a
+    // flat painted postcard. (A true recessed view needs holes cut in the walls.)
+    const FRONT = 0.42;         // how far the box stands off the wall into the room
+    const BACK = -0.03;         // sky plane, right at the wall face
+    const tunMat = new THREE.MeshStandardMaterial({ color: 0x1c140d, roughness: 1 });
+    const tD = FRONT - BACK, tCz = (FRONT + BACK) / 2;
+    const tTop = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.08, tD), tunMat); tTop.position.set(0, 0.63, tCz);
+    const tBot = tTop.clone(); tBot.position.y = -0.63;
+    const tL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.34, tD), tunMat); tL.position.set(-0.73, 0, tCz);
+    const tR = tL.clone(); tR.position.x = 0.73;
+    grp.add(tTop, tBot, tL, tR);
+    let s = (winSeed = (winSeed * 7 + 13) >>> 0);
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
+    const sky = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.3),
+      new THREE.MeshBasicMaterial({ color: 0x9fc0e6 }));
+    sky.position.set(0, 0, BACK); grp.add(sky);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1.4, tD),
+      new THREE.MeshBasicMaterial({ color: 0x5d8a48 }));
+    ground.rotation.x = -Math.PI / 2; ground.position.set(0, -0.58, tCz); grp.add(ground);
+    // trees at staggered depths in front of the sky -> real parallax
+    for (let i = 0; i < 3; i++) {
+      const tz = BACK + 0.08 + rnd() * (tD - 0.14), tx = (rnd() - 0.5) * 1.0, ts = 0.7 + rnd() * 0.5;
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.045, 0.22 * ts, 6),
+        new THREE.MeshBasicMaterial({ color: 0x4a3320 }));
+      trunk.position.set(tx, -0.58 + 0.11 * ts, tz); grp.add(trunk);
+      const crown = new THREE.Mesh(new THREE.ConeGeometry(0.17 * ts, 0.4 * ts, 7),
+        new THREE.MeshBasicMaterial({ color: 0x3a5c30 }));
+      crown.position.set(tx, -0.58 + 0.42 * ts, tz); grp.add(crown);
+    }
+    // frame + muntins at the FRONT of the shadow-box (so the 3D view sits behind
+    // the glazing bars, not poking through them)
+    const top = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.09, 0.14), darkWood); top.position.set(0, 0.6, FRONT);
+    const bot = top.clone(); bot.position.set(0, -0.6, FRONT);
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.3, 0.14), darkWood); l.position.set(-0.69, 0, FRONT);
     const r = l.clone(); r.position.x = 0.69;
     grp.add(top, bot, l, r);
-    const mV = new THREE.Mesh(new THREE.BoxGeometry(0.045, 1.1, 0.045), darkWood); mV.position.z = 0.03;
-    const mH = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.045, 0.045), darkWood); mH.position.z = 0.03;
+    const mV = new THREE.Mesh(new THREE.BoxGeometry(0.045, 1.1, 0.045), darkWood); mV.position.z = FRONT + 0.02;
+    const mH = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.045, 0.045), darkWood); mH.position.z = FRONT + 0.02;
     grp.add(mV, mH);
     grp.position.set(x, 1.7, z); grp.rotation.y = roty;
     group.add(grp);
