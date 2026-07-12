@@ -1167,6 +1167,34 @@ body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster
 #act-card #act-list .menu-btn { display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
 #act-card #act-list .menu-btn small { color: var(--muted); font-size: 11px; }
 
+/* Rosalind's flirt dialogue (Obsidian 783) */
+#flirt-dialog { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
+#flirt-dialog.hidden { display: none; }
+#flirt-card {
+  min-width: 300px; max-width: min(90vw, 460px); max-height: 86vh; overflow: auto;
+  padding: 14px; text-align: center; color: var(--parchment);
+  background: var(--panel-grad); border: 2px solid var(--panel-brown); outline: 1px solid #000;
+  border-radius: 6px; box-shadow: var(--panel-shadows);
+}
+#flirt-head { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-bottom: 10px; border-bottom: 1px solid var(--title-divider); padding-bottom: 6px; }
+#flirt-head h2 { font-size: 16px; margin: 0; color: #ff9ac0; letter-spacing: 0.5px; text-shadow: 1px 1px 2px #000; }
+#flirt-mood { font-size: 12px; font-weight: 700; }
+#flirt-line { font-style: italic; font-size: 14px; line-height: 1.45; margin-bottom: 14px; min-height: 2.4em; }
+#flirt-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+#flirt-choices .flirt-choice { text-align: left; white-space: normal; }
+.flirt-choice.flirt-tier0 { border-color: #5a6472; }
+.flirt-choice.flirt-tier2 { border-color: #b8637f; }
+.flirt-choice.flirt-tier3 { border-color: #ff6ea6; }
+
+/* 18+ gate password field in the shared confirm modal (Obsidian 793/802) */
+#confirm-password-row { margin: 4px 0 12px; }
+#confirm-password-row.hidden { display: none; }
+#confirm-password {
+  width: 100%; box-sizing: border-box; padding: 9px 11px; border-radius: 6px;
+  border: 1px solid var(--panel-border); background: rgba(0,0,0,0.35);
+  color: var(--parchment); font-family: inherit; font-size: 14px; letter-spacing: 1px;
+}
+
 /* Player inspect panel */
 #inspect-panel { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(4,2,8,0.72); backdrop-filter: blur(2px); }
 #inspect-panel.hidden { display: none; }

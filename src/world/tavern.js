@@ -848,6 +848,12 @@ export function buildTavernInterior() {
     // non-worker patrons carry a mood.
     { tile: [3, 4], angle: 0.9, robe: 0x5a4a6a, hair: 0x3a2a1a, name: 'patron', cls: 'drifter', gender: 'female', skin: 'light', npcName: 'Tavern Patron', mood: 'rude' },
     { tile: [12, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk', cls: 'cleric', gender: 'male', skin: 'fair', npcName: 'Tipsy Regular', mood: 'friendly' },
+    // Rosalind (Obsidian 783): the tavern's drunk flirt. A named regular the
+    // player can chat up through a branching, affinity-driven dialogue; her
+    // tone warms or cools with the player's replies and turns overtly sexual
+    // only in 18+ mode (793). Carries a real given name so other systems and
+    // her own bubble use "Rosalind" (790).
+    { tile: [8, 8], angle: 1.4, robe: 0x9a2f57, hair: 0x6a2338, name: 'flirt', cls: 'drifter', gender: 'female', skin: 'light', npcName: 'Rosalind', given: 'Rosalind', mood: 'friendly', flirty: true },
   ];
   // ---- seat picking (Obsidian 788): each patron's "AI" decides whether to
   // STAND, sit at a TABLE, or sit at the BAR, then claims a free slot of that
@@ -915,7 +921,7 @@ export function buildTavernInterior() {
     // pmEntry is created up-front so the driver below and patronChat
     // (game.js) share it: patronChat stamps pmEntry.talkUntil when the
     // player actually opens a conversation.
-    const pmEntry = { mesh: patron, x: px, z: pz, drunk: def.name === 'drunk', mood: def.mood || 'friendly', seat: slot.seat, talkUntil: 0 };
+    const pmEntry = { mesh: patron, x: px, z: pz, drunk: def.name === 'drunk', mood: def.mood || 'friendly', seat: slot.seat, name: def.given || null, flirty: !!def.flirty, affinity: 0, talkUntil: 0 };
     const pnpc = buildNpcModel(def.cls, def.npcName, { gender: def.gender, skinTone: def.skin });
     if (pnpc) {
       for (let i = patron.children.length - 1; i >= 0; i--) {

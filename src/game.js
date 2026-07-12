@@ -1117,6 +1117,106 @@ export class Game {
     roaster.sayGated(this, speaker, line, cast, pm);
   }
 
+  // ---- Rosalind, the tavern flirt (Obsidian 783) ----------------------------
+  // A branching, affinity-driven chat. Four replies each turn span a range from
+  // cold to forward; warm/forward replies raise her affinity and she flirts
+  // harder, cold ones cool her until she gives up on you. Overtly sexual/NSFW
+  // lines appear ONLY in 18+ mode (793); with it off she stays suggestive but
+  // clean. If the PLAYER is female she reads as into women (a lesbian flirt).
+  _flirtVoice() { return { female: true, vi: 3, pitch: 1.12, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.02 }; }
+  _pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  flirtChat(pm) {
+    if (pm.affinity == null) pm.affinity = 0;
+    this.state = 'flirt';
+    pm.talkUntil = performance.now() + 15000;
+    const female = this.player.gender === 'female';
+    const opener = pm.affinity <= -3
+      ? this._pick(['Oh. You again. Thought I made myself clear.', 'Back for more? I already lost interest, sweetheart.'])
+      : pm.affinity >= 3
+        ? this._pick([female ? 'There she is — the prettiest thing in this whole tavern.' : 'There you are, handsome. I saved you a look.', 'Mmm. I was hoping you\'d come back to me.'])
+        : this._pick([
+          female ? '*hic* Well aren\'t YOU a sight. Buy a girl a drink, gorgeous?' : '*hic* Well hello, hero. Come to keep a lonely girl company?',
+          'You\'ve got a look about you. Sit with me a while?',
+        ]);
+    // She turns to face the player while you talk (uses the same talk gate).
+    roaster.sayGated(this, pm.name || 'Rosalind', opener, this._flirtVoice(), pm, { durationMs: 4800 });
+    this.ui.openFlirtDialog(pm, opener, this._flirtChoices(pm, female));
+  }
+
+  // Four options, coldest → boldest. The boldest is tamer without 18+.
+  _flirtChoices(pm, female) {
+    const adult = this.settings.adult18;
+    return [
+      { tier: 0, label: 'Not interested. Leave me be.' },
+      { tier: 1, label: 'Just here for a quiet drink, thanks.' },
+      { tier: 2, label: female ? 'You\'re trouble, aren\'t you? *smile*' : 'You\'re bold. I like that.' },
+      { tier: 3, label: adult ? 'Maybe we take this somewhere quieter…' : 'Maybe I buy you that drink after all.' },
+    ];
+  }
+
+  // Apply a chosen reply; returns her reaction + the next choices (or ends).
+  flirtSelect(pm, tier) {
+    const adult = this.settings.adult18;
+    const female = this.player.gender === 'female';
+    pm.affinity = Math.max(-4, Math.min(6, (pm.affinity || 0) + [-2, 0, 1, 2][tier]));
+    const line = this._flirtReply(pm, tier, adult, female);
+    roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 5200 });
+    pm.talkUntil = performance.now() + 12000;
+    const end = pm.affinity <= -3; // she's had enough of a cold shoulder
+    return { line, affinity: pm.affinity, disliked: end, choices: end ? [] : this._flirtChoices(pm, female) };
+  }
+
+  _flirtReply(pm, tier, adult, female) {
+    const a = pm.affinity;
+    if (tier === 0) {
+      // brush-off → she cools. Vulgar sting only in 18+.
+      if (a <= -3) return this._pick(adult
+        ? ['Fine. Piss off then, and don\'t come crawling back.', 'Your loss, sweetheart. Plenty here who\'d kill for my attention.']
+        : ['Fine. Off you go then. Your loss.', 'Suit yourself. Plenty of better company here.']);
+      return this._pick(['*pout* Ouch. Playing hard to get, are we?', 'Cold. I like a challenge… but don\'t push it.', 'Hmph. You\'ll come around. They always do.']);
+    }
+    if (tier === 1) {
+      return this._pick([
+        'A quiet drink? In THIS place? *laughs* Good luck, love.',
+        'Suit yourself. I\'ll be right here… warming your stool for you.',
+        female ? 'All business. I can work with a woman who knows what she wants.' : 'Strong and silent. That does things to a girl.',
+      ]);
+    }
+    if (tier === 2) {
+      if (a >= 3) return this._pick([
+        female ? 'Keep looking at me like that and I\'ll forget my manners, darling.' : 'Careful, hero. Flatter me more and I\'m yours for the night.',
+        'Mmm, now we\'re talking. Come closer, don\'t be shy.',
+      ]);
+      return this._pick([
+        female ? 'Oh, a girl after my own heart. I do love pretty trouble.' : 'Trouble\'s my middle name. Buy me a drink and find out.',
+        '*leans in* You know just what to say, don\'t you.',
+        'Careful — say things like that and I\'ll start to like you.',
+      ]);
+    }
+    // tier 3 — forward. This is where 18+ unlocks the explicit heat.
+    if (adult) {
+      if (a >= 3) return this._pick([
+        female ? 'Somewhere quieter? Sweetheart, my room\'s up the stairs and my bed\'s cold. Let me warm it with you.' : 'Somewhere quieter? Take me upstairs, hero, and I\'ll make you forget your own name.',
+        'Mmm, I thought you\'d never ask. Hands where I can feel them and follow me up.',
+        female ? 'I\'ve been picturing you out of that armor all night. Come find out if I\'m as fun as I look.' : 'I\'ll show you exactly what a drunk girl with bad ideas can do to you.',
+      ]);
+      return this._pick([
+        'Bold one, aren\'t you. Keep buying and we\'ll see how far this goes tonight.',
+        '*bites lip* Careful what you start, hero. I finish what I start.',
+      ]);
+    }
+    // clean suggestive (no 18+)
+    if (a >= 3) return this._pick([
+      female ? 'A drink and your company? Best offer I\'ve had all night, gorgeous.' : 'Now you\'re spoiling me. Stay close and keep them coming.',
+      'Mmm. I could get used to you.',
+    ]);
+    return this._pick([
+      'A drink? Now you\'re speaking my language. *winks*',
+      'Smooth. Keep that up and you\'ll turn my head.',
+    ]);
+  }
+
   openNotices() {
     this.state = 'notices';
     this.ui.openNotices(this.buildNotices());
@@ -3870,7 +3970,7 @@ export class Game {
 
     if (this.state === 'playing') {
       this.updatePlaying(dt);
-    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story', 'notices', 'chatlog'].includes(this.state)) {
+    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story', 'notices', 'chatlog', 'flirt'].includes(this.state)) {
       // world is frozen; still render + light flicker for life
       this.updateTorches(dt, true);
       // the vendor-facing camera ease keeps moving while the shop is open,
@@ -3893,6 +3993,7 @@ export class Game {
       if (this.state === 'shop' && this.input.wasPressed('Escape')) this.closeShop();
       if (this.state === 'quest' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyJ'))) this.toggleQuestLog();
       if (this.state === 'notices' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyF'))) { this.state = 'playing'; this.ui.hideAll(); }
+      if (this.state === 'flirt' && this.input.wasPressed('Escape')) this.ui.closeFlirt();
       if (this.state === 'skills' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyK'))) this.toggleSkills();
       if (this.state === 'story' && (this.input.wasPressed('Escape') || this.input.wasPressed('Space') || this.input.wasPressed('Enter'))) {
         this.state = 'playing';
@@ -5018,7 +5119,12 @@ export class Game {
       }
       if (!candidate) {
         for (const pm of this.dungeonMeshes.patronMeshes || []) {
-          if (near(pm.x, pm.z, 1.8)) { candidate = { label: pm.drunk ? 'Nudge the drunk' : 'Chat with the patron', icon: '💬', talk: true, action: () => this.patronChat(pm) }; break; }
+          if (near(pm.x, pm.z, 1.8)) {
+            candidate = pm.flirty
+              ? { label: `Chat up ${pm.name || 'her'}`, icon: '💋', talk: true, action: () => this.flirtChat(pm) }
+              : { label: pm.drunk ? 'Nudge the drunk' : 'Chat with the patron', icon: '💬', talk: true, action: () => this.patronChat(pm) };
+            break;
+          }
         }
       }
       // fireside couch (Obsidian 716): sit and listen to the fire
