@@ -368,6 +368,19 @@ body.touch-mode #minimap.mm-active { opacity: 1; }
 @media (orientation: portrait) and (max-width: 720px) {
   #notices-list.notice-board-wood { grid-template-columns: 1fr; gap: 14px; padding: 22px 16px 24px; }
   .notice-board-wood .notice-paper:nth-child(2) { margin-top: 0; }
+
+  /* Keep the two top HUD clusters from colliding on a narrow portrait screen
+     (Obsidian 794): the base layout puts a ~280px box on each side, which
+     overlaps on a phone, and the 767 room badge widened the left stats row
+     until it ran into the location label. Cap each side to ~half the width,
+     let the stats wrap as a safety net, and shrink the location text so both
+     fit side by side. */
+  #hud-topleft { width: 46vw; }
+  #hud-stats { flex-wrap: wrap; gap: 5px 10px; font-size: 12px; }
+  #hud-topright { max-width: 50vw; }
+  #hud-floor { font-size: 15px; letter-spacing: 0.4px; }
+  #hud-clear { font-size: 11px; }
+  #hud-quest { font-size: 11px; }
 }
 
 /* ---------- Story cards ---------- */
