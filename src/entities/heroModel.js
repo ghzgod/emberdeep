@@ -324,10 +324,14 @@ export function eyeColorById(id) {
 // Instead each option is a subtle non-uniform scale applied to the HEAD MESH
 // NODE only (never the skeleton/bones), so every animation keeps working
 // completely untouched. 'standard' is a no-op (stock proportions).
+// Face shape scales the head node (Obsidian 810). The old deltas (~6%) were so
+// small the selector looked like it did nothing; widened to ~15% so Narrow
+// (taller + slimmer) and Round (broader + shorter) read clearly distinct from
+// Standard without distorting the eyes/features.
 export const FACE_SHAPES = [
   { id: 'standard', label: 'Standard', sx: 1, sy: 1 },
-  { id: 'narrow', label: 'Narrow', sx: 0.94, sy: 1.04 },
-  { id: 'round', label: 'Round', sx: 1.06, sy: 0.97 },
+  { id: 'narrow', label: 'Narrow', sx: 0.85, sy: 1.1 },
+  { id: 'round', label: 'Round', sx: 1.16, sy: 0.92 },
 ];
 
 export function faceShapeById(id) {
