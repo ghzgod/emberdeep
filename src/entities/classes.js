@@ -117,7 +117,11 @@ export const CLASSES = {
         exec(game, p) {
           audio.play('fireball_cast');
           game.spawnProjectile({
-            x: p.pos.x, z: p.pos.z, dir: p.facingDir(), speed: 13, radius: 0.4,
+            // aimDir, not facingDir (Obsidian 754): cluster-tap auto-aim sets
+            // the AIM instantly, but the body only eases toward it - firing
+            // along the body's current facing threw the orb wherever the hero
+            // happened to be turned, which read as "auto-aim doesn't work".
+            x: p.pos.x, z: p.pos.z, dir: { x: p.aimDir.x, z: p.aimDir.z }, speed: 13, radius: 0.4,
             damage: p.damage * 2.2, friendly: true, color: 0xff6a2a, size: 0.32,
             aoe: 2.4, status: { burn: { dps: p.damage * 0.5, duration: 3 } },
             hitSound: 'explosion', trail: 0xff8a3a,
@@ -176,7 +180,7 @@ export const CLASSES = {
         exec(game, p) {
           audio.play('multishot');
           for (let i = -2; i <= 2; i++) {
-            const a = p.visualAngle + i * 0.16;
+            const a = p.aimAngle + i * 0.16; // fan centres on the AIM, not the easing body facing (754)
             game.spawnProjectile({
               x: p.pos.x, z: p.pos.z, dir: { x: Math.cos(a), z: Math.sin(a) },
               speed: 22, radius: 0.3, damage: p.damage * 1.1, friendly: true,
