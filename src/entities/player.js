@@ -96,9 +96,12 @@ export class Player {
   skillRank(id) { return this.skills[id] || 0; }
   spentSkillPoints() { return Object.values(this.skills).reduce((s, r) => s + r, 0); }
   // Mastery points accrue ~1 per 3 levels plus a +2 "slot" bonus at every 10th
-  // level milestone. Mastering all 45 ranks is possible but takes deep into the
-  // level cap (~lvl 84), not a mid-game formality.
-  masteryEarned() { return Math.floor(this.level / 3) + Math.floor(this.level / 10) * 2; }
+  // level milestone. Obsidian 770: was floor(level/3) - a point only every
+  // 3rd level, so most level-ups granted nothing and a level-4 hero who spent
+  // their single level-3 point saw "no talent points", reading as a bug. Now
+  // a point every 2 levels (+ a milestone bonus every 10), so leveling
+  // reliably rewards a point and a level-4 hero always has some to spend.
+  masteryEarned() { return Math.floor(this.level / 2) + Math.floor(this.level / 10); }
   skillPoints() { return Math.max(0, this.masteryEarned() - this.spentSkillPoints()); }
   addSkillRank(id, max = 5) {
     if (this.skillPoints() <= 0 || this.skillRank(id) >= max) return false;

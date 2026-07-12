@@ -199,7 +199,9 @@ export class Enemy {
       this.radius *= 1.4;
       this.name = MINIBOSS_NAMES[typeId] || 'Champion';
     } else if (this.elite) {
-      hp *= 2.6; damage *= 1.5; this.xp = Math.round(this.xp * 2.5);
+      // Obsidian 772: elites ~20% tougher (hp 2.6->3.12, dmg 1.5->1.8) so
+      // they read as a real step up from trash mobs, with a matching XP bump.
+      hp *= 3.12; damage *= 1.8; this.xp = Math.round(this.xp * 3);
       this.radius *= 1.2;
       this.name = `Elite ${this.def.name}`;
     } else {
