@@ -206,11 +206,14 @@ export class UI {
   // dontShow: true adds a "Do not show again" checkbox to the modal. When
   // present, the promise resolves to an object { confirmed, dontShow } instead
   // of a bare boolean, so the caller can persist the preference.
-  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false, dontShow = false } = {}) {
+  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false, dontShow = false, password = false } = {}) {
     return new Promise((resolve) => {
       const modal = $('confirm-modal'), card = $('confirm-card');
       const okBtn = $('btn-confirm-ok'), cancelBtn = $('btn-confirm-cancel');
       const dontRow = $('confirm-dontshow-row'), dontBox = $('confirm-dontshow');
+      const pwRow = $('confirm-password-row'), pwInput = $('confirm-password');
+      if (pwRow) pwRow.classList.toggle('hidden', !password);
+      if (pwInput) pwInput.value = '';
       $('confirm-title').textContent = title;
       $('confirm-message').textContent = message;
       card.classList.toggle('danger', !!danger);
@@ -228,7 +231,10 @@ export class UI {
         okBtn.onclick = null; cancelBtn.onclick = null;
         modal.removeEventListener('click', onBackdrop);
         document.removeEventListener('keydown', onKey);
-        resolve(dontShow ? { confirmed, dontShow: !!(dontBox && dontBox.checked) } : confirmed);
+        if (pwRow) pwRow.classList.add('hidden');
+        resolve(dontShow ? { confirmed, dontShow: !!(dontBox && dontBox.checked) }
+          : password ? { confirmed, password: pwInput ? pwInput.value : '' }
+            : confirmed);
       };
       const onBackdrop = (e) => { if (e.target === modal) cleanup(false); };
       const onKey = (e) => { if (e.key === 'Escape') cleanup(false); };
@@ -477,6 +483,8 @@ export class UI {
     $('destroy-modal').addEventListener('click', (e) => { if (e.target.id === 'destroy-modal') $('destroy-modal').classList.add('hidden'); });
     $('btn-act-cancel').onclick = () => $('act-select').classList.add('hidden');
     $('act-select').addEventListener('click', (e) => { if (e.target.id === 'act-select') $('act-select').classList.add('hidden'); });
+    $('btn-flirt-leave').onclick = () => this.closeFlirt();
+    $('flirt-dialog').addEventListener('click', (e) => { if (e.target.id === 'flirt-dialog') this.closeFlirt(); });
     $('btn-inspect-close').onclick = () => $('inspect-panel').classList.add('hidden');
     $('inspect-panel').addEventListener('click', (e) => { if (e.target.id === 'inspect-panel') $('inspect-panel').classList.add('hidden'); });
     $('item-actions').addEventListener('click', (e) => { if (e.target.id === 'item-actions') this.closeItemActions(); });
@@ -1328,6 +1336,32 @@ export class UI {
       const { roaster } = await import('../ai/roaster.js');
       roaster.enabled = s.taunts;
       if (!s.taunts && 'speechSynthesis' in window) speechSynthesis.cancel();
+    };
+
+    // 18+ mature-content gate (Obsidian 793/783): enabling it requires an age
+    // agreement; it unlocks the explicit/vulgar dialogue banks (rude patrons,
+    // Rosalind's NSFW lines). Off + un-agreed by default.
+    const adult18 = $('set-adult18');
+    adult18.checked = !!s.adult18;
+    adult18.onchange = async () => {
+      if (adult18.checked) {
+        const res = await this.confirmModal({
+          title: '18+ Mature Content',
+          message: 'This unlocks explicit sexual and crude/vulgar language from tavern NPCs. By enabling it you confirm you are 18 years of age or older, and you must enter the access password.',
+          confirmText: 'Unlock',
+          cancelText: 'Cancel',
+          password: true,
+        });
+        if (!res || !res.confirmed || res.password !== '3mb3rvi113m0d3') {
+          adult18.checked = false;
+          if (res && res.confirmed && res.password !== '3mb3rvi113m0d3') {
+            this.confirmModal({ title: 'Incorrect password', message: '18+ mode was not enabled.', notice: true, confirmText: 'OK' });
+          }
+          return;
+        }
+      }
+      s.adult18 = adult18.checked;
+      this.game.saveSettings();
     };
 
     // neural character voices (Kokoro) — the only voice engine; no user toggle.
@@ -2287,6 +2321,50 @@ export class UI {
       list.appendChild(btn);
     }
     $('act-select').classList.remove('hidden');
+  }
+
+  // Rosalind's branching flirt dialogue (Obsidian 783): her current line up
+  // top with a mood read, four range-spanning replies below. Each reply calls
+  // game.flirtSelect, which shifts her affinity and hands back her reaction +
+  // the next four choices (empty when she's given up on a cold player).
+  openFlirtDialog(pm, line, choices) {
+    this._flirtPm = pm;
+    $('flirt-name').textContent = pm.name || 'Rosalind';
+    $('flirt-line').textContent = line;
+    this._flirtMood(pm.affinity || 0);
+    this._renderFlirtChoices(choices);
+    $('btn-flirt-leave').textContent = 'Leave';
+    $('flirt-dialog').classList.remove('hidden');
+  }
+  _renderFlirtChoices(choices) {
+    const list = $('flirt-choices');
+    list.innerHTML = '';
+    for (const c of choices) {
+      const btn = document.createElement('button');
+      btn.className = `menu-btn flirt-choice flirt-tier${c.tier}`;
+      btn.textContent = c.label;
+      btn.onclick = () => {
+        const res = this.game.flirtSelect(this._flirtPm, c.tier);
+        $('flirt-line').textContent = res.line;
+        this._flirtMood(res.affinity);
+        this._renderFlirtChoices(res.choices);
+        if (res.disliked || !res.choices.length) $('btn-flirt-leave').textContent = 'Leave her be';
+      };
+      list.appendChild(btn);
+    }
+  }
+  _flirtMood(aff) {
+    const el = $('flirt-mood');
+    if (aff <= -3) { el.textContent = '✗ lost interest'; el.style.color = '#8a8a94'; }
+    else if (aff >= 4) { el.textContent = '♥♥♥ smitten'; el.style.color = '#ff6ea6'; }
+    else if (aff >= 2) { el.textContent = '♥♥ warming'; el.style.color = '#ff9ac0'; }
+    else if (aff >= 1) { el.textContent = '♥'; el.style.color = '#ffb0cf'; }
+    else { el.textContent = ''; el.style.color = ''; }
+  }
+  closeFlirt() {
+    $('flirt-dialog').classList.add('hidden');
+    this._flirtPm = null;
+    if (this.game.state === 'flirt') this.game.state = 'playing';
   }
 
   // Zoltan's mystery relic: reveal what fate handed over, click to keep.
