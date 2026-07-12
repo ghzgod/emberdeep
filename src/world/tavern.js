@@ -52,12 +52,17 @@ const BAR_TILES = [[3, 2], [4, 2], [5, 2], [6, 2], [7, 2], [8, 2], [9, 2], [10, 
 // clear of the entrance lane, symmetric with the x=3 tables on the other side.
 const TABLE_TILES = [[3, 4], [12, 4], [3, 8], [12, 8]];
 const HEARTH_TILES = [[14, 6]];
+// The fireside settle sits on this tile (built at hw.x-3.6 = tile 12, row 6);
+// mark it solid so the player can't walk THROUGH the couch (Obsidian 797). The
+// sit interaction still works - the player approaches from the fire side (tile
+// 13) and the sit action teleports them onto the seat.
+const COUCH_TILES = [[12, 6]];
 
 export function generateTavernInterior() {
   const grid = Array.from({ length: H }, (_, y) =>
     new Array(W).fill(0).map((_, x) =>
       (x === 0 || y === 0 || x === W - 1 || y === H - 1) ? WALL : FLOOR));
-  for (const [x, y] of [...BAR_TILES, ...TABLE_TILES, ...HEARTH_TILES]) grid[y][x] = WALL;
+  for (const [x, y] of [...BAR_TILES, ...TABLE_TILES, ...HEARTH_TILES, ...COUCH_TILES]) grid[y][x] = WALL;
   return {
     grid, size: Math.max(W, H), rooms: [],
     spawn: { x: 8, y: 9 },
@@ -327,7 +332,12 @@ export function buildTavernInterior() {
   // feet reach into the footwell. Their world slots are collected for the
   // seat-picking AI below so patrons can actually choose to sit here. ----
   const barStoolSlots = [];
-  const stoolZ = barFrontEdge - 0.14; // seat centre tucked just under the overhang lip so feet reach the footwell
+  // Seat centre just PAST the counter's front lip (Obsidian 804): tucking the
+  // stool under the overhang put the seated patron's torso inside the counter
+  // slab's footprint, so the counter clipped through their body. Sitting at the
+  // edge lets them lean ON the counter (no clip) with legs angled toward the
+  // footwell/footrail under the overhang.
+  const stoolZ = barFrontEdge + 0.12;
   const nStools = 5;
   for (let i = 0; i < nStools; i++) {
     const sx = barX + (i - (nStools - 1) / 2) * 1.7;
@@ -724,15 +734,24 @@ export function buildTavernInterior() {
   // a carved stone golem head mounted over the bar — the tavern's namesake.
   // Raised with the shelves below it (same +0.7 offset) so it stays clear
   // above the now-taller stocked shelf run instead of sinking into it.
+  // (Obsidian 795) It read as a creepy floating box-face: it sat ABOVE the
+  // wall top (y=3.2 vs WALL_HEIGHT 3) with bright glowing eyes, which also
+  // contradicted the name "The Sleeping Golem". Now a proper mounted trophy:
+  // a wooden plaque behind it, recessed DARK carved (sleeping) eyes instead of
+  // glowing ones, lowered to sit on the back wall above the shelves.
   const trophy = new THREE.Group();
+  const plaque = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.9, 0.06),
+    new THREE.MeshStandardMaterial({ map: boardTex.clone(), color: 0x6a4a2c, roughness: 0.85 }));
+  plaque.position.set(0, -0.03, -0.26);
   const gHead = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.52, 0.42), new THREE.MeshStandardMaterial({ color: 0x6b6660, roughness: 1 }));
   const gBrow = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.1, 0.12), new THREE.MeshStandardMaterial({ color: 0x565049, roughness: 1 }));
   gBrow.position.set(0, 0.12, 0.2);
-  const gEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffb24a })); gEyeL.position.set(-0.13, 0.02, 0.22);
+  const eyeStone = new THREE.MeshStandardMaterial({ color: 0x2c2925, roughness: 1 });
+  const gEyeL = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.045, 0.05), eyeStone); gEyeL.position.set(-0.13, 0.0, 0.21);
   const gEyeR = gEyeL.clone(); gEyeR.position.x = 0.13;
   const gJaw = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.36), new THREE.MeshStandardMaterial({ color: 0x565049, roughness: 1 })); gJaw.position.set(0, -0.24, 0.02);
-  trophy.add(gHead, gBrow, gEyeL, gEyeR, gJaw);
-  trophy.position.set(barCenter.x + TILE / 2, 3.2, shelfZ - 0.18);
+  trophy.add(plaque, gHead, gBrow, gEyeL, gEyeR, gJaw);
+  trophy.position.set(barCenter.x + TILE / 2, 2.7, shelfZ - 0.2);
   group.add(trophy);
 
   // ---- wall lanterns: little iron-and-glass lamps with a warm glowing pane,
@@ -1120,17 +1139,21 @@ export function buildTavernInterior() {
   // exactly like a real opening foreshortens.
   const FLAME_X = -0.345; // in front of the dark panel (-0.34), inside the stone face (-0.35)
   const flameQuadGeo = new THREE.PlaneGeometry(1, 1);
-  for (let i = 0; i < 5; i++) {
+  // Fuller fire (Obsidian 796): the old 5 thin quads read as a faint glow, not
+  // flames. Now 8 broader, taller tongues fill the firebox opening so real
+  // fire reads from the room.
+  const N_FLAMES = 8;
+  for (let i = 0; i < N_FLAMES; i++) {
     const sp = new THREE.Mesh(flameQuadGeo, new THREE.MeshBasicMaterial({
-      map: flameTex, color: FLAME_COLS[i], transparent: true, side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.9,
+      map: flameTex, color: FLAME_COLS[i % FLAME_COLS.length], transparent: true, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.95,
     }));
-    const bz = (i - 2) * 0.18;
-    sp.position.set(FLAME_X - i * 0.0008, 0.42, bz); // tiny per-flame x stagger so the quads never coplane
+    const bz = (i - (N_FLAMES - 1) / 2) * 0.15;
+    sp.position.set(FLAME_X - i * 0.0008, 0.44, bz); // tiny per-flame x stagger so the quads never coplane
     sp.rotation.y = -Math.PI / 2; // face out of the hearth (-x)
-    sp.scale.set(0.3 + (i % 2) * 0.08, 0.46 + (i % 3) * 0.1, 1);
+    sp.scale.set(0.42 + (i % 2) * 0.12, 0.66 + (i % 3) * 0.18, 1);
     hearth.add(sp);
-    flames.push({ sp, bz, baseY: 0.42, baseSx: sp.scale.x, baseSy: sp.scale.y, ph: i * 1.7 });
+    flames.push({ sp, bz, baseY: 0.44, baseSx: sp.scale.x, baseSy: sp.scale.y, ph: i * 1.7 });
   }
   const embers = [];
   for (let i = 0; i < 6; i++) {
