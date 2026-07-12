@@ -2368,8 +2368,8 @@ export class UI {
   _flirtMood(aff) {
     const el = $('flirt-mood');
     if (aff <= -3) { el.textContent = '✗ lost interest'; el.style.color = '#8a8a94'; }
-    else if (aff >= 4) { el.textContent = '♥♥♥ smitten'; el.style.color = '#ff6ea6'; }
-    else if (aff >= 2) { el.textContent = '♥♥ warming'; el.style.color = '#ff9ac0'; }
+    else if (aff >= 6) { el.textContent = '♥♥♥ smitten'; el.style.color = '#ff6ea6'; }
+    else if (aff >= 3) { el.textContent = '♥♥ warming'; el.style.color = '#ff9ac0'; }
     else if (aff >= 1) { el.textContent = '♥'; el.style.color = '#ffb0cf'; }
     else { el.textContent = ''; el.style.color = ''; }
   }

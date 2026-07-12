@@ -1186,7 +1186,10 @@ export class Game {
   // harder, cold ones cool her until she gives up on you. Overtly sexual/NSFW
   // lines appear ONLY in 18+ mode (793); with it off she stays suggestive but
   // clean. If the PLAYER is female she reads as into women (a lesbian flirt).
-  _flirtVoice() { return { female: true, vi: 3, pitch: 1.12, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.02 }; }
+  // A distinct, sultry voice for Rosalind (not af_sarah, which the ambient
+  // patrons use): af_nicole is Kokoro's soft/breathy timbre; a lower pitch and
+  // slower cadence read as sexy rather than chirpy.
+  _flirtVoice() { return { female: true, vi: 3, pitch: 0.96, rate: 0.9, kokoro: 'af_nicole', kSpeed: 0.9 }; }
   _pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
   // Stand the player up from a tavern stool (Obsidian 792). Bar seats step the
@@ -1234,7 +1237,11 @@ export class Game {
     // She's MORE into you than you are into her (Obsidian 807): even a lukewarm
     // reply nudges her up, and warm/forward ones swing hard - so her attraction
     // outpaces your investment. Only an outright cold shoulder cools her.
-    pm.affinity = Math.max(-4, Math.min(6, (pm.affinity || 0) + [-2, 1, 2, 2][tier]));
+    // She should NOT get smitten in two clicks (feedback: "takes time, not so
+    // easy"). Forward replies nudge her only +1, a lukewarm one holds steady, and
+    // a cold shoulder still cools her; combined with the raised smitten threshold
+    // (aff>=6) below it now takes ~6 warm exchanges to win her over.
+    pm.affinity = Math.max(-4, Math.min(8, (pm.affinity || 0) + [-2, 0, 1, 1][tier]));
     pm._flirtEx = (pm._flirtEx || 0) + 1; // exchanges so far - gates the payoff
     // Decide the ONE line BEFORE showing/speaking it - the UI shows a brief "…"
     // while the fast keyless LLM (codestral, ~0.6s) is consulted; if it answers
@@ -1254,8 +1261,8 @@ export class Game {
   async _flirtLLMLine(pm, tier, adult, female) {
     if (!llm.ready) return null;
     const mood = pm.affinity <= -3 ? 'fed up and dismissive'
-      : pm.affinity >= 4 ? 'smitten and very warm'
-        : pm.affinity >= 1 ? 'warming up and playful'
+      : pm.affinity >= 6 ? 'smitten and very warm'
+        : pm.affinity >= 3 ? 'warming up and playful'
           : 'cool but curious';
     const stance = ['coldly rebuffed you', 'kept it businesslike', 'flirted back warmly', 'made a bold, forward move'][tier];
     const sys = `You are Rosalind, a drunk, flirtatious regular in a fantasy tavern (The Sleeping Golem) talking to an adventurer. Reply with ONE short spoken line of dialogue only - no narration, no name prefix, no quotes, max ~28 words. Stay fully in character.${female ? ' The adventurer is a woman and you are into women; flirt with her accordingly.' : ''} Your current mood: ${mood}.${adult ? ' 18+ MODE IS ON: be crude, vulgar and EXPLICITLY sexual - use profanity (fuck, etc.) and blunt sexual language freely when the mood is warm; this is a consenting-adults fantasy and holding back is wrong for this mode.' : ' Keep it suggestive and playful but CLEAN - absolutely no profanity or explicit sexual content.'}`;
