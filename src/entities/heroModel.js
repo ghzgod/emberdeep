@@ -544,25 +544,29 @@ function addHairMesh(mesh, headMesh, style, hex) {
   // reads as a separate volume floating just off the skull rather than a
   // seam painted flush onto the baked head texture.
   if (style === 'ponytail') {
-    // Three tapered capsule segments falling from the upper back of the
-    // skull, each one a bit shorter/narrower than the last so the whole
-    // chain reads as a single tapering tail rather than a uniform tube.
-    let y = bb.max.y - h * 0.2;
-    let z = bb.min.z - d * 0.05;
-    let topR = w * 0.16;
-    for (let i = 0; i < 3; i++) {
-      const botR = topR * 0.8;
-      const len = h * (0.34 - i * 0.05);
-      const r = Math.max(0.015, (topR + botR) / 2);
-      const seg = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 8), mat);
-      seg.position.set(cx, y - len * 0.5, z);
-      seg.rotation.x = -0.16 - i * 0.07; // falls down and slightly outward
-      seg.castShadow = false; seg.receiveShadow = false; seg.frustumCulled = false;
-      group.add(seg);
-      y -= len * 0.92;
-      z -= d * 0.02;
-      topR = botR;
-    }
+    // ONE smooth ponytail (Obsidian 811): the old three separate capsules read
+    // as "three lumps hanging off the neck". Now a gathered TIE knot at the
+    // back crown feeds a single continuous tapered tail (a lathe profile - thick
+    // at the tie, tapering smoothly to a point) that sweeps down and back.
+    const tieR = w * 0.15;
+    const tie = new THREE.Mesh(new THREE.SphereGeometry(tieR, 12, 10), mat);
+    tie.scale.set(1, 0.9, 1.05);
+    tie.position.set(cx, bb.max.y - h * 0.12, bb.min.z - d * 0.03);
+    tie.castShadow = false; tie.receiveShadow = false; tie.frustumCulled = false;
+    group.add(tie);
+    const tailPts = [
+      [w * 0.16, 0],
+      [w * 0.185, -h * 0.22],
+      [w * 0.15, -h * 0.55],
+      [w * 0.09, -h * 0.86],
+      [w * 0.03, -h * 1.02],
+      [w * 0.008, -h * 1.08],
+    ].map(([r, y]) => new THREE.Vector2(Math.max(0.008, r), y));
+    const tail = new THREE.Mesh(new THREE.LatheGeometry(tailPts, 12), mat);
+    tail.position.set(cx, bb.max.y - h * 0.14, bb.min.z - d * 0.05);
+    tail.rotation.x = -0.34; // sweeps down and out behind the head
+    tail.castShadow = false; tail.receiveShadow = false; tail.frustumCulled = false;
+    group.add(tail);
   } else if (style === 'bun') {
     // A single squashed sphere sitting high at the back crown.
     const bun = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.025, w * 0.2), 12, 10), mat);
@@ -580,16 +584,20 @@ function addHairMesh(mesh, headMesh, style, hex) {
     // sides like real hair instead. LatheGeometry's phi=0 sits at +Z (the
     // face), so sweeping [PI/2, 3PI/2] covers exactly the back half.
     const cz = (bb.min.z + bb.max.z) / 2;
+    // Draped back-shell that now falls LONGER, past the neck and OVER the collar
+    // (Obsidian 811): stays wide down to ~1.3 head-heights so it rests on the
+    // shoulders instead of stopping at the neck, then tapers to a soft tip.
     const pts = [
       [d * 0.30, 0],
-      [d * 0.56, -h * 0.18],
-      [d * 0.55, -h * 0.55],
-      [d * 0.40, -h * 0.85],
-      [d * 0.18, -h * 1.02],
-      [d * 0.02, -h * 1.08],
+      [d * 0.58, -h * 0.18],
+      [d * 0.60, -h * 0.55],
+      [d * 0.58, -h * 0.95],
+      [d * 0.50, -h * 1.3],   // still broad here - drapes onto the collar/shoulders
+      [d * 0.30, -h * 1.55],
+      [d * 0.08, -h * 1.66],
     ].map(([r, y]) => new THREE.Vector2(r, y));
     const shell = new THREE.Mesh(
-      new THREE.LatheGeometry(pts, 14, Math.PI / 2, Math.PI),
+      new THREE.LatheGeometry(pts, 16, Math.PI / 2, Math.PI),
       new THREE.MeshStandardMaterial({ color: hex, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide }));
     shell.position.set(cx, bb.max.y - h * 0.05, cz);
     shell.castShadow = false; shell.receiveShadow = false; shell.frustumCulled = false;
