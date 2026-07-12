@@ -2369,15 +2369,22 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // the board clipped into the roof. Dropped to door-header height so it
       // hangs in the open below the eave; also pushed a touch further out (+z)
       // off the wall so the bracket clears the plaster.
+      // The board is a PERPENDICULAR projecting sign (0.82*S wide in Z). It
+      // used to be centred at frontZ+0.28*S, so its inner edge sat at
+      // frontZ-0.13*S - 0.13*S BEHIND the wall plane, poking through into the
+      // adjacent front window (Obsidian 803). The whole assembly is shifted out
+      // so the board hangs fully in front of the wall: the bracket still roots
+      // at the wall (frontZ) and projects out to hold the chains, the board's
+      // inner edge now clears the plaster at frontZ+0.04*S.
       const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.06 * S, 0.06 * S, 0.7 * S), ironMat);
-      bracket.position.set(doorX + 0.85 * S, 1.7 * S, frontZ + 0.28 * S);
+      bracket.position.set(doorX + 0.85 * S, 1.7 * S, frontZ + 0.35 * S);
       const chainL = new THREE.Mesh(new THREE.CylinderGeometry(0.014 * S, 0.014 * S, 0.26 * S, 5), ironMat);
-      chainL.position.set(doorX + 0.85 * S, 1.55 * S, frontZ + 0.08 * S);
+      chainL.position.set(doorX + 0.85 * S, 1.55 * S, frontZ + 0.25 * S);
       const chainR = chainL.clone();
-      chainR.position.z = frontZ + 0.48 * S;
+      chainR.position.z = frontZ + 0.65 * S;
       const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.06 * S, 0.44 * S, 0.82 * S),
         new THREE.MeshStandardMaterial({ map: makeExteriorSignTexture(), roughness: 0.85 }));
-      signBoard.position.set(doorX + 0.85 * S, 1.32 * S, frontZ + 0.28 * S);
+      signBoard.position.set(doorX + 0.85 * S, 1.32 * S, frontZ + 0.45 * S);
       add(bracket, chainL, chainR, signBoard);
 
       facadeState = { objs, glowEntries };
