@@ -1,0 +1,6 @@
+Quaternius "Modular Character Outfits - Fantasy" (https://quaternius.itch.io/modular-character-outfits-fantasy)
+License: CC0 (public domain) - free for personal + commercial use.
+Female_Peasant outfit, web-optimized for Emberdeep: textures downscaled to 512px
+(from 2-4K) and the whole asset trimmed from ~30MB to ~1.5MB. Bind pose is a
+T-pose with no baked animations (Quaternius animations ship in a separate
+Universal Animation Library).
