@@ -284,19 +284,65 @@ export function buildTavernInterior() {
   group.add(thresholdLight);
 
   // ---- the bar (on BAR_TILES row) ----
+  // Customer side is +z (the aisle in front of the counter); the barkeep works
+  // the -z side against the back-bar. The base is RECESSED toward the wall and
+  // the counter top OVERHANGS the customer side, leaving a footwell so a patron
+  // on a bar stool can tuck their feet/knees under the bar (Obsidian 788). A
+  // brass footrail runs along the kick for the same read.
   const barCenter = tileToWorld(6.5, 2);
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE, 1.05, 1.2), boardMat);
-  bar.position.set(barCenter.x + TILE / 2, 0.52, barCenter.z);
+  const barX = barCenter.x + TILE / 2;
+  const barZ = barCenter.z;
+  const barW = 6 * TILE;
+  // recessed base: shifted 0.18 toward the wall, shallower depth 0.9 -> its
+  // customer face sits back at barZ+0.27, well inside the counter's front edge.
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(barW, 1.05, 0.9), boardMat);
+  bar.position.set(barX, 0.52, barZ - 0.18);
   group.add(bar);
-  const barTop = new THREE.Mesh(new THREE.BoxGeometry(6 * TILE + 0.2, 0.08, 1.35), plankMat);
-  barTop.position.set(barCenter.x + TILE / 2, 1.09, barCenter.z);
+  // counter top: extended depth 1.55, nudged 0.12 toward the room so its front
+  // edge overhangs to ~barZ+0.66 — the overhang the footwell lives under.
+  const barTop = new THREE.Mesh(new THREE.BoxGeometry(barW + 0.2, 0.09, 1.55), plankMat);
+  barTop.position.set(barX, 1.09, barZ + 0.12);
   group.add(barTop);
+  const barFrontEdge = barZ + 0.12 + 1.55 / 2; // ~barZ+0.9, room-facing lip of the counter
+  // brass footrail along the kick, a little in front of the recessed base
+  const railMat = new THREE.MeshStandardMaterial({ color: 0xb8912e, metalness: 0.7, roughness: 0.35 });
+  const footRail = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, barW - 0.2, 8), railMat);
+  footRail.rotation.z = Math.PI / 2;
+  footRail.position.set(barX, 0.16, barZ + 0.34);
+  group.add(footRail);
+  for (const rx of [barX - barW / 2 + 0.3, barX, barX + barW / 2 - 0.3]) {
+    const bracket = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.16, 6), railMat);
+    bracket.position.set(rx, 0.08, barZ + 0.34);
+    group.add(bracket);
+  }
   // taps + mugs on the bar
   for (let i = 0; i < 3; i++) {
     const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.13, 8),
       new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.5, roughness: 0.5 }));
-    mug.position.set(barCenter.x - 3 + i * 3, 1.2, barCenter.z + 0.3);
+    mug.position.set(barX - 3 + i * 3, 1.2, barZ - 0.05);
     group.add(mug);
+  }
+  // ---- bar stools along the counter (Obsidian 788): tall stools with a seat
+  // pad + a footring, set just in front of the overhang so a seated patron's
+  // feet reach into the footwell. Their world slots are collected for the
+  // seat-picking AI below so patrons can actually choose to sit here. ----
+  const barStoolSlots = [];
+  const stoolZ = barFrontEdge - 0.14; // seat centre tucked just under the overhang lip so feet reach the footwell
+  const nStools = 5;
+  for (let i = 0; i < nStools; i++) {
+    const sx = barX + (i - (nStools - 1) / 2) * 1.7;
+    const stoolGrp = new THREE.Group();
+    const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 0.62, 8), darkWood);
+    legs.position.y = 0.31;
+    const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.07, 10), plankMat);
+    seat.position.y = 0.64;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.02, 6, 12), railMat);
+    ring.rotation.x = Math.PI / 2; ring.position.y = 0.2;
+    stoolGrp.add(legs, seat, ring);
+    stoolGrp.position.set(sx, 0, stoolZ);
+    group.add(stoolGrp);
+    // a seated patron faces -z (toward the counter); feet fall into the footwell
+    barStoolSlots.push({ x: sx, z: stoolZ, yaw: Math.PI, seat: 'bar', seatY: 0.64 });
   }
 
   // ---- Magda the barkeep: a warm, ruddy innkeeper, built to READ from the
@@ -803,10 +849,38 @@ export function buildTavernInterior() {
     { tile: [3, 4], angle: 0.9, robe: 0x5a4a6a, hair: 0x3a2a1a, name: 'patron', cls: 'drifter', gender: 'female', skin: 'light', npcName: 'Tavern Patron', mood: 'rude' },
     { tile: [12, 4], angle: -2.0, robe: 0x4a5a3a, hair: 0x999999, name: 'drunk', cls: 'cleric', gender: 'male', skin: 'fair', npcName: 'Tipsy Regular', mood: 'friendly' },
   ];
+  // ---- seat picking (Obsidian 788): each patron's "AI" decides whether to
+  // STAND, sit at a TABLE, or sit at the BAR, then claims a free slot of that
+  // kind. The choice is a weighted stochastic decision (bar-leaning so the new
+  // stools stay in use, tables next, standing as the spare) rather than a fixed
+  // seat, so the room fills differently each visit. Pools are built here so the
+  // future crowd (781) can draw from the same set. ----
+  const tableSeatSlots = [];
+  for (const [tx, ty] of TABLE_TILES) {
+    const tw = tileToWorld(tx, ty);
+    for (const a of [Math.PI * 0.5, -Math.PI * 0.5]) {
+      const sx = tw.x + Math.cos(a) * 1.5, sz = tw.z + Math.sin(a) * 1.5;
+      tableSeatSlots.push({ x: sx, z: sz, yaw: Math.atan2(tw.x - sx, tw.z - sz), seat: 'table' });
+    }
+  }
+  const standSlots = [
+    { ...tileToWorld(7, 6), yaw: 0.4, seat: 'stand' },
+    { ...tileToWorld(10, 7), yaw: -1.8, seat: 'stand' },
+    { ...tileToWorld(5, 7), yaw: 2.4, seat: 'stand' },
+  ];
+  const seatPools = { bar: barStoolSlots.slice(), table: tableSeatSlots, stand: standSlots };
+  const chooseSeat = () => {
+    const r = Math.random();
+    const order = r < 0.45 ? ['bar', 'table', 'stand']
+      : r < 0.78 ? ['table', 'bar', 'stand']
+        : ['stand', 'bar', 'table'];
+    for (const kind of order) { if (seatPools[kind] && seatPools[kind].length) return seatPools[kind].shift(); }
+    return { ...tileToWorld(8, 6), yaw: 0, seat: 'stand' };
+  };
+
   for (const def of patronDefs) {
-    const w = tileToWorld(def.tile[0], def.tile[1]);
-    const px = w.x + Math.cos(def.angle) * 1.25;
-    const pz = w.z + Math.sin(def.angle) * 1.25;
+    const slot = chooseSeat();
+    const px = slot.x, pz = slot.z;
     const patron = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.4, 4, 8),
       new THREE.MeshStandardMaterial({ color: def.robe, roughness: 0.9 }));
@@ -828,8 +902,12 @@ export function buildTavernInterior() {
       new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.5, roughness: 0.5 }));
     pMug.position.set(0.33, 1.05, 0.16);
     patron.add(body, head, hair, eyeL, eyeR, nose, arm, pMug);
-    patron.position.set(px, 0.18, pz); // perched on the stool
-    patron.rotation.y = Math.atan2(w.x - px, w.z - pz); // face the table
+    // Bar patrons sit UP on the stool (pelvis at the seat, feet dangling toward
+    // the footrail/footwell under the overhang); table + standing patrons keep
+    // the ground-level lean (Obsidian 788).
+    const perchY = slot.seat === 'bar' ? 0.46 : 0.18;
+    patron.position.set(px, perchY, pz);
+    patron.rotation.y = slot.yaw; // face the table, the bar counter, or the chosen standing angle
 
     // Modeled human patron (preferred): swap the box visuals for a KayKit
     // adventurer standing at the stool, keeping the mug in hand. The `patron`
@@ -837,7 +915,7 @@ export function buildTavernInterior() {
     // pmEntry is created up-front so the driver below and patronChat
     // (game.js) share it: patronChat stamps pmEntry.talkUntil when the
     // player actually opens a conversation.
-    const pmEntry = { mesh: patron, x: px, z: pz, drunk: def.name === 'drunk', mood: def.mood || 'friendly', talkUntil: 0 };
+    const pmEntry = { mesh: patron, x: px, z: pz, drunk: def.name === 'drunk', mood: def.mood || 'friendly', seat: slot.seat, talkUntil: 0 };
     const pnpc = buildNpcModel(def.cls, def.npcName, { gender: def.gender, skinTone: def.skin });
     if (pnpc) {
       for (let i = patron.children.length - 1; i >= 0; i--) {
