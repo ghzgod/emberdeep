@@ -1229,12 +1229,15 @@ export class Game {
   // Four options, coldest → boldest. The boldest is tamer without 18+.
   _flirtChoices(pm, female) {
     const adult = this.settings.adult18;
-    return [
+    const choices = [
       { tier: 0, label: 'Not interested. Leave me be.' },
       { tier: 1, label: 'Just here for a quiet drink, thanks.' },
       { tier: 2, label: female ? 'You\'re trouble, aren\'t you? *smile*' : 'You\'re bold. I like that.' },
       { tier: 3, label: adult ? 'Maybe we take this somewhere quieter…' : 'Maybe I buy you that drink after all.' },
     ];
+    // Once she's at least warming, offer the walk-to-bar beat (Obsidian 822).
+    if ((pm.affinity || 0) >= 1) choices.push({ tier: 2, label: '🍺 Buy her a drink at the bar', buyDrink: true });
+    return choices;
   }
 
   // Apply a chosen reply; returns her reaction + the next choices (or ends).
@@ -1266,6 +1269,14 @@ export class Game {
     const invitedUpstairs = adult && tier === 3 && pm.affinity >= 5 && (pm._flirtEx || 0) >= 4;
     if (invitedUpstairs) pm._invitedUpstairs = true;
     return { line, affinity: pm.affinity, disliked: end, invitedUpstairs, choices: end ? [] : this._flirtChoices(pm, female) };
+  }
+
+  // "Buy her a drink" (Obsidian 822): close the flirt and kick off the walk-to-
+  // bar beat; updatePlaying walks you both over, buys the drink and resumes.
+  buyRosalindDrink(pm) {
+    this.ui.closeFlirt?.();
+    this.state = 'playing';
+    this._buyScene = { pm, done: false };
   }
 
   // The "follow her upstairs" payoff (Obsidian 829): close the flirt, go up to
@@ -5341,6 +5352,27 @@ export class Game {
     this.setInteractable(candidate);
     if (this.wanderer && this.inTown && !this.inTavern) this.wanderer.update(dt, this);
     if (this.inTown && !this.inTavern) this.updateVendors(dt);
+
+    // Buy-her-a-drink scripted beat (Obsidian 822): you and Rosalind both walk
+    // to the bar, you buy her a drink from Magda, then the flirt resumes warmer.
+    // player.pos is overridden each frame (same pin trick as the couch) so input
+    // can't fight the walk.
+    if (this._buyScene && this.inTavern && !this.inUpstairs) {
+      const bs = this._buyScene, pm = bs.pm, p = this.player;
+      const bk = this.dungeonMeshes.barkeepPos;
+      const barX = bk ? bk.x : 12, barZ = (bk ? bk.z : 4) + 2.0;
+      const pdx = barX - 0.9 - p.pos.x, pdz = barZ - p.pos.z, pd = Math.hypot(pdx, pdz) || 1;
+      if (pd > 0.5) { const s = Math.min(pd - 0.4, 2.6 * dt); p.pos.x += pdx / pd * s; p.pos.z += pdz / pd * s; p.aimAngle = Math.atan2(pdz, pdx); p.faceAimTimer = 0.2; }
+      const rdx = barX + 0.9 - pm.mesh.position.x, rdz = barZ - pm.mesh.position.z, rd = Math.hypot(rdx, rdz) || 1;
+      if (rd > 0.5) { const s = Math.min(rd - 0.4, 2.4 * dt); pm.mesh.position.x += rdx / rd * s; pm.mesh.position.z += rdz / rd * s; pm.x = pm.mesh.position.x; pm.z = pm.mesh.position.z; pm.talkUntil = performance.now() + 700; }
+      if (pd <= 0.5 && rd <= 0.5 && !bs.done) {
+        bs.done = true;
+        audio.play('ui_click', { volume: 0.6 });
+        pm.affinity = Math.min(8, (pm.affinity || 0) + 1); // a drink warms her up
+        this.ui.floaters?.spawn(p.pos, '🍺 You buy Rosalind a drink', 'crit');
+        setTimeout(() => { this._buyScene = null; if (this.inTavern && !this.inUpstairs) this.flirtChat(pm); }, 1600);
+      }
+    }
 
     // Seated on the fireside couch (716): pin to the seat, face the fire,
     // perch at cushion height; ANY movement input stands back up (stepping

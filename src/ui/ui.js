@@ -2351,6 +2351,8 @@ export class UI {
         const pm = this._flirtPm;
         // The "follow her upstairs" payoff (829): not a reply - take her up.
         if (c.followUp) { this.game.followRosalindUpstairs(); return; }
+        // "Buy her a drink" (822): not a reply - kick off the walk-to-bar beat.
+        if (c.buyDrink) { this.game.buyRosalindDrink(pm); return; }
         // Dismiss the picker the instant you choose (Obsidian 826): her reply
         // then plays as a normal speech bubble over her head via flirtSelect,
         // and once she's had her say the next choices come back so the banter
