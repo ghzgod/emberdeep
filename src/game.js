@@ -1195,35 +1195,20 @@ export class Game {
   }
 
   // Apply a chosen reply; returns her reaction + the next choices (or ends).
-  flirtSelect(pm, tier) {
+  async flirtSelect(pm, tier) {
     const adult = this.settings.adult18;
     const female = this.player.gender === 'female';
     pm.affinity = Math.max(-4, Math.min(6, (pm.affinity || 0) + [-2, 0, 1, 2][tier]));
-    // Show + speak the canned line INSTANTLY (zero lag), then opportunistically
-    // ask the keyless LLM for a fresher line - if it answers while the dialog
-    // is still open it REPLACES the text/voice. Non-blocking so a slow/dead
-    // free endpoint never makes the player wait (Obsidian 801).
-    const line = this._flirtReply(pm, tier, adult, female);
+    // Decide the ONE line BEFORE showing/speaking it - the UI shows a brief "…"
+    // while the fast keyless LLM (codestral, ~0.6s) is consulted; if it answers
+    // we use it, otherwise the canned line. One line, spoken once - no jarring
+    // "she starts, stops, then says something else" swap (Obsidian 801 re-fix).
+    const canned = this._flirtReply(pm, tier, adult, female);
+    const line = (await this._flirtLLMLine(pm, tier, adult, female)) || canned;
     roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 5200 });
     pm.talkUntil = performance.now() + 12000;
-    pm._flirtTurn = (pm._flirtTurn || 0) + 1;
-    this._flirtEnhance(pm, tier, adult, female, pm._flirtTurn);
     const end = pm.affinity <= -3; // she's had enough of a cold shoulder
     return { line, affinity: pm.affinity, disliked: end, choices: end ? [] : this._flirtChoices(pm, female) };
-  }
-
-  // Fire-and-forget LLM enhancement: if it returns before the player picks
-  // again / closes the dialog, swap in the richer line (text + re-voiced).
-  _flirtEnhance(pm, tier, adult, female, turn) {
-    if (!llm.ready) return;
-    this._flirtLLMLine(pm, tier, adult, female).then((llmLine) => {
-      if (!llmLine) return;
-      if (pm._flirtTurn !== turn) return;             // a newer reply superseded this
-      if (this.state !== 'flirt' || this.ui._flirtPm !== pm) return; // dialog closed/changed
-      this.ui.updateFlirtLine?.(llmLine);
-      roaster.stopSpeaking?.();
-      roaster.sayGated(this, pm.name || 'Rosalind', llmLine, this._flirtVoice(), pm, { durationMs: 5200 });
-    });
   }
 
   // Ask the keyless LLM (Pollinations) for Rosalind's next line, in character

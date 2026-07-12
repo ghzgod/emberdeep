@@ -2343,10 +2343,15 @@ export class UI {
       const btn = document.createElement('button');
       btn.className = `menu-btn flirt-choice flirt-tier${c.tier}`;
       btn.textContent = c.label;
-      btn.onclick = () => {
-        // Instant canned line; the LLM (801) may replace it a moment later via
-        // updateFlirtLine() while the dialog stays open.
-        const res = this.game.flirtSelect(this._flirtPm, c.tier);
+      btn.onclick = async () => {
+        const pm = this._flirtPm;
+        // Brief "…" while her line is decided (canned or fast LLM), then show
+        // ONE final line - no start/stop/swap. Lock choices so a double-tap
+        // can't fire two replies.
+        $('flirt-line').textContent = '…';
+        list.querySelectorAll('button').forEach((b) => (b.disabled = true));
+        const res = await this.game.flirtSelect(pm, c.tier);
+        if (this._flirtPm !== pm) return; // dialog closed while we waited
         $('flirt-line').textContent = res.line;
         this._flirtMood(res.affinity);
         this._renderFlirtChoices(res.choices);

@@ -651,13 +651,22 @@ function tintAtlasTile(srcTex, col, row, hex) {
 // shared atlas material. One tinted texture is built once and shared across
 // the hero's meshes (cloned material per mesh so it never bleeds to other
 // characters).
+// The KayKit atlas holds skin in MORE THAN ONE tile (Obsidian 761): the face
+// samples (0,0), but the neck/chin/hairline sample additional skin swatches at
+// (0,1) and (1,1). Tinting only (0,0) recoloured the face but left a light
+// "white" neck under a dark face. We tint ALL skin swatches - but NOT the hair
+// tile (1,0), which is also a warm tan and is coloured separately by
+// applyHairColor. (col, row) pairs below match tintAtlasTile's argument order.
+const SKIN_TILES = [[0, 0], [0, 1], [1, 1]];
 function applySkinTone(mesh, hex) {
   let tinted = null, srcMat = null;
   mesh.traverse((o) => {
     if (!o.isMesh || !o.material || !o.material.map) return;
     if (!srcMat) {
       srcMat = o.material;
-      tinted = tintAtlasTile(srcMat.map, 0, 0, hex);
+      tinted = srcMat.map;
+      for (const [c, r] of SKIN_TILES) tinted = tintAtlasTile(tinted, c, r, hex) || tinted;
+      if (tinted === srcMat.map) tinted = null; // nothing tinted (image not decoded)
     }
     if (!tinted) return;
     o.material = o.material.clone();
