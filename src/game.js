@@ -3278,6 +3278,44 @@ export class Game {
     return this.enemies.some((en) => !en.dead && en.elite);
   }
 
+  // Death VFX by material (Obsidian 757): fleshy things spray blood + gibs and
+  // leave a pool on the floor; undead throw bone chips; constructs shed stone
+  // rubble; wraiths just dissipate. Bosses are classified by act (their def is
+  // always 'golem' via the Boss ctor). Pools use the shared, capped, fading
+  // wall-mark decal pool so they can't leak draw calls or RAM.
+  goreDeath(e) {
+    const bossGore = [null, 'bone', 'ichor', 'blood', 'stone', 'blood'];
+    const profile = e.isBoss ? (bossGore[e.act] || 'blood') : (e.def.gore || 'blood');
+    const x = e.pos.x, z = e.pos.z;
+    const big = e.isBoss || e.miniboss ? 1.8 : e.elite ? 1.3 : 1;
+    const pool = (color, size, opacity, n = 1) => {
+      for (let i = 0; i < n; i++) {
+        const ox = i === 0 ? 0 : (Math.random() - 0.5) * size * 1.6;
+        const oz = i === 0 ? 0 : (Math.random() - 0.5) * size * 1.6;
+        this.addWallMark(x + ox, z + oz, {
+          size: (i === 0 ? size : size * 0.55) * (0.85 + Math.random() * 0.35),
+          opacity: i === 0 ? opacity : opacity * 0.7, color, fadeAfter: 32,
+        });
+      }
+    };
+    if (profile === 'blood') {
+      this.particles.gore(x, 0.8, z, { count: Math.round(28 * big) });
+      pool(0x8a1212, 0.62 * big, 0.72, e.isBoss ? 5 : 3); // bright, wet, visible in the dim
+    } else if (profile === 'ichor') {
+      this.particles.gore(x, 0.8, z, { count: Math.round(24 * big), spray: 0x5a7a1a, chunk: 0x38520f, emissive: 0x0a1a00, emissiveIntensity: 0.4 });
+      pool(0x3a5210, 0.55 * big, 0.62, 3);
+    } else if (profile === 'bone') {
+      this.particles.gore(x, 0.8, z, { count: Math.round(18 * big), spray: 0xf0ece0, chunk: 0xc8c2b0, life: 0.6, up: 0.8, emissive: 0x1a1815, emissiveIntensity: 0.35 });
+      // faint pale dust smear, no wet pool
+      this.addWallMark(x, z, { size: 0.42 * big, opacity: 0.24, color: 0x9a9488, fadeAfter: 14 });
+    } else if (profile === 'stone') {
+      this.particles.gore(x, 0.8, z, { count: Math.round(20 * big), spray: 0x9a9aa4, chunk: 0x606069, life: 0.65, up: 0.7, emissive: 0x101014, emissiveIntensity: 0.3 });
+      this.addWallMark(x, z, { size: 0.52 * big, opacity: 0.3, color: 0x52525a, fadeAfter: 16 });
+    } else { // ether: wispy cool dissipation, incorporeal — no floor pool
+      this.particles.burst(x, 0.9, z, Math.round(22 * big), e.def.color, { speed: 3, life: 0.75, up: 1.5 });
+    }
+  }
+
   killEnemy(e) {
     e.dead = true;
     this.kills++;
@@ -3303,7 +3341,7 @@ export class Game {
     audio.deathScream(e.def.sounds.death, { pos: e.pos, volume: 0.85 });
     // A speaking elite/boss goes silent AT ONCE when it dies (cut in-flight TTS).
     if (e.elite || e.miniboss || e.isBoss) roaster.stopSpeaking();
-    this.particles.burst(e.pos.x, 0.8, e.pos.z, 22, e.def.color, { speed: 4, life: 0.7 });
+    this.goreDeath(e); // blood + guts (or bone/stone/ether) burst + a floor pool (757)
     e.mesh.userData.detached = true; // no-ops any still-in-flight GLB swap (enemyModel.js)
     this.scene.remove(e.mesh);
 
@@ -4650,6 +4688,11 @@ export class Game {
     mesh.rotation.x = -Math.PI / 2;
     mesh.rotation.z = Math.random() * Math.PI;
     mesh.position.set(x, 0.03, z);
+    // add to the scene (pre-existing bug found via 757: pushMarkEntry only
+    // TRACKS meshes for fade/cap - it never added them, so every ground
+    // decal from addWallMark (AoE scorches, burn marks, blood pools) was
+    // silently invisible; addWallImpactMark added its own meshes explicitly).
+    this.scene.add(mesh);
     this.pushMarkEntry([mesh], [opacity], opts.fadeAfter ?? 20);
   }
 
