@@ -455,8 +455,8 @@ export function buildTavernInterior() {
         // KayKit's authored held-item mount; falls back to the old float
         // only if the rig is missing the bone entirely.
         let hand = null;
-        barlow.mesh.traverse((o) => { if (!hand && o.isBone && /handslot\.l/i.test(o.name)) hand = o; });
-        if (!hand) barlow.mesh.traverse((o) => { if (!hand && o.isBone && /hand\.l/i.test(o.name)) hand = o; });
+        barlow.mesh.traverse((o) => { if (!hand && o.isBone && /handslot\.?l$/i.test(o.name)) hand = o; });
+        if (!hand) barlow.mesh.traverse((o) => { if (!hand && o.isBone && /^hand\.?l$/i.test(o.name)) hand = o; });
         if (hand) { c.position.set(0, 0.06, 0); c.rotation.set(0, 0, 0); hand.add(c); }
         else { barlow.mesh.add(c); c.position.set(0.28, 1.12, 0.34); }
       } else { keeper.remove(c); c.geometry?.dispose?.(); }
@@ -963,11 +963,29 @@ export function buildTavernInterior() {
         else if (/_Leg/i.test(o.name)) { o.material = o.material.clone(); o.material.color.setHex(skinHex); }
       });
     }
+    let drinkArm = null, drinkForearm = null;
     if (pnpc) {
+      // Mug IN the hand, not floating (Obsidian 843): parent it to the rig's
+      // right hand-slot bone (KayKit's authored held-item mount), and grab the
+      // right upper-arm + forearm bones so the drunk can raise the cup to drink.
+      // NB the rig names bones WITHOUT dots ("handslotr", "upperarmr") - the old
+      // "handslot\.r" regexes never matched, so the mug used to fall back to the
+      // shoulder float (same bug hit Magda's tankard below).
+      let heldHand = null;
+      pnpc.mesh.traverse((o) => {
+        if (!o.isBone) return;
+        if (!heldHand && /handslot\.?r$/i.test(o.name)) heldHand = o;
+        if (!drinkArm && /^upperarm\.?r$/i.test(o.name)) drinkArm = o;
+        if (!drinkForearm && /^lowerarm\.?r$/i.test(o.name)) drinkForearm = o;
+      });
+      if (!heldHand) pnpc.mesh.traverse((o) => { if (!heldHand && o.isBone && /^hand\.?r$/i.test(o.name)) heldHand = o; });
       for (let i = patron.children.length - 1; i >= 0; i--) {
         const c = patron.children[i];
-        if (c === pMug) { patron.remove(c); pnpc.mesh.add(c); c.position.set(0.24, 1.05, 0.28); }
-        else { patron.remove(c); c.geometry?.dispose?.(); }
+        if (c === pMug) {
+          patron.remove(c);
+          if (heldHand) { heldHand.add(c); c.position.set(0, 0.06, 0.02); c.rotation.set(0, 0, 0); }
+          else { pnpc.mesh.add(c); c.position.set(0.24, 1.05, 0.28); }
+        } else { patron.remove(c); c.geometry?.dispose?.(); }
       }
       pnpc.mesh.position.y = -0.18; // undo the stool-perch lift so feet reach the floor
       patron.add(pnpc.mesh);
@@ -992,6 +1010,12 @@ export function buildTavernInterior() {
           const dt = Math.min(0.1, Math.max(0, v - this._phase));
           this._phase = v;
           pnpc.tick(dt);
+          // The drunk keeps his mug hand raised toward his face (Obsidian 843):
+          // re-applied AFTER the mixer so the idle clip doesn't drop the arm.
+          if (pmEntry.drunk) {
+            if (drinkArm) drinkArm.rotation.set(-0.5, 0.2, 1.15);
+            if (drinkForearm) drinkForearm.rotation.set(0, -0.4, 1.5);
+          }
           const talking = performance.now() < pmEntry.talkUntil;
           const hero = talking ? nearestHero(pnpc.mesh, 6) : null;
           // Table-talk look target (750): stamped by game.js per exchange
