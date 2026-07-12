@@ -695,6 +695,7 @@ export class Game {
     this.inTown = true;
     this.inTavern = true;
     this.inUpstairs = false;
+    if (this._lyingBed) { this._lyingBed = null; if (this.player?.mesh) this.player.mesh.rotation.x = 0; }
     this.dungeon = generateTavernInterior();
     this.dungeonMeshes = buildTavernInterior();
     this.scene.add(this.dungeonMeshes.group);
@@ -1199,6 +1200,15 @@ export class Game {
     this.seatedAt = null;
     this._seatCd = performance.now() + 600; // block an immediate re-sit (805)
     if (s && s.kind === 'bar') this.player.pos.z = s.z + 0.7;
+  }
+
+  // Get up from a bed (Obsidian 842b): un-tip the hero, step off toward the room.
+  _standFromBed() {
+    const b = this._lyingBed;
+    this._lyingBed = null;
+    if (this.player.mesh) this.player.mesh.rotation.x = 0;
+    if (b && b.standZ != null) this.player.pos.z = b.standZ;
+    this._seatCd = performance.now() + 500;
   }
 
   flirtChat(pm) {
@@ -5287,6 +5297,22 @@ export class Game {
         && near(this.dungeonMeshes.stairsDownPos.x, this.dungeonMeshes.stairsDownPos.z, 2.0)) {
         candidate = { label: 'Head downstairs', icon: '🪜', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTavern(); } };
       }
+      // Lie down in a bed (Obsidian 842b): near any upstairs bed, offer to rest;
+      // once lying the prompt is "Get up" (any movement also gets you up).
+      if (!candidate && this.inUpstairs && !this._lyingBed && this.dungeonMeshes.bedPositions) {
+        for (const bp of this.dungeonMeshes.bedPositions) {
+          if (near(bp.standZ != null ? bp.x : bp.x, bp.standZ != null ? bp.standZ : bp.z, 1.7)) {
+            candidate = { label: 'Lie down', icon: '🛏️', action: () => {
+              this._lyingBed = bp;
+              audio.play('ui_click', { volume: 0.5 });
+            } };
+            break;
+          }
+        }
+      }
+      if (!candidate && this.inUpstairs && this._lyingBed) {
+        candidate = { label: 'Get up', icon: '🧍', action: () => this._standFromBed() };
+      }
       // 3.8 (was 2.4, Obsidian 746): the bar rework (720) put Magda a full
       // aisle + counter away from a customer standing at the bar front, past
       // the old radius - across-the-counter talking must always reach her.
@@ -5371,6 +5397,20 @@ export class Game {
         pm.affinity = Math.min(8, (pm.affinity || 0) + 1); // a drink warms her up
         this.ui.floaters?.spawn(p.pos, '🍺 You buy Rosalind a drink', 'crit');
         setTimeout(() => { this._buyScene = null; if (this.inTavern && !this.inUpstairs) this.flirtChat(pm); }, 1600);
+      }
+    }
+
+    // Lying in a bed upstairs (Obsidian 842b): pin onto the mattress, tip the
+    // hero flat with the head at the headboard; deliberate movement gets up.
+    if (this.inUpstairs && this._lyingBed) {
+      const b = this._lyingBed, p = this.player;
+      if (Math.abs(p.moveDir.x) > 0.2 || Math.abs(p.moveDir.z) > 0.2) {
+        this._standFromBed();
+      } else {
+        p.pos.x = b.x; p.pos.z = b.z;
+        p.aimAngle = b.headAngle;
+        p.faceAimTimer = Math.max(p.faceAimTimer, 0.3);
+        if (p.mesh) { p.mesh.rotation.x = -1.35; p.mesh.position.y += 0.5; } // on their back, on the mattress
       }
     }
 

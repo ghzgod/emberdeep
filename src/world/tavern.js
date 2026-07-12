@@ -1691,6 +1691,7 @@ export function buildTavernUpstairsInterior() {
   // HEADBOARD sits flush to the room's outer (building-edge) wall with the foot
   // pointing at the door - never floating mid-room facing away (the user's gripe).
   let rosalindBedPos = null;
+  const bedPositions = []; // for the lie-down interaction (842b)
   for (const r of U_ROOMS) {
     const fancy = r.name === 'rosalind';
     const north = r.czW < 12;                        // outer wall is north (else south)
@@ -1699,6 +1700,9 @@ export function buildTavernUpstairsInterior() {
     const bed = makeUpstairsBed(bedX, bedZ, plankMat, darkWood, fancy);
     if (!north) bed.rotation.y = Math.PI;            // south rooms: headboard to the south wall
     group.add(bed);
+    // lie-down anchor: mattress centre + the foot->head direction (so the hero
+    // lies flat along the bed with the head at the headboard)
+    bedPositions.push({ x: bedX, z: bedZ, headAngle: north ? -Math.PI / 2 : Math.PI / 2, standZ: north ? bedZ + 1.6 : bedZ - 1.6, fancy });
     // nightstand at the head of the bed
     makeNightstand(bedX + 1.35, north ? bedZ - 0.9 : bedZ + 0.9, group, darkWood);
     // rug in front of the bed (toward the door / room centre)
@@ -1779,6 +1783,7 @@ export function buildTavernUpstairsInterior() {
     group,
     torchPositions,
     stairsDownPos: { x: down.x, z: HZ0 - 1.0 }, // north lip of the stairwell (solid floor)
+    bedPositions,
     rosalindBedPos,
     // guard-friendly empties so the shared tavern per-frame code no-ops up here
     doorMeshes: new Map(), chestMeshes: [], stairsMesh: null,
