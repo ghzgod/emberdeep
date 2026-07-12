@@ -1076,6 +1076,16 @@ export class UI {
     buyBtn.textContent = broke ? 'Not enough gold' : 'Buy';
   }
 
+  // Real item glyph for a shop entry (Obsidian 777): gear uses the same
+  // canvas item-icon the inventory renders; consumables use a themed SVG
+  // glyph (flask/bag/orb) instead of a raw emoji (the "first-aid helmet" and
+  // friends were unicode emojis rendered by the system font).
+  shopIconHtml(entry) {
+    if (entry.item) return `<img class="shop-item-pic" src="${makeItemIcon(entry.item)}" alt="">`;
+    const glyph = entry.kind === 'bag' ? 'bag' : entry.kind === 'gamble' ? 'orb' : 'flask';
+    return svgIcon(glyph);
+  }
+
   renderShop(vendor) {
     const p = this.game.player;
     const FLAVOR = {
@@ -1113,7 +1123,7 @@ export class UI {
       // show the remaining stock for stackable wares so it reads as one slot
       const qtyTag = (entry.qty != null && !soldOut) ? ` · ×${left}` : '';
       el.innerHTML = `
-        <span class="shop-item-icon">${entry.icon}</span>
+        <span class="shop-item-icon">${this.shopIconHtml(entry)}</span>
         <span class="shop-item-name">${entry.label}<small>${soldOut ? 'Sold out' : subFor(entry) + qtyTag}</small></span>
         <span class="shop-item-price">${entry.price}g</span>
       `;
@@ -1132,8 +1142,10 @@ export class UI {
     for (const item of [...p.inventory]) {
       const el = document.createElement('div');
       el.className = `shop-item r-${item.rarity}`;
+      // real item glyph, not the raw emoji field (777)
+      const ico = item.slot ? `<img class="shop-item-pic" src="${makeItemIcon(item)}" alt="">` : svgIcon('flask');
       el.innerHTML = `
-        <span class="shop-item-icon">${item.icon}</span>
+        <span class="shop-item-icon">${ico}</span>
         <span class="shop-item-name">${item.name}<small>${RARITIES[item.rarity].name} ${item.slot}</small></span>
         <span class="shop-item-price sell">+${sellValue(item)}g</span>
       `;
@@ -2195,7 +2207,7 @@ export class UI {
     const item = entry.item;
     const rarity = item ? item.rarity : (entry.kind === 'elixir' ? entry.elixir.rarity : 'common');
     const R = RARITIES[rarity] || RARITIES.common;
-    $('buy-icon').textContent = entry.icon;
+    $('buy-icon').innerHTML = this.shopIconHtml(entry); // real glyph, not an emoji (777)
     const name = $('buy-name'); name.textContent = entry.label; name.className = `tt-${rarity}`;
     $('buy-rarity').textContent = item ? `${R.name} ${item.slot}` : (entry.kind === 'elixir' ? `${R.name} elixir` : '');
     let detail = '';
