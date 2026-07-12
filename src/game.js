@@ -1198,7 +1198,11 @@ export class Game {
   async flirtSelect(pm, tier) {
     const adult = this.settings.adult18;
     const female = this.player.gender === 'female';
-    pm.affinity = Math.max(-4, Math.min(6, (pm.affinity || 0) + [-2, 0, 1, 2][tier]));
+    // She's MORE into you than you are into her (Obsidian 807): even a lukewarm
+    // reply nudges her up, and warm/forward ones swing hard - so her attraction
+    // outpaces your investment. Only an outright cold shoulder cools her.
+    pm.affinity = Math.max(-4, Math.min(6, (pm.affinity || 0) + [-2, 1, 2, 2][tier]));
+    pm._flirtEx = (pm._flirtEx || 0) + 1; // exchanges so far - gates the payoff
     // Decide the ONE line BEFORE showing/speaking it - the UI shows a brief "…"
     // while the fast keyless LLM (codestral, ~0.6s) is consulted; if it answers
     // we use it, otherwise the canned line. One line, spoken once - no jarring
@@ -1257,18 +1261,26 @@ export class Game {
       ]);
     }
     // tier 3 — forward. This is where 18+ unlocks the explicit heat: she gets
-    // crude and openly sexual (password-gated adult mode - Obsidian 793).
+    // crude and openly sexual (password-gated adult mode - Obsidian 793). But
+    // she's NOT easy (807): the outright "come upstairs" payoff is EARNED - it
+    // only lands once she's smitten (a>=5) AND you've built up (>=4 exchanges);
+    // before that she's hungry but deflects and makes you work for it. (The
+    // upstairs room itself is 800.)
     if (adult) {
-      if (a >= 3) return this._pick([
+      const earned = a >= 5 && (pm._flirtEx || 0) >= 4;
+      if (earned) return this._pick([
         female ? 'Fuck it — my room\'s upstairs, my bed\'s cold, and I want your mouth on me. Get up there, gorgeous.' : 'My room\'s upstairs. Get up there, get that armor off, and I\'ll ride you till you forget your own damn name.',
         'Mmm, finally. Hands on my hips, mouth on my neck, and don\'t you dare be gentle. Follow me up.',
         female ? 'I\'ve been picturing you naked and under me all night. Come upstairs and let me have you.' : 'I\'m soaked just looking at you, hero. Take me upstairs and fuck me properly.',
-        female ? 'Buy me one more and I\'ll have you moaning my name with my head between your thighs.' : 'One more drink and I\'ll be on my knees for you before the candle burns out.',
+      ]);
+      if (a >= 3) return this._pick([
+        female ? 'Mmm, patience, gorgeous — you\'ve got me aching, but I don\'t come THAT easy. Keep at it.' : 'Careful, hero — you\'ve got me wet already, but I don\'t just spread for anyone. Work for it.',
+        'Not yet, love. The room upstairs isn\'t ready and I\'m not done teasing you. Buy me another.',
+        female ? 'Slow down, darling — I\'ll be yours before long, but make me want it first.' : 'Easy, tiger. I\'ll take you apart soon enough. Earn it a little more.',
       ]);
       return this._pick([
-        'Bold little thing, aren\'t you. Keep buying and I\'ll let you take me apart tonight.',
-        '*bites lip* Careful what you start, love. I don\'t stop till we\'re both wrecked.',
-        'Mmm. I can already tell you\'d feel good inside me. Keep going.',
+        'Bold little thing, aren\'t you. Keep buying and we\'ll see how far this goes.',
+        '*bites lip* You\'re getting to me — but I don\'t give it up on the first round.',
       ]);
     }
     // clean suggestive (no 18+)
