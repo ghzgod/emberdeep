@@ -669,7 +669,13 @@ function tintAtlasTile(srcTex, col, row, hex) {
 // "white" neck under a dark face. We tint ALL skin swatches - but NOT the hair
 // tile (1,0), which is also a warm tan and is coloured separately by
 // applyHairColor. (col, row) pairs below match tintAtlasTile's argument order.
-const SKIN_TILES = [[0, 0], [0, 1], [1, 1]];
+// The KayKit atlas holds skin across SIX swatches (Obsidian 823): the FACE is
+// the light set (0,0)/(0,1)/(1,1), but the NECK / chin / wrist skin - the parts
+// the user saw stay "white/wrong" under a tinted face - sample the darker skin-
+// shadow set (5,0)/(6,0)/(5,1). A magenta-probe confirmed these three carry the
+// neck+wrist skin and NOT leather/armour (those live on other tiles and stayed
+// untinted), so tinting all six recolours the whole skin without touching gear.
+const SKIN_TILES = [[0, 0], [0, 1], [1, 1], [5, 0], [6, 0], [5, 1]];
 function applySkinTone(mesh, hex) {
   let tinted = null, srcMat = null;
   mesh.traverse((o) => {
