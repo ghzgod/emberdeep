@@ -1075,13 +1075,27 @@ export class Game {
       'They say the elites wear crowns because the stairs obey them. Kill the crown, free the stairs.',
       'Maribel restocks whenever you come back through the portal. Handy woman.',
     ];
-    const bank = pm.drunk ? drunkLines : soberLines;
+    // Rude patrons (Obsidian 782): non-worker regulars who don't want to talk.
+    // Curt, dismissive brush-offs instead of helpful tavern gossip.
+    const rudeLines = [
+      'Fuck off. I\'m drinking.',
+      'Do I look like I want company? Leave me alone.',
+      'Piss off, hero. Go bother someone who cares.',
+      'I didn\'t ask for a chat. Move along.',
+      'Not interested. Away with you.',
+    ];
+    const rude = pm.mood === 'rude';
+    const bank = rude ? rudeLines : pm.drunk ? drunkLines : soberLines;
     const line = bank[Math.floor(Math.random() * bank.length)];
+    // A rude patron gets a flatter, colder delivery than the chatty regulars.
     const cast = pm.drunk
       ? { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82 }
-      : { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 };
+      : rude
+        ? { female: true, vi: 2, pitch: 0.92, rate: 1.05, kokoro: 'af_sarah', kSpeed: 1.05 }
+        : { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 };
     pm.talkUntil = performance.now() + 7000; // stool-swivel toward the player only mid-conversation (735)
-    roaster.sayGated(this, pm.drunk ? 'Tipsy Regular' : 'Tavern Patron', line, cast, pm);
+    const speaker = pm.drunk ? 'Tipsy Regular' : rude ? 'Surly Patron' : 'Tavern Patron';
+    roaster.sayGated(this, speaker, line, cast, pm);
   }
 
   openNotices() {
