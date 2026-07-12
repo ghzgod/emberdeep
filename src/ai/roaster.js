@@ -443,7 +443,14 @@ export class Roaster {
     this._clearGate(); // a new line supersedes whatever was pending; no stacked ellipses
     const hasBubble = !!(anchor && game?.ui?.floaters);
     if (hasBubble) game.ui.floaters.showThinking(anchor);
-    const doShow = show || (() => game.ui.showSubtitle(speaker, line, durationMs));
+    // Caption ABOVE the speaker's head (Obsidian 780, comic-bubble style)
+    // when we have a world anchor; the fixed bottom bar is the fallback for
+    // anchorless lines (system notices, the co-op roast floater overrides via
+    // `show`).
+    const doShow = show || (() => {
+      if (hasBubble) game.ui.floaters.showSpeech(anchor, speaker, line, durationMs);
+      else game.ui.showSubtitle(speaker, line, durationMs);
+    });
     let started = false;
     const gate = { fallback: null };
     const finish = () => {
