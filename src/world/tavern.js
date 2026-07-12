@@ -1470,6 +1470,22 @@ const U_ROOMS = [
   { name: 'rosalind', cxW: 24, czW: 19, doorX: 11, doorRow: 7 }, // SE
 ];
 
+// The bed footprints (Obsidian 842): tiles the hero must NOT walk through. Kept
+// in one place so generate marks them solid and the builder both places the bed
+// there and skips drawing a wall pillar on them. Must match the bed placement in
+// buildTavernUpstairsInterior (bedX/bedZ) exactly.
+function upstairsBedTiles() {
+  const tiles = [];
+  for (const r of U_ROOMS) {
+    const north = r.czW < 12;
+    const bedX = r.cxW - 2.6, bedZ = north ? 3.5 : (H * TILE - 3.5);
+    for (const dx of [-0.7, 0.7]) for (const dz of [-1.05, 1.05]) {
+      tiles.push([Math.floor((bedX + dx) / TILE), Math.floor((bedZ + dz) / TILE)]);
+    }
+  }
+  return tiles;
+}
+
 export function generateTavernUpstairs() {
   const grid = Array.from({ length: H }, (_, y) =>
     new Array(W).fill(0).map((_, x) =>
@@ -1482,6 +1498,8 @@ export function generateTavernUpstairs() {
   // down-stairwell tile: collision-blocked (hero can't walk into the shaft) but
   // the mesh builder skips a wall pillar here - it's an open hole (833).
   grid[U_HOLE.y][U_HOLE.x] = WALL;
+  // beds are solid too (842: no more clipping through them) - no pillar drawn.
+  for (const [bx, by] of upstairsBedTiles()) if (grid[by] && grid[by][bx] !== undefined) grid[by][bx] = WALL;
   return {
     grid, size: Math.max(W, H), rooms: [],
     spawn: { x: 12, y: 5 },       // hallway, at the east-end stairwell
@@ -1611,10 +1629,12 @@ export function buildTavernUpstairsInterior() {
   // walls derived from the collision grid so visuals and walkability can't drift.
   const wallH = 3.0;
   const grid = generateTavernUpstairs().grid;
+  const noPillar = new Set([`${U_HOLE.x},${U_HOLE.y}`]);
+  for (const [bx, by] of upstairsBedTiles()) noPillar.add(`${bx},${by}`);
   const wallGeo = new THREE.BoxGeometry(TILE, wallH, TILE);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     if (grid[y][x] !== WALL) continue;
-    if (x === U_HOLE.x && y === U_HOLE.y) continue; // stairwell hole - no pillar (833)
+    if (noPillar.has(`${x},${y}`)) continue; // stairwell hole + bed footprints - no pillar (833/842)
     const w = tileToWorld(x, y);
     const seg = new THREE.Mesh(wallGeo, wallMat);
     seg.position.set(w.x, wallH / 2, w.z);
