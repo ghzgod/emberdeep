@@ -697,15 +697,13 @@ export function buildTavernInterior() {
     group.add(g);
     return g;
   };
-  const backStripZ = 2.28; // between the wall face (2.0) and the bar back (2.4)
-  // a tapped serving cask lying on its side at the left end behind the bar
-  mkKeg(barCenter.x - 4.6, backStripZ, 0.3, 0.66, true, 0xe8dccb);
-  const spigot = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.12, 6), ironMat);
-  spigot.rotation.x = Math.PI / 2; spigot.position.set(barCenter.x - 4.6, 0.22, backStripZ + 0.34);
-  group.add(spigot);
-  // upright kegs lined along the right end behind the bar
-  mkKeg(barCenter.x + 4.1, backStripZ, 0.28, 0.66, false, 0xd8c8b0);
-  mkKeg(barCenter.x + 4.9, backStripZ, 0.28, 0.66, false, 0xf0e4d0);
+  // Back-bar kegs REMOVED (Obsidian 813 - user "the floor is clipping through
+  // the barrels behind the bar"): they sat in the narrow aisle between the wall
+  // (z=2.0) and the counter back (z=4.4), so from the overhead camera the bar
+  // counter (up to y~1.05) always sliced off their lower half - it read as the
+  // floor clipping through them. Nothing behind the counter can avoid that
+  // occlusion, so the kegs are gone; the SW-corner barrel stack + the stocked
+  // back-bar shelves still carry the storage flavour, fully in the open.
   // Iron candle-ring chandelier REMOVED (user report): the room has no
   // ceiling, so anything hung mid-air over open floor visually lands ON the
   // floor from the game's top-down camera — the chandelier at y=2.3 read as
@@ -1167,7 +1165,12 @@ export function buildTavernInterior() {
   // panel at x -0.39, still behind the stone face at -0.35), so the fire can
   // never leave the fireplace no matter the camera - edge-on it thins away
   // exactly like a real opening foreshortens.
-  const FLAME_X = -0.345; // in front of the dark panel (-0.34), inside the stone face (-0.35)
+  // Flames sit clearly IN FRONT of the stone surround's front face (Obsidian 796
+  // re-fix: at -0.345 the flames were coplanar with the solid brick face at
+  // -0.35, so the opaque brick depth-occluded them and the firebox looked empty
+  // - "no real fire inside it"). Pushed to -0.5 so they're ~0.15 proud of the
+  // face, unmistakably burning in the opening from the overhead camera.
+  const FLAME_X = -0.5;
   const flameQuadGeo = new THREE.PlaneGeometry(1, 1);
   // Fuller fire (Obsidian 796): the old 5 thin quads read as a faint glow, not
   // flames. Now 8 broader, taller tongues fill the firebox opening so real
