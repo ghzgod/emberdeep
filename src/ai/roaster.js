@@ -331,11 +331,13 @@ export class Roaster {
         if (ok) return;
       }
       // Kokoro is the only voice. While it's still downloading we stay SILENT
-      // (the subtitle already conveys the line) rather than fall back to the
-      // robotic Web Speech synth. Only use Web Speech if Kokoro truly failed to
-      // load on this device, so a broken model doesn't mute every character.
+      // but STILL SHOW THE CAPTION (Obsidian 838: onCancel here hid the line
+      // entirely, so ambient chatter flashed an ellipsis and then nothing - no
+      // text, no audio). onStart shows the text bubble silently; audio returns
+      // once the model finishes loading for later lines. Web Speech only if
+      // Kokoro truly failed, so a broken model doesn't mute every character.
       if (neuralVoice.status === 'error') { this._speakWebSpeech(text, cast, hooks); return; }
-      hooks.onCancel?.();
+      hooks.onStart?.();
     }).catch(() => this._speakWebSpeech(text, cast, hooks));
   }
 
@@ -451,6 +453,11 @@ export class Roaster {
       if (hasBubble) game.ui.floaters.showSpeech(anchor, speaker, line, durationMs);
       else game.ui.showSubtitle(speaker, line, durationMs);
     });
+    // Mark a caption as "speech active" for its whole visible window (Obsidian
+    // 838): npcSpeechActive is otherwise audio-only, so on silent/loading configs
+    // ambient turns fired back-to-back and the bubbles flashed. Now the next turn
+    // waits for this line's bubble to clear even when there's no audio.
+    if (game) game._speechCaptionUntil = performance.now() + durationMs;
     let started = false;
     const gate = { fallback: null };
     const finish = () => {

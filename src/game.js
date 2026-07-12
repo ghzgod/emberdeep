@@ -5177,6 +5177,9 @@ export class Game {
         .then(({ liteVoice }) => { this._liteVoiceRef = liteVoice; })
         .catch(() => { /* stays the empty stub: lite half reads silent */ });
     }
+    // A visible caption bubble counts as active speech even with no audio
+    // (Obsidian 838), so ambient turns wait for it instead of flashing.
+    if (performance.now() < (this._speechCaptionUntil || 0)) return true;
     return !!(this._neuralVoiceRef._current || this._neuralVoiceRef._busy || this._liteVoiceRef.speaking);
   }
 
