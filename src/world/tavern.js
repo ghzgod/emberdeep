@@ -332,12 +332,12 @@ export function buildTavernInterior() {
   // feet reach into the footwell. Their world slots are collected for the
   // seat-picking AI below so patrons can actually choose to sit here. ----
   const barStoolSlots = [];
-  // Seat centre just PAST the counter's front lip (Obsidian 804): tucking the
-  // stool under the overhang put the seated patron's torso inside the counter
-  // slab's footprint, so the counter clipped through their body. Sitting at the
-  // edge lets them lean ON the counter (no clip) with legs angled toward the
-  // footwell/footrail under the overhang.
-  const stoolZ = barFrontEdge + 0.12;
+  // Seat centre set well PAST the counter's front lip (Obsidian 804, re-fix):
+  // a seated body is a capsule ~0.26 in radius, so at +0.12 its FRONT half
+  // (~barFrontEdge-0.14) still tucked under the overhang and the counter slab
+  // clipped through the torso. Pushed to +0.4 so the whole body clears the lip;
+  // arms still reach the counter and the footrail keeps the bar read.
+  const stoolZ = barFrontEdge + 0.4;
   const nStools = 5;
   for (let i = 0; i < nStools; i++) {
     const sx = barX + (i - (nStools - 1) / 2) * 1.7;

@@ -2344,6 +2344,8 @@ export class UI {
       btn.className = `menu-btn flirt-choice flirt-tier${c.tier}`;
       btn.textContent = c.label;
       btn.onclick = () => {
+        // Instant canned line; the LLM (801) may replace it a moment later via
+        // updateFlirtLine() while the dialog stays open.
         const res = this.game.flirtSelect(this._flirtPm, c.tier);
         $('flirt-line').textContent = res.line;
         this._flirtMood(res.affinity);
@@ -2352,6 +2354,11 @@ export class UI {
       };
       list.appendChild(btn);
     }
+  }
+  // The LLM enhancement (801) landed while the dialog is still open - swap the
+  // canned line for the fresher one.
+  updateFlirtLine(text) {
+    if (this.game.state === 'flirt' && this._flirtPm) $('flirt-line').textContent = text;
   }
   _flirtMood(aff) {
     const el = $('flirt-mood');
