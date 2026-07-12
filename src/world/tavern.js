@@ -1355,6 +1355,28 @@ export function buildTavernInterior() {
   stairGrp.position.set(30.4, 0, 20.6);
   group.add(stairGrp);
 
+  // The flight rises up THROUGH a hole in the floor above (Obsidian 844): a small
+  // patch of the upstairs floor sits over the stairwell top with an opening the
+  // steps pass into, plus dark shaft walls above it - so the top reads as "going
+  // up" into the floor above instead of a landing floating in mid-air. World
+  // coords: the flight tops out around x[29.3,31.5] z~16.
+  const soffitY = 3.35;
+  const addSoffit = (cx, cz, sw, sd) => {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(sw, 0.14, sd), plankMat);
+    s.position.set(cx, soffitY, cz); group.add(s);
+  };
+  addSoffit(30.3, 14.4, 2.9, 1.1);   // north of the opening
+  addSoffit(30.3, 17.7, 2.9, 0.8);   // south of the opening
+  addSoffit(29.0, 16.2, 0.5, 2.4);   // west of the opening
+  const upShaftMat = new THREE.MeshStandardMaterial({ color: 0x140c06, roughness: 1 });
+  const addShaft = (cx, cz, sw, sd) => {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(sw, 1.4, sd), upShaftMat);
+    s.position.set(cx, soffitY + 0.7, cz); group.add(s);
+  };
+  addShaft(30.3, 15.0, 2.5, 0.12);   // north edge of the opening
+  addShaft(30.3, 17.3, 2.5, 0.12);   // south edge
+  addShaft(29.25, 16.15, 0.12, 2.3); // west edge (east is the building wall)
+
   // flame refs removed (717): the sprite fire animates itself via its own
   // driver above; updateTorches only needs the light positions.
   const torchPositions = [
