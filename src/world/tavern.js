@@ -1072,11 +1072,18 @@ export function buildTavernInterior() {
   // like Magda's amble. Bodies come from the same townsfolk builder, with a
   // look rotation so consecutive visitors differ. ----
   {
+    // A wide look rotation (Obsidian 839): every visitor is a distinct variation
+    // off the SHARED hero library - different class rig + skin/hair-colour/hair-
+    // style/face/eyes - so the room never shows two of the same person.
     const VISITOR_LOOKS = [
-      { cls: 'drifter', gender: 'male', skin: 'tan' },
-      { cls: 'scout', gender: 'female', skin: 'light' },
-      { cls: 'villager', gender: 'male', skin: 'fair' },
-      { cls: 'cleric', gender: 'female', skin: 'tan' },
+      { cls: 'drifter', gender: 'male', skin: 'tan', hairColor: 'darkbrown', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown' },
+      { cls: 'scout', gender: 'female', skin: 'light', hairColor: 'blonde', hairStyle: 'ponytail', faceShape: 'narrow', eyeColor: 'blue' },
+      { cls: 'villager', gender: 'male', skin: 'fair', hairColor: 'chestnut', hairStyle: 'short', faceShape: 'round', eyeColor: 'green' },
+      { cls: 'cleric', gender: 'female', skin: 'brown', hairColor: 'black', hairStyle: 'bun', faceShape: 'standard', eyeColor: 'amber' },
+      { cls: 'knight', gender: 'male', skin: 'deep', hairColor: 'black', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown' },
+      { cls: 'ranger', gender: 'female', skin: 'tan', hairColor: 'auburn', hairStyle: 'long', faceShape: 'round', eyeColor: 'green' },
+      { cls: 'mage', gender: 'male', skin: 'light', hairColor: 'grey', hairStyle: 'short', faceShape: 'narrow', eyeColor: 'violet' },
+      { cls: 'barbarian', gender: 'male', skin: 'brown', hairColor: 'darkbrown', hairStyle: 'short', faceShape: 'standard', eyeColor: 'amber' },
     ];
     const doorSpot = tileToWorld(8, 9.4);
     const LINGER_SPOTS = [
@@ -1108,7 +1115,11 @@ export function buildTavernInterior() {
           vs.waitT -= dt;
           if (vs.waitT <= 0) {
             const look = VISITOR_LOOKS[vs.lookIdx = (vs.lookIdx + 1) % VISITOR_LOOKS.length];
-            const npc = buildNpcModel(look.cls, 'Visitor', { gender: look.gender, skinTone: look.skin });
+            const npc = buildNpcModel(look.cls, 'Visitor', {
+              gender: look.gender, skinTone: look.skin,
+              hairColor: look.hairColor, hairStyle: look.hairStyle,
+              faceShape: look.faceShape, eyeColor: look.eyeColor,
+            });
             if (!npc) { vs.waitT = 30; return; } // model not loaded yet; try later
             vs.npc = npc;
             vs.group = npc.mesh;
