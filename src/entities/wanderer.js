@@ -106,7 +106,14 @@ export class Wanderer {
       }
       this.mesh.position.copy(this.pos);
       // gentle hobble
-      this.mesh.position.y = Math.abs(Math.sin(performance.now() / 240)) * 0.04;
+      // Stand ON the ground he's actually over (Obsidian 756): the raised
+      // plaza sits 0.05 above the grass, and hobbling at grass height made
+      // his feet clip the cobbles and his blob shadow oscillate through the
+      // plaza surface - the "shadow flashing on and off".
+      const tx = Math.round((this.pos.x - TILE / 2) / TILE);
+      const ty = Math.round((this.pos.z - TILE / 2) / TILE);
+      const groundY = this.dungeon.heights?.[ty]?.[tx] || 0;
+      this.mesh.position.y = groundY + Math.abs(Math.sin(performance.now() / 240)) * 0.04;
     }
     this.setWalking(moved);
 
@@ -443,8 +450,10 @@ function buildFenwick() {
   lanternCap.position.set(0.47, 1.73, 0.08);
   g.add(staff, staffTop, lantern, lanternCap);
 
+  // depth-safe blob (756): no depth write + polygon offset so the decal can
+  // never z-fight whichever surface it hovers over
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.4, 12),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 }));
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.02;
   g.add(shadow);

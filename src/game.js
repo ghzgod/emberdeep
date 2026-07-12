@@ -44,7 +44,11 @@ export class Game {
 
   constructor() {
     this.canvas = document.getElementById('game-canvas');
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
+    // powerPreference 'low-power' (Obsidian 755, per three.js power guidance):
+    // on dual-GPU laptops the default can spin up the DISCRETE GPU for a
+    // scene this simple - the reported "laptop heats up just standing there".
+    // The integrated GPU renders Emberdeep's low-poly style comfortably.
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'low-power' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
@@ -3848,12 +3852,33 @@ export class Game {
     // throttle only ever inserts a single skipped frame at a time, which is
     // imperceptible even for the hearth fire).
     const p_ = this.player;
-    const idleEligible = this.inTown && this.state === 'playing' && p_
+    const noInput = this.state === 'playing' && p_
       && Math.abs(p_.moveDir.x) < 0.01 && Math.abs(p_.moveDir.z) < 0.01
       && !this.input.mouse.down && !this.touch.joyActive && !this._yawEase;
+    // Dungeon idling counts too (Obsidian 755): standing still with nothing
+    // hunting you nearby and nothing in flight is just as static as town.
+    let idleEligible = false;
+    if (noInput) {
+      if (this.inTown) idleEligible = true;
+      else {
+        const nearEnemy = this.enemies.some((e) => !e.dead
+          && Math.hypot(e.pos.x - p_.pos.x, e.pos.z - p_.pos.z) < 16);
+        idleEligible = !nearEnemy && !(this.projectiles?.active?.length) && p_.attackAnim <= 0;
+      }
+    }
     this._idleT = idleEligible ? (this._idleT || 0) + dt : 0;
     this._frameNo = (this._frameNo || 0) + 1;
-    if (!(this._idleT > 8 && this._frameNo % 2 === 1)) {
+    // Render-rate policy (741 + 755, per the three.js power guidance:
+    // "render on demand / cap the rate" is the #1 battery-and-heat lever):
+    //   - long idle (30s+): render 1 frame in 3
+    //   - idle (8s+): render 1 frame in 2
+    //   - battery saver, any time in gameplay: render 1 frame in 2 (the
+    //     mode's whole point; sim still runs every frame so nothing skips)
+    // Any input/combat resets to full rate on the very next frame.
+    const skipMod = this._idleT > 30 ? 3
+      : this._idleT > 8 ? 2
+        : (this.settings.batterySaver && this.state === 'playing') ? 2 : 0;
+    if (!(skipMod && this._frameNo % skipMod !== 0)) {
       this.renderer.render(this.scene, this.camera);
     }
     this.input.endFrame();
