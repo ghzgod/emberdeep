@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, WALL } from './dungeon.js';
 import { TILE, tileToWorld, buildNpcModel } from './meshbuilder.js';
+import { buildQuaterniusFemale } from '../entities/quaterniusNpc.js';
 import { makeWoodTexture, makePlankTexture, makeHearthStoneTexture, makeTavernSignTexture } from './textures.js';
 
 // ---- shared "where's the nearest player" lookup for the tavern's own NPC
@@ -950,6 +951,20 @@ export function buildTavernInterior() {
       }
       pnpc.mesh.position.y = -0.18; // undo the stool-perch lift so feet reach the floor
       patron.add(pnpc.mesh);
+
+      // Rosalind (Obsidian 808/789): swap the shared KayKit NPC body for the
+      // distinct Quaternius FEMALE model once it loads (a real female shape, not
+      // the squished-male silhouette). Keep pnpc for the facing driver below but
+      // hide its mesh; the Quaternius model is a child of `patron` so it rides
+      // the group's turn-to-player yaw. Graceful: a failed load restores pnpc.
+      if (def.flirty) {
+        pnpc.mesh.visible = false;
+        buildQuaterniusFemale('femalePeasant', 1.7).then((qmodel) => {
+          if (!qmodel || !patron.parent) { pnpc.mesh.visible = true; return; }
+          qmodel.position.y = -0.18; // feet to floor, same as pnpc
+          patron.add(qmodel);
+        });
+      }
 
       // Body turn ONLY while the player is talking to this patron (Obsidian
       // 735, matching the vendor rule from 726): patronChat stamps
