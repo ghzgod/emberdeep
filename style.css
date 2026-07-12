@@ -853,6 +853,15 @@ body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster
 }
 #subtitle-text { display: block; color: var(--parchment); font-size: 15px; line-height: 1.5; font-style: italic; }
 @keyframes sub-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+/* Head speech bubbles are centred on their projected point via the base
+   .floater transform translate(-50%,-50%); their pop-in MUST keep that same
+   -50% Y or the bubble jumps upward by half its height the instant the
+   animation ends and reverts to the base rule (Obsidian 786). So this
+   keyframe animates a small offset AROUND -50%, never away from it. */
+@keyframes bubble-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)); }
+  to   { opacity: 1; transform: translate(-50%, -50%); }
+}
 @media (max-width: 620px) { #subtitle { bottom: 96px; padding: 9px 14px; } #subtitle-text { font-size: 13px; } }
 
 /* universal corner close ✕ on panel overlays (works without a keyboard) */
@@ -904,7 +913,7 @@ body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster
    with a downward tail, centred on the world-projected point (JS sets
    left/top; the base .floater transform centres it). Sits ABOVE the head. */
 .floater.speech-bubble {
-  animation: sub-in 0.2s ease-out; display: block; max-width: 240px; text-align: left;
+  animation: bubble-in 0.18s ease-out; display: block; max-width: 240px; text-align: left;
   padding: 8px 13px 9px; white-space: normal;
   background: linear-gradient(180deg, rgba(28,21,36,0.96), rgba(16,11,22,0.96));
   border: 1px solid var(--gold); border-radius: 12px;
