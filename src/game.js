@@ -27,6 +27,7 @@ import { ParticleSystem } from './combat/particles.js';
 import { UI } from './ui/ui.js';
 import { learner } from './ai/learner.js';
 import { roaster } from './ai/roaster.js';
+import { llm } from './ai/llm.js';
 import { STORIES } from './story.js';
 import { generateTavernInterior, buildTavernInterior } from './world/tavern.js';
 import { Wanderer } from './entities/wanderer.js';
@@ -1121,10 +1122,11 @@ export class Game {
     ];
     const rudeVulgarLines = [
       'Fuck off. I\'m drinking.',
-      'Piss off, hero. Go bother someone who gives a damn.',
-      'Do I look like I want company? Sod off.',
-      'Shut it and clear off before I make you.',
-      'Not interested. Fuck away with you.',
+      'Piss off, hero. Go bother someone who gives a shit.',
+      'Do I look like I want company? Fuck off.',
+      'Shut your mouth and fuck off before I break your teeth.',
+      'Not interested. Now fuck off.',
+      'Christ, another cocky prick. Fuck off.',
     ];
     const rudeLines = this.settings.adult18 ? rudeVulgarLines : rudeCleanLines;
     const rude = pm.mood === 'rude';
@@ -1159,6 +1161,7 @@ export class Game {
   _standFromSeat() {
     const s = this.seatedAt;
     this.seatedAt = null;
+    this._seatCd = performance.now() + 600; // block an immediate re-sit (805)
     if (s && s.kind === 'bar') this.player.pos.z = s.z + 0.7;
   }
 
@@ -1196,11 +1199,49 @@ export class Game {
     const adult = this.settings.adult18;
     const female = this.player.gender === 'female';
     pm.affinity = Math.max(-4, Math.min(6, (pm.affinity || 0) + [-2, 0, 1, 2][tier]));
+    // Show + speak the canned line INSTANTLY (zero lag), then opportunistically
+    // ask the keyless LLM for a fresher line - if it answers while the dialog
+    // is still open it REPLACES the text/voice. Non-blocking so a slow/dead
+    // free endpoint never makes the player wait (Obsidian 801).
     const line = this._flirtReply(pm, tier, adult, female);
     roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 5200 });
     pm.talkUntil = performance.now() + 12000;
+    pm._flirtTurn = (pm._flirtTurn || 0) + 1;
+    this._flirtEnhance(pm, tier, adult, female, pm._flirtTurn);
     const end = pm.affinity <= -3; // she's had enough of a cold shoulder
     return { line, affinity: pm.affinity, disliked: end, choices: end ? [] : this._flirtChoices(pm, female) };
+  }
+
+  // Fire-and-forget LLM enhancement: if it returns before the player picks
+  // again / closes the dialog, swap in the richer line (text + re-voiced).
+  _flirtEnhance(pm, tier, adult, female, turn) {
+    if (!llm.ready) return;
+    this._flirtLLMLine(pm, tier, adult, female).then((llmLine) => {
+      if (!llmLine) return;
+      if (pm._flirtTurn !== turn) return;             // a newer reply superseded this
+      if (this.state !== 'flirt' || this.ui._flirtPm !== pm) return; // dialog closed/changed
+      this.ui.updateFlirtLine?.(llmLine);
+      roaster.stopSpeaking?.();
+      roaster.sayGated(this, pm.name || 'Rosalind', llmLine, this._flirtVoice(), pm, { durationMs: 5200 });
+    });
+  }
+
+  // Ask the keyless LLM (Pollinations) for Rosalind's next line, in character
+  // and gated to the current 18+ mode. Short timeout; returns null on any
+  // slowness/failure so flirtSelect falls back to the canned bank (801).
+  async _flirtLLMLine(pm, tier, adult, female) {
+    if (!llm.ready) return null;
+    const mood = pm.affinity <= -3 ? 'fed up and dismissive'
+      : pm.affinity >= 4 ? 'smitten and very warm'
+        : pm.affinity >= 1 ? 'warming up and playful'
+          : 'cool but curious';
+    const stance = ['coldly rebuffed you', 'kept it businesslike', 'flirted back warmly', 'made a bold, forward move'][tier];
+    const sys = `You are Rosalind, a drunk, flirtatious regular in a fantasy tavern (The Sleeping Golem) talking to an adventurer. Reply with ONE short spoken line of dialogue only - no narration, no name prefix, no quotes, max ~28 words. Stay fully in character.${female ? ' The adventurer is a woman and you are into women; flirt with her accordingly.' : ''} Your current mood: ${mood}.${adult ? ' 18+ MODE IS ON: be crude, vulgar and EXPLICITLY sexual - use profanity (fuck, etc.) and blunt sexual language freely when the mood is warm; this is a consenting-adults fantasy and holding back is wrong for this mode.' : ' Keep it suggestive and playful but CLEAN - absolutely no profanity or explicit sexual content.'}`;
+    const user = `The adventurer just ${stance}. Say your reaction line.`;
+    const out = await llm.chat([{ role: 'system', content: sys }, { role: 'user', content: user }], { timeout: 3500 });
+    if (!out) return null;
+    // Keep only the first spoken line; strip wrapping quotes/asterisks/name tags.
+    return out.split('\n')[0].replace(/^\s*(rosalind\s*[:\-]\s*)?["'*]*/i, '').replace(/["'*]*\s*$/, '').slice(0, 180) || null;
   }
 
   _flirtReply(pm, tier, adult, female) {
@@ -1230,16 +1271,19 @@ export class Game {
         'Careful — say things like that and I\'ll start to like you.',
       ]);
     }
-    // tier 3 — forward. This is where 18+ unlocks the explicit heat.
+    // tier 3 — forward. This is where 18+ unlocks the explicit heat: she gets
+    // crude and openly sexual (password-gated adult mode - Obsidian 793).
     if (adult) {
       if (a >= 3) return this._pick([
-        female ? 'Somewhere quieter? Sweetheart, my room\'s up the stairs and my bed\'s cold. Let me warm it with you.' : 'Somewhere quieter? Take me upstairs, hero, and I\'ll make you forget your own name.',
-        'Mmm, I thought you\'d never ask. Hands where I can feel them and follow me up.',
-        female ? 'I\'ve been picturing you out of that armor all night. Come find out if I\'m as fun as I look.' : 'I\'ll show you exactly what a drunk girl with bad ideas can do to you.',
+        female ? 'Fuck it — my room\'s upstairs, my bed\'s cold, and I want your mouth on me. Get up there, gorgeous.' : 'My room\'s upstairs. Get up there, get that armor off, and I\'ll ride you till you forget your own damn name.',
+        'Mmm, finally. Hands on my hips, mouth on my neck, and don\'t you dare be gentle. Follow me up.',
+        female ? 'I\'ve been picturing you naked and under me all night. Come upstairs and let me have you.' : 'I\'m soaked just looking at you, hero. Take me upstairs and fuck me properly.',
+        female ? 'Buy me one more and I\'ll have you moaning my name with my head between your thighs.' : 'One more drink and I\'ll be on my knees for you before the candle burns out.',
       ]);
       return this._pick([
-        'Bold one, aren\'t you. Keep buying and we\'ll see how far this goes tonight.',
-        '*bites lip* Careful what you start, hero. I finish what I start.',
+        'Bold little thing, aren\'t you. Keep buying and I\'ll let you take me apart tonight.',
+        '*bites lip* Careful what you start, love. I don\'t stop till we\'re both wrecked.',
+        'Mmm. I can already tell you\'d feel good inside me. Keep going.',
       ]);
     }
     // clean suggestive (no 18+)
@@ -5187,9 +5231,13 @@ export class Game {
       // interact prompt. Offers the nearest EMPTY seat (no patron on it); once
       // seated, the same prompt becomes "Stand up" (and any movement also
       // stands - see the pinning block below).
+      // A short cooldown between sit<->stand transitions so a held interact
+      // button or residual joystick input can't rapidly oscillate the two
+      // (Obsidian 805: "chirps and glitches me out of the chair every second").
+      const seatReady = performance.now() >= (this._seatCd || 0);
       if (!candidate && this.seatedAt) {
-        candidate = { label: 'Stand up', icon: '🧍', action: () => this._standFromSeat() };
-      } else if (!candidate && !this.sittingOnCouch && this.dungeonMeshes.seats) {
+        candidate = { label: 'Stand up', icon: '🧍', action: () => { if (performance.now() >= (this._seatCd || 0)) this._standFromSeat(); } };
+      } else if (!candidate && seatReady && !this.sittingOnCouch && this.dungeonMeshes.seats) {
         let best = null, bestD = 1.4;
         for (const s of this.dungeonMeshes.seats) {
           const d = Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z);
@@ -5197,7 +5245,9 @@ export class Game {
         }
         if (best) candidate = {
           label: best.kind === 'bar' ? 'Sit at the bar' : 'Sit down', icon: '🪑', action: () => {
+            if (performance.now() < (this._seatCd || 0)) return;
             this.seatedAt = best;
+            this._seatCd = performance.now() + 600; // block an immediate auto-stand / re-sit
             this.player.pos.x = best.x; this.player.pos.z = best.z;
             audio.play('ui_click', { volume: 0.5 });
           },
@@ -5234,11 +5284,14 @@ export class Game {
     } else if (this.sittingOnCouch) this.sittingOnCouch = false;
 
     // Seated on a tavern stool (Obsidian 792): pin to the seat, face the bar
-    // or table, perch at seat height; any movement input stands back up.
+    // or table, perch at seat height. DELIBERATE movement stands back up, but
+    // only past the sit cooldown and above a real threshold - tiny residual
+    // input / joystick drift must not eject the player (Obsidian 805).
     if (this.inTavern && this.seatedAt) {
       const s = this.seatedAt;
       const p = this.player;
-      if (Math.abs(p.moveDir.x) > 0.01 || Math.abs(p.moveDir.z) > 0.01) {
+      const moving = Math.hypot(p.moveDir.x, p.moveDir.z) > 0.4;
+      if (moving && performance.now() >= (this._seatCd || 0)) {
         this._standFromSeat();
       } else {
         p.pos.x = s.x; p.pos.z = s.z;
