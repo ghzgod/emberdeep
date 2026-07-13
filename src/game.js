@@ -1224,29 +1224,48 @@ export class Game {
           female ? '*hic* Well aren\'t YOU a sight. Buy a girl a drink, gorgeous?' : '*hic* Well hello, hero. Come to keep a lonely girl company?',
           'You\'ve got a look about you. Sit with me a while?',
         ]);
-    // She SPEAKS first (voiced bubble over her head); the reply choices appear
-    // only AFTER she's had her say - never before you've seen/heard her line
-    // (Obsidian 841). She turns to face you via the same talk gate.
-    roaster.sayGated(this, pm.name || 'Rosalind', opener, this._flirtVoice(), pm, { durationMs: 4800 });
-    clearTimeout(this._flirtOpenTimer);
-    const delay = Math.min(4200, 1500 + opener.length * 45);
-    this._flirtOpenTimer = setTimeout(() => {
-      if (this.state !== 'flirt') return; // walked off / closed during her line
-      this.ui.openFlirtDialog(pm, opener, this._flirtChoices(pm, female));
-    }, delay);
+    // She SPEAKS first; the reply choices appear only AFTER her line actually
+    // shows (Obsidian 848: a fixed delay opened them while the thinking ellipsis
+    // was still up). onShown fires the instant the bubble replaces the pill; we
+    // then reveal the choices a short beat later.
+    this._openFlirtAfterSpeaking(pm, opener, female);
   }
 
-  // Four options, coldest → boldest. The boldest is tamer without 18+.
+  // Speak a Rosalind line, then reveal the reply choices ~0.7s after her bubble
+  // actually appears (never before/while she's still "thinking") - Obsidian 848.
+  _openFlirtAfterSpeaking(pm, line, female) {
+    clearTimeout(this._flirtOpenTimer);
+    const reveal = () => {
+      clearTimeout(this._flirtOpenTimer);
+      this._flirtOpenTimer = setTimeout(() => {
+        if (this.state === 'flirt' && this.ui._flirtPm !== null) {
+          this.ui.openFlirtDialog(pm, line, this._flirtChoices(pm, female));
+        }
+      }, 750);
+    };
+    this.ui._flirtPm = pm; // claim the conversation so a stray close doesn't race
+    roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 4800, onShown: reveal });
+    // Safety net: if onShown never fires (no speech path at all), still reveal.
+    this._flirtOpenTimer = setTimeout(reveal, 4500);
+  }
+
+  // Reply options, CONTEXTUAL to how well she knows you (Obsidian 853): you don't
+  // proposition someone you just met, so the boldest move escalates with affinity
+  // - light banter early, a drink offer once warming, and the overt "somewhere
+  // quieter" only once she's smitten. (A fully LLM-generated option set is the
+  // larger 853 rework.)
   _flirtChoices(pm, female) {
     const adult = this.settings.adult18;
+    const a = pm.affinity || 0;
     const choices = [
       { tier: 0, label: 'Not interested. Leave me be.' },
       { tier: 1, label: 'Just here for a quiet drink, thanks.' },
       { tier: 2, label: female ? 'You\'re trouble, aren\'t you? *smile*' : 'You\'re bold. I like that.' },
-      { tier: 3, label: adult ? 'Maybe we take this somewhere quieter…' : 'Maybe I buy you that drink after all.' },
     ];
-    // Once she's at least warming, offer the walk-to-bar beat (Obsidian 822).
-    if ((pm.affinity || 0) >= 1) choices.push({ tier: 2, label: '🍺 Buy her a drink at the bar', buyDrink: true });
+    if (adult && a >= 5) choices.push({ tier: 3, label: 'Maybe we take this somewhere quieter…' });
+    else if (a >= 2) choices.push({ tier: 3, label: female ? 'Let me buy you a drink, gorgeous.' : 'Let me buy you a drink.' });
+    else choices.push({ tier: 3, label: female ? 'You\'ve certainly got my attention.' : 'I could get used to your company.' });
+    if (a >= 1) choices.push({ tier: 2, label: '🍺 Buy her a drink at the bar', buyDrink: true });
     return choices;
   }
 
@@ -1269,16 +1288,31 @@ export class Game {
     // "she starts, stops, then says something else" swap (Obsidian 801 re-fix).
     const canned = this._flirtReply(pm, tier, adult, female);
     const line = (await this._flirtLLMLine(pm, tier, adult, female)) || canned;
-    roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 5200 });
     pm.talkUntil = performance.now() + 12000;
     const end = pm.affinity <= -3; // she's had enough of a cold shoulder
     // The EARNED payoff (Obsidian 829): once she's genuinely into you (smitten,
     // built up over several exchanges) in 18+ mode and you make the forward move,
-    // she invites you to her room upstairs - the UI then offers "Follow her
-    // upstairs" which takes you up to her room.
+    // she invites you to her room upstairs.
     const invitedUpstairs = adult && tier === 3 && pm.affinity >= 5 && (pm._flirtEx || 0) >= 4;
     if (invitedUpstairs) pm._invitedUpstairs = true;
-    return { line, affinity: pm.affinity, disliked: end, invitedUpstairs, choices: end ? [] : this._flirtChoices(pm, female) };
+    // Speak the reply, then reveal the next step ONLY after her bubble shows
+    // (Obsidian 848) - end / follow-upstairs / the next choices.
+    this.ui._flirtPm = pm;
+    clearTimeout(this._flirtOpenTimer);
+    const reveal = () => {
+      clearTimeout(this._flirtOpenTimer);
+      this._flirtOpenTimer = setTimeout(() => {
+        if (this.state !== 'flirt' || this.ui._flirtPm !== pm) return;
+        if (end) { this.ui.closeFlirt(); return; }
+        const choices = invitedUpstairs
+          ? [{ tier: 3, label: '💋 Follow her upstairs', followUp: true }]
+          : this._flirtChoices(pm, female);
+        this.ui.openFlirtDialog(pm, line, choices);
+      }, 750);
+    };
+    roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 5200, onShown: reveal });
+    this._flirtOpenTimer = setTimeout(reveal, 5200); // safety net if onShown never fires
+    return { line, affinity: pm.affinity, disliked: end, invitedUpstairs };
   }
 
   // "Buy her a drink" (Obsidian 822): close the flirt and kick off the walk-to-
