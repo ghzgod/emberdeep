@@ -119,10 +119,39 @@ export function buildTavernInterior() {
   // against its top edge.
   const wallH = 3.3;
   const wainH = 1.0;
-  const mkWall = (w, d, x, z, horizontal) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), plasterMat);
-    m.position.set(x, wallH / 2, z);
-    group.add(m);
+  // Window opening dims for cut-through walls (Obsidian 824-followup): a real
+  // hole in the wall at each window centre so the recessed 3D view behind it is
+  // visible. Collision is grid-based (isWalkable reads dungeon.grid, not this
+  // mesh), so cutting the mesh never lets the hero walk out. `wins` = the along-
+  // wall centre coordinates of the windows in this segment (empty = solid wall).
+  const WIN_HW = 0.66, WIN_YB = 1.16, WIN_YT = 2.24;
+  const mkWall = (w, d, x, z, horizontal, wins = null) => {
+    if (!wins || !wins.length) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), plasterMat);
+      m.position.set(x, wallH / 2, z);
+      group.add(m);
+    } else {
+      // Frame of boxes around each hole: full-height pillars in the gaps between
+      // windows, plus a sill strip below and a header strip above each opening.
+      const longLen = horizontal ? w : d, thick = horizontal ? d : w;
+      const longCtr = horizontal ? x : z, start = longCtr - longLen / 2, end = longCtr + longLen / 2;
+      const addSeg = (a, b, yb, yh) => {
+        if (b - a < 0.02 || yh < 0.02) return;
+        const geo = horizontal ? new THREE.BoxGeometry(b - a, yh, thick) : new THREE.BoxGeometry(thick, yh, b - a);
+        const m = new THREE.Mesh(geo, plasterMat);
+        if (horizontal) m.position.set((a + b) / 2, yb + yh / 2, z); else m.position.set(x, yb + yh / 2, (a + b) / 2);
+        m.castShadow = m.receiveShadow = true; group.add(m);
+      };
+      const holes = wins.map((c) => [c - WIN_HW, c + WIN_HW]).sort((p, q) => p[0] - q[0]);
+      let cursor = start;
+      for (const [ha, hb] of holes) {
+        addSeg(cursor, ha, 0, wallH);           // pillar up to the opening
+        addSeg(ha, hb, 0, WIN_YB);              // sill below the opening
+        addSeg(ha, hb, WIN_YT, wallH - WIN_YT); // header above the opening
+        cursor = hb;
+      }
+      addSeg(cursor, end, 0, wallH);            // final pillar
+    }
     // wainscot: a thin waist-high board panel on the inner face of the wall
     const wt = boardTex.clone(); wt.needsUpdate = true;
     wt.repeat.set((horizontal ? w : d) / TILE, 1);
@@ -155,9 +184,9 @@ export function buildTavernInterior() {
     else wain.position.set(x + dir * (w / 2 - panelT / 2 + WALL_GAP), wainH / 2, z);
     group.add(wain);
   };
-  mkWall(W * TILE, TILE, (W * TILE) / 2, TILE / 2, true);
-  mkWall(TILE, H * TILE, TILE / 2, (H * TILE) / 2, false);
-  mkWall(TILE, H * TILE, W * TILE - TILE / 2, (H * TILE) / 2, false);
+  mkWall(W * TILE, TILE, (W * TILE) / 2, TILE / 2, true);              // north (no windows)
+  mkWall(TILE, H * TILE, TILE / 2, (H * TILE) / 2, false, [2.2 * TILE, 5.4 * TILE]);           // west: 2 windows
+  mkWall(TILE, H * TILE, W * TILE - TILE / 2, (H * TILE) / 2, false, [1.6 * TILE, 3.4 * TILE]); // east: 2 windows
   // South wall, split around the exit gap. DOOR_GAP_W/gapCenterX are declared
   // here (rather than down by the rest of the door dressing) so both this
   // split and the jamb/leaf/threshold-glow below share one definition. Was a
@@ -167,8 +196,8 @@ export function buildTavernInterior() {
   // the narrower gap.
   const DOOR_GAP_W = 2.2, gapCenterX = 8 * TILE + TILE / 2; // matches exit tile (8, 10)
   const westSegR = gapCenterX - DOOR_GAP_W / 2, eastSegL = gapCenterX + DOOR_GAP_W / 2;
-  mkWall(westSegR - 1, TILE, (1 + westSegR) / 2, H * TILE - TILE / 2, true);
-  mkWall((W * TILE - 1) - eastSegL, TILE, (eastSegL + W * TILE - 1) / 2, H * TILE - TILE / 2, true);
+  mkWall(westSegR - 1, TILE, (1 + westSegR) / 2, H * TILE - TILE / 2, true, [6.5 * TILE]);  // south-west: 1 window
+  mkWall((W * TILE - 1) - eastSegL, TILE, (eastSegL + W * TILE - 1) / 2, H * TILE - TILE / 2, true, [10 * TILE]); // south-east: 1 window
   // Ceiling beams REMOVED (user report): at gameplay camera angles the
   // y=2.55 rafters sliced across the view and read as mid-room walls that
   // blocked sight of the table areas.
@@ -207,14 +236,13 @@ export function buildTavernInterior() {
   let winSeed = 11;
   const mkWindow = (x, z, roty) => {
     const grp = new THREE.Group();
-    // Genuinely 3D "outside" (Obsidian 824): a shallow shadow-box that juts a
-    // little INTO the room (there's no space behind - the wall is solid there
-    // and would occlude a recessed view, as the deep version proved) holding
-    // REAL geometry - a sky backdrop, a receding ground plane and trees at
-    // staggered depth - so it reads as looking out with actual parallax, not a
-    // flat painted postcard. (A true recessed view needs holes cut in the walls.)
-    const FRONT = 0.42;         // how far the box stands off the wall into the room
-    const BACK = -0.03;         // sky plane, right at the wall face
+    // Genuinely see-through (Obsidian 824-followup): the walls are now CUT through
+    // at each window (mkWall `wins`), so the 3D "outside" is RECESSED behind the
+    // wall into the void - a sky backdrop, a receding ground plane and trees at
+    // staggered depth, framed at the opening. Real depth + parallax, viewed
+    // through an actual hole rather than a box jutting into the room.
+    const FRONT = 0.06;         // frame, just proud of the inner opening
+    const BACK = -1.85;         // sky plane, out past the wall's outer face
     const tunMat = new THREE.MeshStandardMaterial({ color: 0x1c140d, roughness: 1 });
     const tD = FRONT - BACK, tCz = (FRONT + BACK) / 2;
     const tTop = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.08, tD), tunMat); tTop.position.set(0, 0.63, tCz);
