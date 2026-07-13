@@ -925,7 +925,7 @@ export function buildTavernInterior() {
     // class rig + skin/hair/style/face per patron so no two read the same, the
     // same variety the char-creator exposes.
     { tile: [3, 4], angle: 0.9, name: 'patron', cls: 'scout', gender: 'female', skin: 'tan', hairColor: 'darkbrown', hairStyle: 'bun', faceShape: 'round', eyeColor: 'green', npcName: 'Tavern Patron', mood: 'rude' },
-    { tile: [12, 4], angle: -2.0, name: 'drunk', cls: 'villager', gender: 'male', skin: 'brown', hairColor: 'grey', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown', npcName: 'Tipsy Regular', mood: 'friendly' },
+    { tile: [12, 4], angle: -2.0, name: 'drunk', cls: 'cleric', gender: 'male', skin: 'brown', hairColor: 'grey', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown', npcName: 'Tipsy Regular', mood: 'friendly' },
     // Rosalind (Obsidian 783/808): the tavern flirt. A named regular the player
     // can chat up through a branching, affinity-driven dialogue; her tone warms
     // or cools with the player's replies and turns overtly sexual only in 18+
@@ -1115,7 +1115,7 @@ export function buildTavernInterior() {
     const VISITOR_LOOKS = [
       { cls: 'drifter', gender: 'male', skin: 'tan', hairColor: 'darkbrown', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown' },
       { cls: 'scout', gender: 'female', skin: 'light', hairColor: 'blonde', hairStyle: 'ponytail', faceShape: 'narrow', eyeColor: 'blue' },
-      { cls: 'villager', gender: 'male', skin: 'fair', hairColor: 'chestnut', hairStyle: 'short', faceShape: 'round', eyeColor: 'green' },
+      { cls: 'drifter', gender: 'male', skin: 'fair', hairColor: 'chestnut', hairStyle: 'short', faceShape: 'round', eyeColor: 'green' },
       { cls: 'cleric', gender: 'female', skin: 'brown', hairColor: 'black', hairStyle: 'bun', faceShape: 'standard', eyeColor: 'amber' },
       { cls: 'knight', gender: 'male', skin: 'deep', hairColor: 'black', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown' },
       { cls: 'ranger', gender: 'female', skin: 'tan', hairColor: 'auburn', hairStyle: 'long', faceShape: 'round', eyeColor: 'green' },
