@@ -4,7 +4,7 @@ import { Input } from './core/input.js';
 import { SaveManager } from './core/save.js';
 import { audio } from './core/audio.js';
 import { generateDungeon, generateTown, FLOOR, WALL, DOOR, BRIDGE } from './world/dungeon.js';
-import { buildDungeonMeshes, TILE, tileToWorld, worldToTile, setWallCellStage } from './world/meshbuilder.js';
+import { buildDungeonMeshes, TILE, tileToWorld, worldToTile, setWallCellStage, buildNpcModel } from './world/meshbuilder.js';
 import { themeForFloor, actOfFloor, actFloorOf, makeGlowTexture } from './world/textures.js';
 import { Player, xpForLevel } from './entities/player.js';
 import { Enemy, Boss, ENEMY_TYPES, ACT_BOSSES, buildEnemyMesh, buildBossMesh, resetEnemyAnimBudget } from './entities/enemies.js';
@@ -1330,15 +1330,101 @@ export class Game {
     this.ui.closeFlirt?.();
     audio.play('door_open');
     this.loadTavernUpstairs();
-    // stand in her room (SE), clear of the collision-blocked bed
-    this.player.pos.set(23, 0, 18);
-    this.player.visualAngle = Math.PI; // face into the room
-    this.ui.floaters?.spawn(this.player.pos, 'You follow Rosalind upstairs…', 'crit');
+    const bp = this.dungeonMeshes.rosalindBedPos || { x: 21.4, z: 20.5 };
+    // Stand in HER room, beside the bed, facing it (Obsidian 851: it used to drop
+    // you in the wrong room with no Rosalind).
+    this.player.pos.set(bp.x + 1.5, 0, bp.z);
+    this.player.visualAngle = Math.atan2(bp.x - this.player.pos.x, bp.z - this.player.pos.z) - Math.PI / 2;
+    // Rosalind is actually HERE now: build her rig by the bed and add it to the
+    // upstairs group so teardown cleans it up. Skimpy crimson tint like the tavern.
+    const npc = buildNpcModel('drifter', 'Rosalind', {
+      gender: 'female', skinTone: 'light', hairColor: 'auburn', hairStyle: 'long', faceShape: 'narrow', eyeColor: 'violet',
+    });
+    let anchor = { x: bp.x - 0.7, z: bp.z };
+    if (npc) {
+      npc.mesh.position.set(bp.x - 0.7, 0, bp.z);
+      npc.mesh.rotation.y = Math.atan2(this.player.pos.x - npc.mesh.position.x, this.player.pos.z - npc.mesh.position.z);
+      npc.mesh.traverse((o) => {
+        if (!o.isMesh || !o.material || !o.name) return;
+        if (/_Body$/i.test(o.name)) { o.material = o.material.clone(); o.material.color.setHex(0x8a1f3a); }
+        else if (/_Leg/i.test(o.name)) { o.material = o.material.clone(); o.material.color.setHex(0xf3c9a6); }
+      });
+      this.dungeonMeshes.group.add(npc.mesh);
+      // idle animation via the shared upstairs smokePuffs tick
+      let _ph = 0;
+      (this.dungeonMeshes.smokePuffs = this.dungeonMeshes.smokePuffs || []).push({
+        kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1,
+        get phase() { return _ph; }, set phase(v) { const dt = Math.min(0.1, Math.max(0, v - _ph)); _ph = v; npc.tick(dt); },
+      });
+    }
+    // She welcomes you; in 18+ mode the door shuts and the rest FADES TO BLACK
+    // (implied, tasteful) - then a morning-after beat. No on-screen explicit content.
+    const adult = this.settings.adult18;
+    const line = adult
+      ? 'Mmm, finally alone. Door\'s locked, hero — now get over here.'
+      : 'Finally, a little privacy. Sit with me a while.';
+    roaster.sayGated(this, 'Rosalind', line, this._flirtVoice(), anchor, { durationMs: 4200 });
+    if (adult) this._roomFadeTimer = setTimeout(() => this._fadeScene(), 4000);
+  }
+
+  // A tasteful fade-to-black for the implied 18+ upstairs encounter (851): the
+  // screen fades out, holds on a discreet caption, and fades back to a morning-
+  // after beat. Deliberately NO on-screen sexual content.
+  _fadeScene() {
+    if (this.state !== 'flirt' && !this.inUpstairs) return;
+    let ov = document.getElementById('scene-fade');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'scene-fade';
+      ov.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;z-index:9999;transition:opacity 1.2s ease;pointer-events:none;display:flex;align-items:center;justify-content:center;color:#e8c8d2;font:italic 22px Georgia,serif;text-align:center;';
+      document.body.appendChild(ov);
+    }
+    ov.textContent = 'The door clicks shut behind you…';
+    ov.style.pointerEvents = 'auto';
+    requestAnimationFrame(() => { ov.style.opacity = '1'; });
+    setTimeout(() => { ov.textContent = '— some time later —'; }, 2200);
+    setTimeout(() => {
+      ov.style.opacity = '0';
+      const bp = this.dungeonMeshes?.rosalindBedPos;
+      if (bp) roaster.sayGated(this, 'Rosalind', this.settings.adult18 ? 'Mmm… you\'re trouble, you know that? Stay a while.' : 'That was nice. Stay a while?', this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000 });
+    }, 4200);
+    setTimeout(() => { if (ov) ov.style.pointerEvents = 'none'; }, 5600);
   }
 
   // Ask the keyless LLM (Pollinations) for Rosalind's next line, in character
   // and gated to the current 18+ mode. Short timeout; returns null on any
   // slowness/failure so flirtSelect falls back to the canned bank (801).
+  // LLM-DRIVEN flirt turn (Obsidian 853): the free keyless LLM generates BOTH
+  // Rosalind's spoken line AND the player's next reply options as JSON, from the
+  // running conversation + her mood - so the dialogue and its branches are
+  // dynamic/emergent instead of hardcoded. Returns { line, options:[{label,
+  // warmth,upstairs}] } or null (caller falls back to the canned bank).
+  async _flirtLLMTurn(pm, playerLine) {
+    if (!llm.ready) return null;
+    const adult = this.settings.adult18;
+    const female = this.player.gender === 'female';
+    const a = pm.affinity || 0;
+    const mood = a <= -3 ? 'fed up and dismissive' : a >= 6 ? 'smitten' : a >= 3 ? 'warming up' : a >= 1 ? 'curious' : 'cool but intrigued';
+    pm._flirtHistory = pm._flirtHistory || [];
+    if (playerLine) pm._flirtHistory.push({ role: 'user', content: `Adventurer: ${playerLine}` });
+    const sys = `You are Rosalind, a tipsy, flirtatious regular at a fantasy tavern, talking with an adventurer${female ? ' (a woman - you are into women)' : ''}. Your mood right now: ${mood} (affinity ${a} on a -4..8 scale). ${adult ? '18+ MODE IS ON: be crude, vulgar and explicitly sexual with profanity when your mood is warm.' : 'Keep it suggestive and playful but CLEAN - no profanity or explicit content.'} You do NOT jump to bed with someone you just met - escalate naturally over the conversation. Reply with ONLY a JSON object, no prose:\n{"line":"<your ONE short spoken line, max 22 words, in character>","options":[<3 or 4 objects>{"text":"<a short line the ADVENTURER could say back, max 11 words>","warmth":<integer -2..2, how forward/warm it is>${adult ? ',"upstairs":<true ONLY if this option is you being invited to her room and she is smitten>' : ''}}]}\nMake the options sporadic and varied, always including one cold/dismissive and one warm, fitting THIS moment in the chat.`;
+    const msgs = [{ role: 'system', content: sys }, ...pm._flirtHistory.slice(-8)];
+    const out = await llm.chat(msgs, { timeout: 6000, temperature: 1.05, maxTokens: 240 });
+    if (!out) return null;
+    let obj;
+    try { obj = JSON.parse(out.match(/\{[\s\S]*\}/)[0]); } catch { return null; }
+    if (!obj || typeof obj.line !== 'string' || !Array.isArray(obj.options) || !obj.options.length) return null;
+    const options = obj.options.slice(0, 4).map((o) => ({
+      label: String(o.text || o.label || '').slice(0, 90),
+      warmth: Math.max(-2, Math.min(2, Math.round(Number(o.warmth) || 0))),
+      upstairs: !!o.upstairs,
+    })).filter((o) => o.label);
+    if (!options.length) return null;
+    pm._flirtHistory.push({ role: 'assistant', content: `Rosalind: ${obj.line}` });
+    if (pm._flirtHistory.length > 16) pm._flirtHistory = pm._flirtHistory.slice(-16);
+    return { line: obj.line.slice(0, 180), options };
+  }
+
   async _flirtLLMLine(pm, tier, adult, female) {
     if (!llm.ready) return null;
     const mood = pm.affinity <= -3 ? 'fed up and dismissive'
