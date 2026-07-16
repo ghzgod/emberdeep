@@ -416,6 +416,7 @@ export class Game {
     this.elitesKilled = 0;
     this.storySeen = [];
     this.vendorMemory = {}; // per-vendor { met, lastItem } for greeting-first dialogue
+    this._rosalindMet = false; // fresh character: she'll walk up to you once
     this.clearedFloors = {}; // fresh character, nothing culled yet
     this.destroyedWallsSession = {}; // fresh session: every wall whole again
     this.destructibleWallHits = {};
@@ -440,6 +441,7 @@ export class Game {
     this.actsCleared = data.actsCleared ?? (this.bossDefeated ? 5 : Math.min(4, Math.floor((this.floor - 1) / 10)));
     this.storySeen = data.storySeen || [];
     this.vendorMemory = data.vendorMemory || {};
+    this._rosalindMet = !!data.rosalindMet; // persist "she's already approached you once" (828)
     this.clearedFloors = data.clearedFloors || {}; // absent on pre-feature saves
     this.destroyedWallsSession = {}; // session-only: never persisted, always fresh
     this.destructibleWallHits = {};
@@ -1216,6 +1218,9 @@ export class Game {
 
   flirtChat(pm) {
     if (pm.affinity == null) pm.affinity = 0;
+    // Any conversation counts as "met" (828): once you've talked to her, she
+    // never walks up to you again - you approach her from then on. Persisted.
+    if (pm.flirty && !this._rosalindMet) { this._rosalindMet = true; this.requestSave(); }
     this.state = 'flirt';
     pm.talkUntil = performance.now() + 15000;
     const female = this.player.gender === 'female';
@@ -4134,6 +4139,7 @@ export class Game {
       storySeen: this.storySeen,
       vendorMemory: this.vendorMemory,
       clearedFloors: this.clearedFloors, // { floor: true } full clears only
+      rosalindMet: !!this._rosalindMet, // she only ever walks up to you ONCE (828)
     });
   }
 
