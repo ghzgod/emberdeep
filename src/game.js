@@ -746,7 +746,7 @@ export class Game {
     this.inTavern = true;
     this.inUpstairs = false;
     if (this._lyingBed) { this._lyingBed = null; if (this.player?.mesh) this.player.mesh.rotation.x = 0; }
-    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._roomRosalind = null; this._rosalindInBed = false; // cancel any in-flight walk/climb (873/923/928)
+    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._roomRosalind = null; this._rosalindInBed = false; this._tavernVendorNpc = null; // cancel any in-flight walk/climb (873/923/928)
     this._sceneLock = false;  // re-arm the stuck-failsafe off the scripted floor (874)
     this._stopFadeAudio?.();  // stop the lights-out audio if the player bails mid-scene (881)
     if (resume) {
@@ -900,6 +900,46 @@ export class Game {
         }, 2600);
       }
     }
+    // 900b/c: if a booth vendor is off at the tavern, THIS is where they are -
+    // spawn them as an interactable so you can find them, talk, and send them
+    // back to reopen their stall (see the tavern interact + _talkTavernVendor).
+    this._spawnTavernVendor();
+  }
+
+  // 900b/c: place the currently-away vendor in the tavern (near the entrance) as
+  // a stationary, chattable NPC. Cleared when you leave the floor.
+  _spawnTavernVendor() {
+    this._despawnTavernVendor();
+    const away = this._vendorAway;
+    if (!away || !this.inTavern || this.inUpstairs) return;
+    const npc = buildNpcModel('cleric', away.name, { gender: 'male', skinTone: 'tan', hairColor: 'brown', hairStyle: 'short' });
+    if (!npc) return;
+    const spot = { x: 12, z: 18.5 }; // open floor near the south entrance
+    npc.mesh.position.set(spot.x, 0, spot.z);
+    npc.mesh.rotation.y = Math.PI; // face into the room
+    this.dungeonMeshes.group.add(npc.mesh);
+    this._tavernVendorNpc = { npc, name: away.name, x: spot.x, z: spot.z };
+  }
+
+  _despawnTavernVendor() {
+    const tv = this._tavernVendorNpc;
+    if (!tv) return;
+    this._tavernVendorNpc = null;
+    if (tv.npc?.mesh) { this.dungeonMeshes?.group?.remove(tv.npc.mesh); tv.npc.mesh.traverse?.((o) => o.geometry?.dispose?.()); }
+  }
+
+  // 900b/c: talk to the away vendor in the tavern - they head back to their
+  // stall (returns in ~25s so the booth reopens) and leave the tavern.
+  _talkTavernVendor() {
+    const tv = this._tavernVendorNpc;
+    if (!tv) return;
+    roaster.sayGated(this, tv.name, this._pick([
+      'Ha! Caught me slacking. Fine, fine - I\'ll head back to the stall. Give me a moment.',
+      'Just wetting my whistle! I\'ll be back behind the counter shortly, come find me there.',
+      'Aye, business calls. I\'ll wander back to my stall now - buy from me there.',
+    ]), this._noiseVoice(), { x: tv.x, z: tv.z }, { priority: true, durationMs: 4000 });
+    if (this._vendorAway?.name === tv.name) this._vendorAway.returnAt = performance.now() + 25000; // heads back soon
+    this._despawnTavernVendor();
   }
 
   // ---------------- tavern upstairs rooms (Obsidian 800) ----------------
@@ -940,7 +980,7 @@ export class Game {
     this.inTown = true;
     this.inTavern = false;
     this.inUpstairs = false;
-    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._roomRosalind = null; this._rosalindInBed = false; this._sceneLock = false; // off the scripted floor (873/874/923/928)
+    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._roomRosalind = null; this._rosalindInBed = false; this._tavernVendorNpc = null; this._sceneLock = false; // off the scripted floor (873/874/923/928)
     this._stopFadeAudio?.(); // stop lights-out audio when leaving to town (881)
     const theme = themeForFloor(1);
     this.dungeon = generateTown();
@@ -6665,6 +6705,10 @@ export class Game {
       // the old radius - across-the-counter talking must always reach her.
       if (!candidate && this.dungeonMeshes.barkeepPos && near(this.dungeonMeshes.barkeepPos.x, this.dungeonMeshes.barkeepPos.z, 3.8)) {
         candidate = { label: 'Talk to Magda', icon: '🍺', talk: true, action: () => this.barkeepChat() };
+      }
+      // 900b/c: an away booth vendor is here - talk to send them back to reopen
+      if (!candidate && this._tavernVendorNpc && near(this._tavernVendorNpc.x, this._tavernVendorNpc.z, 2.0)) {
+        candidate = { label: `Talk to ${this._tavernVendorNpc.name}`, icon: '💬', talk: true, action: () => this._talkTavernVendor() };
       }
       if (!candidate) {
         for (const pm of this.dungeonMeshes.patronMeshes || []) {
