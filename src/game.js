@@ -1757,13 +1757,33 @@ export class Game {
         if (!pDone) this._npcFootstep(pm.x, pm.z, dt, '_stairHStep');
       }
       if (pDone) {
-        // reached the top of the flight -> transition to the upstairs scene.
+        // reached the top of the flight -> transition upstairs.
+        const solo = sc.solo;
         this._stairScene = null;
         p.scriptedSpeed = 0;
         audio.play('door_open');
-        this._enterRosalindRoomUpstairs();
+        if (solo) {
+          // plain 'Head upstairs' (928): just go up, no Rosalind scene.
+          this.loadTavernUpstairs();
+          this.camZoom = 0.85; this._yawManualT = 0; this._sceneLock = false;
+        } else {
+          this._enterRosalindRoomUpstairs();
+        }
       }
     }
+  }
+
+  // Plain 'Head upstairs' button (928): walk the player UP the flight on foot
+  // (side camera) and transition at the top - no teleport, no Rosalind scene.
+  headUpstairsWalk() {
+    if (this._stairScene) return;
+    this._sceneLock = true;
+    this.camYaw = -Math.PI / 2; this._yawManualT = 999; this.camZoom = 0.6;
+    this._stairScene = {
+      pm: null, solo: true, phase: 'climb',
+      baseZ: 20.6, topZ: 16.6, stairX: 30.4, run: 0.44, rise: 0.32, steps: 9,
+      pWalk: { x: this.player.pos.x, z: this.player.pos.z },
+    };
   }
 
   // Upstairs half of the follow scene (873): transition up, build Rosalind at the
@@ -6092,7 +6112,7 @@ export class Game {
       // the tavern floor, descend from the stairwell up top.
       if (!candidate && !this.inUpstairs && this.dungeon.stairsUp && this.stairsCooldown <= 0
         && near(30.4, 20.6, 2.2)) {
-        candidate = { label: 'Head upstairs', icon: '🪜', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTavernUpstairs(); } };
+        candidate = { label: 'Head upstairs', icon: '🪜', action: () => { this.stairsCooldown = 1.5; this.headUpstairsWalk(); } };
       }
       if (!candidate && this.inUpstairs && this.dungeonMeshes.stairsDownPos && this.stairsCooldown <= 0
         && near(this.dungeonMeshes.stairsDownPos.x, this.dungeonMeshes.stairsDownPos.z, 2.0)) {
