@@ -599,10 +599,24 @@ export function buildTavernInterior() {
             keeper.position.x = target.x; keeper.position.z = target.z; keeper.position.y = target.y;
             st.wp++;
             if (st.wp >= path.length) {
-              if (st.mode === 'toTable') { st.mode = 'atTable'; st.waitT = 3 + Math.random() * 2; }
-              else {
+              if (st.mode === 'toTable') {
+                st.mode = 'atTable'; st.waitT = 3 + Math.random() * 2;
+                // She serves a round (902): pour cue + a fresh mug on the table
+                // that stays until she heads back, so the visit reads as service.
+                audio.pour();
+                if (!st.servedMug) {
+                  const mug = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.07, 0.07, 0.13, 8),
+                    new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.4, roughness: 0.5 }));
+                  mug.position.set(visitTable.x, 1.02, visitTable.z);
+                  group.add(mug); st.servedMug = mug;
+                }
+              } else {
                 st.mode = 'bar'; st.paceTarget = randPace(); st.waitT = 2 + Math.random() * 2;
                 st.nextVisitAt = now + (30 + Math.random() * 30) * 1000;
+                // clear the served mug once she's back behind the bar (the
+                // patron "finished" it) - keeps the scene from accumulating mugs.
+                if (st.servedMug) { group.remove(st.servedMug); st.servedMug.geometry.dispose(); st.servedMug = null; }
               }
             }
           } else {

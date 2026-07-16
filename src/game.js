@@ -6255,7 +6255,7 @@ export class Game {
               mug.position.set(s.x, 1.18, s.z - 0.62); // on the counter in front of the stool
               this.dungeonMeshes.group.add(mug);
             }
-            audio.play('ui_click', { volume: 0.6 });
+            audio.pour(); // audible pour as she serves (902)
             roaster.sayGated(this, 'Magda', 'Two honeyed ales, loves. On the counter.', { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, this.dungeonMeshes.barkeepPos, { durationMs: 3600, priority: true });
             pm.affinity = Math.min(8, (pm.affinity || 0) + 1); // a drink warms her up
             pm._hadDrink = true;                               // choices change (847)

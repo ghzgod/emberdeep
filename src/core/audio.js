@@ -1029,6 +1029,26 @@ export class AudioEngine {
     if (note && N[note]) this._lute(N[note]);
   }
 
+  // Pouring a drink (Obsidian 902): filtered noise whose bandpass pitch RISES
+  // as the vessel fills (the classic "pouring liquid" cue), with a little
+  // amplitude wobble for the glug. ~1.1s. Public so Magda's serve can call it.
+  pour() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource(); src.buffer = this._noise(); src.loop = true;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 3.5;
+    bp.frequency.setValueAtTime(420, t);
+    bp.frequency.exponentialRampToValueAtTime(1500, t + 1.0); // pitch rises as it fills
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.05, t + 0.08);
+    // gentle glug wobble
+    for (let i = 0; i < 6; i++) g.gain.linearRampToValueAtTime(0.03 + Math.random() * 0.03, t + 0.15 + i * 0.14);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.15);
+    src.connect(bp); bp.connect(g); g.connect(this.ambGain);
+    src.start(t); src.stop(t + 1.2);
+  }
+
   _crackle() { // a short fire pop
     const t = this.ctx.currentTime;
     const src = this.ctx.createBufferSource(); src.buffer = this._noise();
