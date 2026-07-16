@@ -1320,6 +1320,37 @@ export class Game {
     if (s && s.kind === 'bar') this.player.pos.z = s.z + 0.7;
   }
 
+  // Sleep the night away (875): fade to black, advance the town day/night clock
+  // to just before sunrise, then wake at first light - so stepping outside after
+  // shows the morning. Reuses the fade overlay; the sleep flag gates re-triggers.
+  sleepUntilMorning() {
+    if (this._sleeping) return;
+    this._sleeping = true;
+    let ov = document.getElementById('scene-fade');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'scene-fade';
+      ov.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;z-index:9999;transition:opacity 1.4s ease;pointer-events:none;display:flex;align-items:center;justify-content:center;color:#e8c8d2;font:italic 22px Georgia,serif;text-align:center;';
+      document.body.appendChild(ov);
+    }
+    ov.textContent = 'You close your eyes…';
+    ov.style.pointerEvents = 'auto';
+    requestAnimationFrame(() => { ov.style.opacity = '1'; });
+    audio.play('ui_click', { volume: 0.4 });
+    setTimeout(() => {
+      // set the clock to early dawn: phase ~0.72 is the sunrise ramp (see
+      // updateDayNight's cosine - dayAmt is low and rising there).
+      this.townClock = Game.DAY_NIGHT_PERIOD * 0.72;
+      ov.textContent = '— you wake at first light —';
+    }, 1600);
+    setTimeout(() => {
+      ov.style.opacity = '0';
+      if (this._lyingBed) this._standFromBed();
+      this._sleeping = false;
+      setTimeout(() => { if (ov) ov.style.pointerEvents = 'none'; }, 1600);
+    }, 3600);
+  }
+
   // Get up from a bed (Obsidian 842b/846): un-tip the hero, restore the weapon,
   // step off toward the room.
   _standFromBed() {
@@ -5954,8 +5985,10 @@ export class Game {
           }
         }
       }
-      if (!candidate && this.inUpstairs && this._lyingBed) {
-        candidate = { label: 'Get up', icon: '🧍', action: () => this._standFromBed() };
+      if (!candidate && this.inUpstairs && this._lyingBed && !this._sleeping) {
+        // Sleep the night away (875): advances the town clock to sunrise so
+        // stepping outside after shows morning. Moving still just gets you up.
+        candidate = { label: 'Sleep till morning', icon: '😴', action: () => this.sleepUntilMorning() };
       }
       // Sitting at a stool you're RIGHT ON TOP OF wins over Magda's talk prompt
       // (892): Magda's 3.8-unit talk radius covered every bar stool, so it always
