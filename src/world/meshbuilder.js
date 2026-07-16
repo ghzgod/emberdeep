@@ -2457,6 +2457,39 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     // S=1.35 grows the windows/sign to suit the taller single-story wall;
     // the door assembly keeps its own human-passable scale.
     buildFacade((W - 0.4) / 2, D / 2 - 0.2, D / 2 - 0.2, 1.35, 1.8);
+    // ---- MegaKit tavern shell (Obsidian 784): the procedural box building
+    // swaps for a building ASSEMBLED from authored kit modules - plain plaster
+    // + wood-grid wall pieces (exactly 2.0 wide = one TILE) around the 14x10
+    // plot, under the kit's 8x14 round-tile roof. The existing proven facade
+    // dressing (glowing windows, coherent door, hanging sign, day/night glow)
+    // re-lands on the kit walls. Procedural shell stays if the kit can't load.
+    swapInModel(tavern, shell, ['mkWallStraight', 'mkWallGrid', 'mkRoof'], ([wallT, gridT, roofT]) => {
+      if (!wallT || !roofT) return null;
+      const kit = new THREE.Group();
+      const wallAt = (tpl, x, z, ry) => {
+        const m = buildModelMesh(tpl, 3.12);
+        m.position.set(x, 0, z); m.rotation.y = ry;
+        kit.add(m);
+      };
+      const halfW = W / 2, halfD = D / 2;
+      for (let i = 0; i < 7; i++) {
+        const x = -6 + i * 2;
+        wallAt(i % 2 ? (gridT || wallT) : wallT, x, halfD - 0.2, 0);        // front (south)
+        wallAt(i % 2 ? wallT : (gridT || wallT), x, -halfD + 0.2, Math.PI); // back (north)
+      }
+      for (let i = 0; i < 5; i++) {
+        const z = -4 + i * 2;
+        wallAt(wallT, -halfW + 0.2, z, Math.PI / 2);   // west
+        wallAt(wallT, halfW - 0.2, z, -Math.PI / 2);   // east
+      }
+      const roof = buildModelMesh(roofT, 6.78);
+      roof.rotation.y = Math.PI / 2; // long axis along X (the 14-unit side)
+      roof.position.set(0, 2.7, 0);  // eaves overlap the wall tops slightly
+      kit.add(roof);
+      clearFacade();
+      buildFacade((W - 0.4) / 2, halfD + 0.05, halfD - 0.2, 1.35, 1.8);
+      return kit;
+    });
     // barrel + bench outside, near the door (barrel swaps to the modeled one).
     // Held in its own subgroup (not loose in `tavern`) so breakNear() can
     // smash just the barrel without touching the rest of the building.
