@@ -5310,7 +5310,7 @@ export class Game {
     // ...and never while seated on the fireside couch (Obsidian 747): the
     // per-frame mouse raycast was overriding the seated stare-at-the-fire
     // facing, so the hero's head chased the cursor from the couch.
-    if (!this.touch.enabled && !this.sittingOnCouch && !sceneLocked) {
+    if (!this.touch.enabled && !this.sittingOnCouch && !this.seatedAt && !sceneLocked) {
       this._mouseNdc.set(
         (input.mouse.x / window.innerWidth) * 2 - 1,
         -(input.mouse.y / window.innerHeight) * 2 + 1
