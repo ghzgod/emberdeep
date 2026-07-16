@@ -1472,6 +1472,34 @@ export class UI {
       this.game.saveSettings();
     };
 
+    // change character name (935): text input + confirm, persisted to the save.
+    // playerName() reads emberdeep-name-v1 fresh on every call, so dialogue and
+    // the multiplayer nameplate pick up the new name immediately - no rebuild.
+    const charName = $('set-charname');
+    const charNameSave = $('btn-charname-save');
+    if (charName && charNameSave) {
+      charName.value = localStorage.getItem('emberdeep-name-v1') || '';
+      const doRename = async () => {
+        const next = charName.value.trim().slice(0, 14);
+        if (!next) {
+          this.confirmModal({ title: 'Name required', message: 'Enter a character name first.', notice: true, confirmText: 'OK' });
+          return;
+        }
+        const cur = localStorage.getItem('emberdeep-name-v1') || 'Hero';
+        if (next === cur) return;
+        const ok = await this.confirmModal({
+          title: 'Change character name?',
+          message: `Rename your character from "${cur}" to "${next}"? NPCs who already know you will start using the new name.`,
+          confirmText: 'Rename', cancelText: 'Cancel',
+        });
+        if (!ok) { charName.value = cur; return; }
+        localStorage.setItem('emberdeep-name-v1', next);
+        this.confirmModal({ title: 'Name changed', message: `You are now known as ${next}.`, notice: true, confirmText: 'OK' });
+      };
+      charNameSave.onclick = doRename;
+      charName.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doRename(); } };
+    }
+
     // neural character voices (Kokoro) — the only voice engine; no user toggle.
     $('btn-voice-retry').onclick = async () => {
       const { neuralVoice } = await import('../ai/neuralVoice.js');
@@ -1859,6 +1887,8 @@ export class UI {
     $('set-quality').value = s.quality;
     this._syncQualitySelect?.();
     $('set-shake').checked = s.screenShake;
+    const cn = $('set-charname');
+    if (cn) cn.value = localStorage.getItem('emberdeep-name-v1') || '';
     this._syncAiVoiceToggles?.();
   }
 
