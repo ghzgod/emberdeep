@@ -1227,14 +1227,27 @@ export class Game {
     this.state = 'flirt';
     pm.talkUntil = performance.now() + 15000;
     const female = this.player.gender === 'female';
-    const opener = pm.affinity <= -3
-      ? this._pick(['Oh. You again. Thought I made myself clear.', 'Back for more? I already lost interest, sweetheart.'])
-      : pm.affinity >= 3
-        ? this._pick([female ? 'There she is — the prettiest thing in this whole tavern.' : 'There you are, handsome. I saved you a look.', 'Mmm. I was hoping you\'d come back to me.'])
-        : this._pick([
-          female ? '*hic* Well aren\'t YOU a sight. Buy a girl a drink, gorgeous?' : '*hic* Well hello, hero. Come to keep a lonely girl company?',
-          'You\'ve got a look about you. Sit with me a while?',
-        ]);
+    // Re-engagements get their OWN varied bank (Obsidian 856: leaving and talking
+    // again 20s later replayed the exact first-meeting "*hic* Well hello, hero"
+    // intro). The introduction lines only ever play on the true first exchange.
+    const talkedBefore = (pm._flirtEx || 0) > 0 || pm._greeted;
+    pm._greeted = true;
+    let opener;
+    if (pm.affinity <= -3) {
+      opener = this._pick(['Oh. You again. Thought I made myself clear.', 'Back for more? I already lost interest, sweetheart.']);
+    } else if (pm._hadDrink && !pm._toasted) {
+      pm._toasted = true;
+      opener = this._pick(['*clinks your mug* To bad decisions and better company.', 'Mmm, honeyed ale. You spoil me, hero. *sips*']);
+    } else if (talkedBefore) {
+      opener = pm.affinity >= 3
+        ? this._pick(['Miss me already? Good.', 'Mmm, I was hoping you\'d come back to me.', female ? 'Back so soon, gorgeous? Sit.' : 'Back so soon, handsome? Sit.', '*smiles over her mug* Go on then, say it.'])
+        : this._pick(['Back again? I\'m starting to think you like me.', '*raises an eyebrow* Yes?', 'Couldn\'t stay away, could you?', 'Still here, still thirsty. What is it, love?']);
+    } else {
+      opener = this._pick([
+        female ? '*hic* Well aren\'t YOU a sight. Buy a girl a drink, gorgeous?' : '*hic* Well hello, hero. Come to keep a lonely girl company?',
+        'You\'ve got a look about you. Sit with me a while?',
+      ]);
+    }
     // She SPEAKS first; the reply choices appear only AFTER her line actually
     // shows (Obsidian 848: a fixed delay opened them while the thinking ellipsis
     // was still up). onShown fires the instant the bubble replaces the pill; we
@@ -1274,9 +1287,11 @@ export class Game {
       { tier: 2, label: female ? 'You\'re trouble, aren\'t you? *smile*' : 'You\'re bold. I like that.' },
     ];
     if (adult && a >= 5) choices.push({ tier: 3, label: 'Maybe we take this somewhere quieter…' });
-    else if (a >= 2) choices.push({ tier: 3, label: female ? 'Let me buy you a drink, gorgeous.' : 'Let me buy you a drink.' });
+    else if (a >= 2) choices.push({ tier: 3, label: pm._hadDrink ? 'To us, then. *raises mug*' : (female ? 'Let me buy you a drink, gorgeous.' : 'Let me buy you a drink.') });
     else choices.push({ tier: 3, label: female ? 'You\'ve certainly got my attention.' : 'I could get used to your company.' });
-    if (a >= 1) choices.push({ tier: 2, label: '🍺 Buy her a drink at the bar', buyDrink: true });
+    // The walk-to-bar beat is offered ONCE - after she's had her drink the
+    // choices move on instead of nagging "buy her a drink" forever (847).
+    if (a >= 1 && !pm._hadDrink) choices.push({ tier: 2, label: '🍺 Buy her a drink at the bar', buyDrink: true });
     return choices;
   }
 
@@ -5511,24 +5526,78 @@ export class Game {
     if (this.wanderer && this.inTown && !this.inTavern) this.wanderer.update(dt, this);
     if (this.inTown && !this.inTavern) this.updateVendors(dt);
 
-    // Buy-her-a-drink scripted beat (Obsidian 822): you and Rosalind both walk
-    // to the bar, you buy her a drink from Magda, then the flirt resumes warmer.
-    // player.pos is overridden each frame (same pin trick as the couch) so input
-    // can't fight the walk.
+    // Buy-her-a-drink scripted beat (Obsidian 822/847 rework): you and Rosalind
+    // walk to two adjacent BAR STOOLS (room side - never through the counter),
+    // both SIT, Magda serves two visible mugs on the counter, then the chat
+    // resumes warmer with CHANGED choices (pm._hadDrink). player.pos is
+    // overridden per-frame (couch pin trick) so input can't fight the walk.
     if (this._buyScene && this.inTavern && !this.inUpstairs) {
       const bs = this._buyScene, pm = bs.pm, p = this.player;
-      const bk = this.dungeonMeshes.barkeepPos;
-      const barX = bk ? bk.x : 12, barZ = (bk ? bk.z : 4) + 2.0;
-      const pdx = barX - 0.9 - p.pos.x, pdz = barZ - p.pos.z, pd = Math.hypot(pdx, pdz) || 1;
-      if (pd > 0.5) { const s = Math.min(pd - 0.4, 2.6 * dt); p.pos.x += pdx / pd * s; p.pos.z += pdz / pd * s; p.aimAngle = Math.atan2(pdz, pdx); p.faceAimTimer = 0.2; }
-      const rdx = barX + 0.9 - pm.mesh.position.x, rdz = barZ - pm.mesh.position.z, rd = Math.hypot(rdx, rdz) || 1;
-      if (rd > 0.5) { const s = Math.min(rd - 0.4, 2.4 * dt); pm.mesh.position.x += rdx / rd * s; pm.mesh.position.z += rdz / rd * s; pm.x = pm.mesh.position.x; pm.z = pm.mesh.position.z; pm.talkUntil = performance.now() + 700; }
-      if (pd <= 0.5 && rd <= 0.5 && !bs.done) {
-        bs.done = true;
-        audio.play('ui_click', { volume: 0.6 });
-        pm.affinity = Math.min(8, (pm.affinity || 0) + 1); // a drink warms her up
-        this.ui.floaters?.spawn(p.pos, '🍺 You buy Rosalind a drink', 'crit');
-        setTimeout(() => { this._buyScene = null; if (this.inTavern && !this.inUpstairs) this.flirtChat(pm); }, 1600);
+      if (!bs.seats) {
+        // choose two adjacent free stools once (skip stools other patrons occupy)
+        const bar = (this.dungeonMeshes.seats || []).filter((s) => s.kind === 'bar')
+          .filter((s) => !(this.dungeonMeshes.patronMeshes || []).some((o) => o !== pm && Math.hypot(o.x - s.x, o.z - s.z) < 0.7))
+          .sort((a, b) => Math.hypot(a.x - p.pos.x, a.z - p.pos.z) - Math.hypot(b.x - p.pos.x, b.z - p.pos.z));
+        for (let i = 0; i < bar.length && !bs.seats; i++) {
+          for (let j = i + 1; j < bar.length; j++) {
+            if (Math.abs(bar[i].x - bar[j].x) < 1.8 && Math.abs(bar[i].z - bar[j].z) < 0.3) { bs.seats = [bar[i], bar[j]]; break; }
+          }
+        }
+        if (!bs.seats && bar.length >= 2) bs.seats = [bar[0], bar[1]];
+        if (!bs.seats) { this._buyScene = null; this.flirtChat(pm); }
+      }
+      if (bs.seats) {
+        const [sMine, sHers] = bs.seats;
+        // player walks to their stool, then SITS via the normal seat pin.
+        // bs.pWalk is the scripted position and p.pos is OVERWRITTEN with it
+        // each frame (full pin, like the couch): if the walk merely stepped
+        // p.pos, live input kept moving it too - the "rubber-banding into the
+        // bar" the user saw.
+        if (!bs.meSeated) {
+          if (!bs.pWalk) bs.pWalk = { x: p.pos.x, z: p.pos.z };
+          const pdx = sMine.x - bs.pWalk.x, pdz = sMine.z - bs.pWalk.z, pd = Math.hypot(pdx, pdz) || 1;
+          if (pd > 0.12) {
+            const s = Math.min(pd, 2.6 * dt);
+            bs.pWalk.x += pdx / pd * s; bs.pWalk.z += pdz / pd * s;
+            p.aimAngle = Math.atan2(pdz, pdx); p.faceAimTimer = 0.2;
+          } else { bs.meSeated = true; this.seatedAt = sMine; this._seatCd = performance.now() + 1200; bs.pWalk = { x: sMine.x, z: sMine.z }; }
+          p.pos.x = bs.pWalk.x; p.pos.z = bs.pWalk.z;
+        }
+        // Rosalind walks to hers, then perches on it
+        if (!bs.herSeated) {
+          const rdx = sHers.x - pm.mesh.position.x, rdz = sHers.z - pm.mesh.position.z, rd = Math.hypot(rdx, rdz) || 1;
+          if (rd > 0.25) { const s = Math.min(rd, 2.4 * dt); pm.mesh.position.x += rdx / rd * s; pm.mesh.position.z += rdz / rd * s; pm.x = pm.mesh.position.x; pm.z = pm.mesh.position.z; }
+          else {
+            bs.herSeated = true;
+            pm.mesh.position.set(sHers.x, 0.46, sHers.z); // stool perch height (788)
+            pm.mesh.rotation.y = Math.PI; // face the counter like the other bar patrons
+            pm.x = sHers.x; pm.z = sHers.z; pm.seat = 'bar';
+          }
+        }
+        // both seated -> Magda serves two visible mugs, then the chat resumes
+        if (bs.meSeated && bs.herSeated && !bs.served) {
+          bs.served = true;
+          if (this.dungeonMeshes.talkGate) {
+            this.dungeonMeshes.talkGate.magdaUntil = performance.now() + 5000;
+            this.dungeonMeshes.talkGate.magdaLook = { x: sMine.x, z: sMine.z, until: performance.now() + 5000 };
+          }
+          setTimeout(() => {
+            if (!this.inTavern || this.inUpstairs) return;
+            const mugGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.13, 8);
+            const mugMat = new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.4, roughness: 0.5 });
+            for (const s of [sMine, sHers]) {
+              const mug = new THREE.Mesh(mugGeo, mugMat);
+              mug.position.set(s.x, 1.18, s.z - 0.62); // on the counter in front of the stool
+              this.dungeonMeshes.group.add(mug);
+            }
+            audio.play('ui_click', { volume: 0.6 });
+            roaster.sayGated(this, 'Magda', 'Two honeyed ales, loves. On the counter.', { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, this.dungeonMeshes.barkeepPos, { durationMs: 3600 });
+            pm.affinity = Math.min(8, (pm.affinity || 0) + 1); // a drink warms her up
+            pm._hadDrink = true;                               // choices change (847)
+            this.ui.floaters?.spawn(p.pos, '🍺 You buy Rosalind a drink', 'crit');
+          }, 900);
+          setTimeout(() => { this._buyScene = null; if (this.inTavern && !this.inUpstairs) this.flirtChat(pm); }, 5200);
+        }
       }
     }
 
