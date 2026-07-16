@@ -1219,6 +1219,55 @@ export class UI {
   // the replacement list is just themed DOM positioned within the page flow.
   // Returns a sync() function callers can invoke after setting select.value
   // programmatically (e.g. a fallback reset) to refresh the custom label.
+  // Segmented NOTCHED slider (914): replaces a dropdown with a horizontal bar of
+  // discrete notches you slide between (notch-bar-notch), with the current
+  // option's short label under it. Drives the hidden <select> (the value store),
+  // so all the existing onchange wiring keeps working. Works on pointer (mouse +
+  // touch) and every layout. Returns a sync() to refresh from the select.
+  enhanceSegSlider(id) {
+    const select = $(id);
+    const wrap = select?.closest('.segslider');
+    if (!wrap) return () => {};
+    const options = Array.from(select.options);
+    const n = options.length;
+    const track = document.createElement('div'); track.className = 'seg-track';
+    const fill = document.createElement('div'); fill.className = 'seg-fill'; track.appendChild(fill);
+    for (let i = 0; i < n; i++) {
+      const notch = document.createElement('div'); notch.className = 'seg-notch';
+      notch.style.left = n > 1 ? `${(i / (n - 1)) * 100}%` : '50%';
+      track.appendChild(notch);
+    }
+    const thumb = document.createElement('div'); thumb.className = 'seg-thumb'; track.appendChild(thumb);
+    const label = document.createElement('div'); label.className = 'seg-label';
+    wrap.appendChild(track); wrap.appendChild(label);
+
+    const idxOf = () => Math.max(0, options.findIndex((o) => o.value === select.value));
+    const sync = () => {
+      const i = idxOf();
+      const pct = n > 1 ? (i / (n - 1)) * 100 : 50;
+      thumb.style.left = `${pct}%`; fill.style.width = `${pct}%`;
+      label.textContent = options[i]?.dataset.short || options[i]?.textContent || '';
+      track.querySelectorAll('.seg-notch').forEach((nn, k) => nn.classList.toggle('passed', k <= i));
+    };
+    const setFromX = (clientX) => {
+      const r = track.getBoundingClientRect();
+      const frac = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+      const i = Math.round(frac * (n - 1));
+      if (options[i] && select.value !== options[i].value) {
+        select.value = options[i].value;
+        select.dispatchEvent(new Event('change'));
+      }
+      sync();
+    };
+    let dragging = false;
+    track.addEventListener('pointerdown', (e) => { dragging = true; try { track.setPointerCapture(e.pointerId); } catch { /* no capture */ } setFromX(e.clientX); });
+    track.addEventListener('pointermove', (e) => { if (dragging) setFromX(e.clientX); });
+    track.addEventListener('pointerup', () => { dragging = false; });
+    track.addEventListener('pointercancel', () => { dragging = false; });
+    sync();
+    return sync;
+  }
+
   enhanceSelect(id) {
     const select = $(id);
     const wrap = select.closest('.cselect');
@@ -1346,7 +1395,7 @@ export class UI {
     const q = $('set-quality');
     q.value = s.quality;
     q.onchange = () => { s.quality = q.value; this.game.applyQuality(); this.game.saveSettings(); };
-    this._syncQualitySelect = this.enhanceSelect('set-quality');
+    this._syncQualitySelect = this.enhanceSegSlider('set-quality');
 
     const shake = $('set-shake');
     shake.checked = s.screenShake;
@@ -1468,7 +1517,7 @@ export class UI {
     vThresh.value = s.voiceThreshold;
     vVal.textContent = s.voiceThreshold;
     syncVoiceRows();
-    const syncVSel = this.enhanceSelect('set-voice');
+    const syncVSel = this.enhanceSegSlider('set-voice');
     vSel.onchange = async () => {
       s.voiceMode = vSel.value;
       this.game.saveSettings();
