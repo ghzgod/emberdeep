@@ -2044,14 +2044,22 @@ body.touch-mode #chat-title { font-size: 11px; }
      quest line to the LEFT of the minimap (grid) instead of stacked above it, so
      the whole cluster is only as tall as the map and never reaches down into the
      ability wheel below it. */
+  /* 944: the minimap spans all three text rows and is taller (~110px) than the
+     title+objective stack (~52px), so the shared auto row-tracks stretched to
+     match it and the empty 'clear' row in the MIDDLE absorbed the slack -
+     shoving the objective ~58px below the title. Fix: put the objective in the
+     row DIRECTLY under the title and move the flexible slack to a spacer row
+     BELOW both, so the map still spans the column (grid keeps it cleanly to the
+     right, no overlap) while title + objective stay tight at the top. */
   #hud-topright {
     display: grid; grid-template-columns: auto auto;
-    grid-template-areas: "floor map" "clear map" "quest map";
+    grid-template-areas: "floor map" "quest map" "clear map";
+    grid-template-rows: auto auto 1fr;
     justify-items: end; align-items: start; gap: 1px 8px; min-height: 88px; max-width: 80vw;
   }
   #hud-floor-row { grid-area: floor; }
-  #hud-clear { grid-area: clear; }
   #hud-quest { grid-area: quest; max-width: 42vw; }
+  #hud-clear { grid-area: clear; }
   #minimap { grid-area: map; align-self: start; }
   /* boss-bar-wrap is world-anchored above the boss now (positioned each frame
      from JS), so it needs no per-layout top offset here. */
