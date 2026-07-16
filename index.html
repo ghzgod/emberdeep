@@ -426,7 +426,8 @@
           </span>
         </label>
         <label>Screen Shake <span class="toggle"><input type="checkbox" id="set-shake" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
-        <label>Mouse Attack (desktop) <span class="toggle"><input type="checkbox" id="set-mouse-attack" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
+        <label class="desktop-only-row">Ability Hotkey Hints <span class="toggle"><input type="checkbox" id="set-hotkeys" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
+        <label class="desktop-only-row">Mouse Attack (desktop) <span class="toggle"><input type="checkbox" id="set-mouse-attack" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <label>In-Game AI <span class="toggle"><input type="checkbox" id="set-ingame-ai"><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <label>In-Game Natural Voices <span class="toggle"><input type="checkbox" id="set-natural-voice"><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <label>Enemy Taunts (spoken) <span class="toggle"><input type="checkbox" id="set-taunts" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
@@ -453,8 +454,8 @@
         </div>
         <p id="ptt-meter-hint" class="hint hidden">Hold your push-to-talk key and speak - this shows your live mic level.</p>
         <div id="mic-test-row" class="hidden"><button id="btn-mic-test" class="menu-btn small">Test mic (hear yourself)</button></div>
-        <div class="keybind-header">Key Bindings <span class="hint">(desktop)</span></div>
-        <div id="keybinds"></div>
+        <div class="keybind-header desktop-only-row">Key Bindings <span class="hint">(desktop)</span></div>
+        <div id="keybinds" class="desktop-only-row"></div>
       </div>
       <div class="menu-buttons"><button id="btn-settings-back" class="menu-btn">Back</button></div>
     </div>

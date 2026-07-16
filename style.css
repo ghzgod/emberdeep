@@ -288,6 +288,14 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #hud-players { color: #8ac8ff; }
 #hud-gold { color: var(--gold); }
 #hud-potions { color: #e87a7a; }
+/* level = a ringed gold number (reads as a level badge without the "Lv" text) */
+#hud-level .lv-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; height: 22px; padding: 0 5px; box-sizing: border-box;
+  border: 1.5px solid var(--gold); border-radius: 12px;
+  color: var(--gold); font-weight: 700; font-size: 0.82em; line-height: 1;
+}
+#hud-level .lv-pts { color: #ffe9a8; margin-left: 5px; }
 
 /* One clean right-aligned stack (TODO 697): the location/floor title (icon +
    text) sits on its own row, with the objective/clear lines below it flush to
@@ -616,6 +624,9 @@ body:not(.touch-input) #joy-ghost { display: none !important; }
   text-shadow: 0 1px 1px rgba(0,0,0,0.9); letter-spacing: 0;
   pointer-events: none;
 }
+/* No keyboard on a phone: touch layouts never show the 1-4 hotkey chips, and
+   desktop players can switch them off in Settings (861). */
+body.touch-mode .act-key, body.no-hotkeys .act-key { display: none; }
 /* the big basic-attack button carries a solid gold rim (the cluster's anchor) */
 .act-basic { border: 2px solid rgba(232,192,90,0.8); box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 10px rgba(232,192,90,0.18); }
 .act-basic .act-icon { font-size: 30px; }
@@ -889,7 +900,10 @@ body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster
 .overlay-close:hover { border-color: var(--gold); color: var(--gold); }
 
 /* ---------- Floaters ---------- */
-#floaters { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 15; }
+/* Below #hud (z 10): floating world text (damage numbers, overhead labels,
+   portal titles) must never cover an actionable HUD button like the interact
+   pill ("Return to Embervale") - the action always wins the z-fight (863). */
+#floaters { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 9; }
 .floater {
   position: absolute; font-size: 17px; font-weight: bold; color: #fff;
   text-shadow: 0 2px 3px #000, 0 0 6px rgba(0,0,0,0.6); transform: translate(-50%, -50%);
@@ -1300,6 +1314,12 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
   box-shadow: var(--panel-shadows);
   padding: 14px; box-sizing: border-box;
 }
+/* THE portrait-overlap root cause (862): this panel is a max-height flex
+   column with overflow-y scroll, and flex items default to flex-shrink:1 -
+   when the rows didn't fit, the browser SQUASHED them (a wrapped Graphics
+   Quality row collapsed to 0 height and its dropdown painted over Screen
+   Shake) instead of scrolling. Rows must never shrink; the panel scrolls. */
+.settings-rows > * { flex-shrink: 0; }
 /* Desktop: a wider settings panel so labels, sliders and keybinds have room. */
 @media (hover: hover) and (pointer: fine) {
   .settings-rows { width: min(82vw, 720px); max-height: 68vh; padding: 20px 24px; }
@@ -1343,9 +1363,24 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
 }
 .settings-rows select { font-family: inherit; font-size: 15px; background: #241a30; color: var(--parchment); border: 1px solid var(--panel-border); border-radius: 4px; padding: 4px 8px; max-width: 60%; }
 @media (max-width: 520px) {
-  .settings-rows { padding: 14px; gap: 10px; }
+  .settings-rows { padding: 14px; gap: 14px; }
   .settings-rows label { font-size: 14px; }
   .settings-rows select { max-width: 100%; }
+  /* ONE vertical rhythm for every row type (862): sliders and dropdowns stack
+     label-above-control at full width, so no label ever wraps against its
+     control ("Voice Chat Volume" used to break to two ragged lines) and the
+     gap between consecutive rows is identical whatever the control is. */
+  .settings-rows label:has(input[type=range]) {
+    grid-template-columns: 1fr 44px; grid-template-rows: auto auto; row-gap: 4px;
+  }
+  .settings-rows label:has(input[type=range]) input[type=range] { grid-column: 1 / -1; grid-row: 2; }
+  .settings-rows label:has(.cselect) { flex-direction: column; align-items: stretch; gap: 6px; min-height: 0; text-align: left; }
+  .settings-rows label:has(.toggle) { min-height: 44px; }
+}
+/* Phones/tablets have no keyboard: key bindings, mouse-attack and hotkey-hint
+   rows are meaningless there - hide them outright (861/862). */
+@media (pointer: coarse) {
+  .settings-rows .desktop-only-row, .settings-rows #keybinds { display: none; }
 }
 
 /* ---------- Custom dropdown (replaces native <select> in Settings) ----------
@@ -1463,7 +1498,7 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
 #floor-banner {
   position: absolute; top: 34%; left: 0; right: 0; text-align: center;
   font-size: 44px; color: var(--parchment); letter-spacing: 6px;
-  text-shadow: 0 0 26px rgba(0,0,0,0.9), 0 3px 3px #000; z-index: 18;
+  text-shadow: 0 0 26px rgba(0,0,0,0.9), 0 3px 3px #000; z-index: 9; /* under the HUD's action buttons (863) */
   animation: banner-fade 2.6s ease-in-out forwards;
 }
 #floor-banner .banner-sub { font-size: 16px; letter-spacing: 3px; opacity: 0.7; }
@@ -2086,7 +2121,15 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
   #hud-topleft .bar-wrap { height: 21px; }
   #hud-topleft .bar-wrap.small { height: 16px; }
   #hud-topleft .bar-text { font-size: 13px; }
-  #hud-stats { font-size: 18px; gap: 10px; }
+  /* Stats read as ONE deliberate pill, height-matched to the floor title row
+     opposite it so the two top corners share a baseline (859) instead of two
+     different-size text blocks floating at slightly different heights. */
+  #hud-stats {
+    font-size: 16px; gap: 10px; line-height: 1; height: 34px; align-items: center;
+    width: max-content; max-width: 100%; padding: 0 12px; box-sizing: border-box;
+    background: rgba(20, 14, 28, 0.78); border: 1px solid rgba(232, 192, 90, 0.5);
+    border-radius: 17px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
   /* Title (icon + short name) never wraps; the objective/clear lines below it
      DO wrap (tidily, flush right) instead of truncating mid-word - a long
      boss-hunt objective reads better wrapped than cut off with an ellipsis. */
@@ -2095,9 +2138,12 @@ body:has(.overlay.visible) #touch-ui { display: none !important; }
   #hud-floor { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #hud-clear, #hud-quest { max-width: 42vw; text-align: right; }
   #minimap { width: 110px; height: 110px; }
-  #hud-floor { font-size: 26px; }
-  #hud-quest { font-size: 15px; opacity: 0.85; }
-  #hud-clear { font-size: 17px; opacity: 1; }
+  /* title line-height matches the 34px stats pill for the shared baseline (859);
+     the objective/quest lines drop a size so they wrap into 2 tidy lines at
+     most instead of the ragged 3-line stack in image 126. */
+  #hud-floor { font-size: 22px; line-height: 34px; }
+  #hud-quest { font-size: 13px; opacity: 0.85; }
+  #hud-clear { font-size: 14px; opacity: 1; line-height: 1.3; }
   /* boss-bar-wrap is world-anchored (JS-positioned each frame) so no per-layout
      top offset is needed; just keep the width capped for small screens. */
   #boss-bar-wrap { width: min(84vw, 300px); }

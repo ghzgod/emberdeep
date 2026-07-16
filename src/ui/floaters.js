@@ -80,7 +80,13 @@ export class Floaters {
     this._v.set(s.anchor.x, (s.anchor.y ?? 0) + 2.4, s.anchor.z).project(this.camera);
     if (this._v.z > 1) { s.el.style.opacity = '0'; return; }
     s.el.style.opacity = '';
-    s.el.style.left = `${(this._v.x * 0.5 + 0.5) * window.innerWidth}px`;
+    // Edge-aware clamp (869): the bubble is centered on the speaker, so an NPC
+    // near a screen edge (portrait especially) had half its caption cut off.
+    // Clamp the center so the full bubble stays on-screen.
+    let px = (this._v.x * 0.5 + 0.5) * window.innerWidth;
+    const half = (s.el.offsetWidth || 0) / 2;
+    if (half) px = Math.min(window.innerWidth - 8 - half, Math.max(8 + half, px));
+    s.el.style.left = `${px}px`;
     s.el.style.top = `${(-this._v.y * 0.5 + 0.5) * window.innerHeight}px`;
   }
 
@@ -94,7 +100,11 @@ export class Floaters {
     // doesn't flip to the wrong side of the screen.
     if (this._v.z > 1) { t.el.style.opacity = '0'; return; }
     t.el.style.opacity = '1';
-    t.el.style.left = `${(this._v.x * 0.5 + 0.5) * window.innerWidth}px`;
+    // same edge clamp as the speech bubble (869)
+    let tx = (this._v.x * 0.5 + 0.5) * window.innerWidth;
+    const th = (t.el.offsetWidth || 0) / 2;
+    if (th) tx = Math.min(window.innerWidth - 8 - th, Math.max(8 + th, tx));
+    t.el.style.left = `${tx}px`;
     t.el.style.top = `${(-this._v.y * 0.5 + 0.5) * window.innerHeight}px`;
   }
 
