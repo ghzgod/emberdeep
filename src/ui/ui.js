@@ -215,14 +215,25 @@ export class UI {
   // dontShow: true adds a "Do not show again" checkbox to the modal. When
   // present, the promise resolves to an object { confirmed, dontShow } instead
   // of a bare boolean, so the caller can persist the preference.
-  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false, dontShow = false, password = false } = {}) {
+  confirmModal({ title = '', message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false, notice = false, dontShow = false, password = false, typeToConfirm = '' } = {}) {
     return new Promise((resolve) => {
       const modal = $('confirm-modal'), card = $('confirm-card');
       const okBtn = $('btn-confirm-ok'), cancelBtn = $('btn-confirm-cancel');
       const dontRow = $('confirm-dontshow-row'), dontBox = $('confirm-dontshow');
       const pwRow = $('confirm-password-row'), pwInput = $('confirm-password');
-      if (pwRow) pwRow.classList.toggle('hidden', !password);
-      if (pwInput) pwInput.value = '';
+      // Type-to-confirm (888): reuse the password row as a plain-text field the
+      // user must type an exact word into ("delete") before OK enables.
+      const showInput = !!password || !!typeToConfirm;
+      if (pwRow) pwRow.classList.toggle('hidden', !showInput);
+      if (pwInput) {
+        pwInput.value = '';
+        pwInput.type = typeToConfirm ? 'text' : 'password';
+        pwInput.placeholder = typeToConfirm ? `Type "${typeToConfirm}" to confirm` : 'Password';
+        if (typeToConfirm) {
+          okBtn.disabled = true;
+          pwInput.oninput = () => { okBtn.disabled = pwInput.value.trim().toLowerCase() !== typeToConfirm.toLowerCase(); };
+        } else { okBtn.disabled = false; pwInput.oninput = null; }
+      }
       $('confirm-title').textContent = title;
       $('confirm-message').textContent = message;
       card.classList.toggle('danger', !!danger);
@@ -238,12 +249,15 @@ export class UI {
         modal.classList.add('hidden');
         if (dontRow) dontRow.classList.add('hidden');
         okBtn.onclick = null; cancelBtn.onclick = null;
+        okBtn.disabled = false; // release the type-to-confirm gate (888)
+        if (pwInput) pwInput.oninput = null;
         modal.removeEventListener('click', onBackdrop);
         document.removeEventListener('keydown', onKey);
         if (pwRow) pwRow.classList.add('hidden');
         resolve(dontShow ? { confirmed, dontShow: !!(dontBox && dontBox.checked) }
           : password ? { confirmed, password: pwInput ? pwInput.value : '' }
-            : confirmed);
+            : typeToConfirm ? { confirmed }
+              : confirmed);
       };
       const onBackdrop = (e) => { if (e.target === modal) cleanup(false); };
       const onKey = (e) => { if (e.key === 'Escape') cleanup(false); };
@@ -410,7 +424,7 @@ export class UI {
     if (!seen) {
       const msg = which === 'ai'
         ? 'In-Game AI powers smarter bosses that learn and adapt over time. It runs machine learning in your browser, which uses more battery and memory. Turn it off to save power.'
-        : 'In-Game Natural Voices give characters lifelike neural speech instead of your browser\'s basic built-in voices. The voice model is a one-time large download and uses more battery and memory.';
+        : 'Full AI turns on learning bosses (they adapt to how you fight) and lifelike neural voices instead of your browser\'s basic built-in ones. The voice model is a one-time large download; both use more battery and memory. NPC conversations stay AI-written either way.';
       const res = await this.confirmModal({
         title: which === 'ai' ? 'In-Game AI' : 'In-Game Natural Voices',
         message: msg,
@@ -470,6 +484,21 @@ export class UI {
       }
       this.resetClassSelect();
       this.show('charselect');
+    };
+    // Delete ALL heroes (888): gated behind typing the word "delete" so it
+    // can't be a fat-finger. No-op with a notice when the roster is empty.
+    $('btn-delete-all').onclick = async () => {
+      const saves = SaveManager.listSaves();
+      if (!saves.length) { await this.confirmModal({ title: 'Nothing to delete', message: 'You have no saved heroes.', notice: true }); return; }
+      const res = await this.confirmModal({
+        title: 'Delete ALL characters',
+        message: `This permanently deletes all ${saves.length} saved ${saves.length === 1 ? 'hero' : 'heroes'}. This cannot be undone.`,
+        confirmText: 'Delete everything', danger: true, typeToConfirm: 'delete',
+      });
+      if (res && res.confirmed) {
+        for (const s of saves) SaveManager.deleteSlot(s.id);
+        this.renderSaves('All characters deleted.');
+      }
     };
     $('btn-charselect-back').onclick = () => { this.renderSaves(); this.show('saves'); };
     $('btn-shop-close').onclick = () => this.game.closeShop();
@@ -1338,15 +1367,13 @@ export class UI {
     // saver). Checked = the heavy features are on. Each toggle, the FIRST time
     // it is changed, shows a one-time explainer modal (with a "Do not show
     // again" persisted in localStorage); after that it toggles silently.
-    const aiToggle = $('set-ingame-ai');
+    // ONE toggle now (882): the old In-Game AI / Natural Voices pair both
+    // drove the same batterySaver state - two switches, one wire. NPC dialogue
+    // is LLM-driven regardless of this (884); this gates the heavy on-device
+    // extras only (learning bosses + the neural voice download).
     const voiceToggle = $('set-natural-voice');
-    const syncAiVoiceToggles = () => {
-      const on = s.batterySaver !== true;
-      aiToggle.checked = on;
-      voiceToggle.checked = on;
-    };
+    const syncAiVoiceToggles = () => { voiceToggle.checked = s.batterySaver !== true; };
     syncAiVoiceToggles();
-    aiToggle.onchange = () => this.onAiVoiceToggle('ai', aiToggle.checked, syncAiVoiceToggles);
     voiceToggle.onchange = () => this.onAiVoiceToggle('voice', voiceToggle.checked, syncAiVoiceToggles);
     this._syncAiVoiceToggles = syncAiVoiceToggles;
 

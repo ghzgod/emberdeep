@@ -40,6 +40,7 @@
       <div id="saves-list"></div>
       <div class="menu-buttons">
         <button id="btn-new-character" class="menu-btn">New Character</button>
+        <button id="btn-delete-all" class="menu-btn small danger">Delete All Characters</button>
         <button id="btn-saves-back" class="menu-btn small">Back</button>
       </div>
     </div>
@@ -428,8 +429,10 @@
         <label>Screen Shake <span class="toggle"><input type="checkbox" id="set-shake" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <label class="desktop-only-row">Ability Hotkey Hints <span class="toggle"><input type="checkbox" id="set-hotkeys" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <label class="desktop-only-row">Mouse Attack (desktop) <span class="toggle"><input type="checkbox" id="set-mouse-attack" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
-        <label>In-Game AI <span class="toggle"><input type="checkbox" id="set-ingame-ai"><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
-        <label>In-Game Natural Voices <span class="toggle"><input type="checkbox" id="set-natural-voice"><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
+        <!-- ONE toggle for the heavy on-device extras (882): the old In-Game AI /
+             Natural Voices pair both drove the same batterySaver state, which
+             just confused people. NPC dialogue is LLM-driven regardless (884). -->
+        <label>Full AI (learning bosses + natural voices) <span class="toggle"><input type="checkbox" id="set-natural-voice"><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <label>Enemy Taunts (spoken) <span class="toggle"><input type="checkbox" id="set-taunts" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <label>18+ Mature Content <span class="toggle"><input type="checkbox" id="set-adult18"><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <p id="voice-engine-status" class="hint hidden"></p>
