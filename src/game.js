@@ -1209,7 +1209,10 @@ export class Game {
   _standFromBed() {
     const b = this._lyingBed;
     this._lyingBed = null;
-    if (this.player.mesh) this.player.mesh.rotation.set(0, 0, 0); // player.js re-sets y next frame
+    if (this.player.mesh) {
+      this.player.mesh.rotation.order = 'XYZ'; // back to the walk/aim convention
+      this.player.mesh.rotation.set(0, 0, 0);  // player.js re-sets y next frame
+    }
     (this._lyWeaponHidden || []).forEach((o) => { o.visible = true; });
     this._lyWeaponHidden = null;
     if (b && b.standZ != null) this.player.pos.z = b.standZ;
@@ -5536,27 +5539,35 @@ export class Game {
       if (Math.abs(p.moveDir.x) > 0.25 || Math.abs(p.moveDir.z) > 0.25) {
         this._standFromBed();
       } else if (p.mesh) {
-        // FULL transform lock (Obsidian 846): the old pin set only rotation.x, so
-        // player.js kept steering rotation.y from the mouse (the "mouse rotates me"
-        // wobble) and the head ended up backwards. Set the whole transform here,
-        // AFTER player.update, so nothing fights it. Head points at the headboard.
-        // Tipping -90deg about X lays the hero on their back with the head toward
-        // +Z; add a PI yaw for north-wall beds so the head still meets the pillow.
-        // Body then runs along the bed's long (Z) axis, not off the side.
-        const northBed = (b.headAngle || 0) < 0;
+        // FULL transform lock (Obsidian 846). Two geometry facts drive this:
+        // 1) Euler order: with the default XYZ, a yaw composes BEFORE the -90deg
+        //    X tip, so it only spun the body around its own spine (the "facing
+        //    backwards" flip) and the head pointed north no matter what. YXZ
+        //    applies the yaw AFTER the tip, steering where the head points:
+        //    yaw 0 -> head -Z (north pillow), yaw PI -> head +Z (south pillow).
+        //    Face stays UP in both.
+        // 2) The rig's origin is at the FEET. Centring the origin on the bed
+        //    pushed the head a full body-length past the pillow ("head hanging
+        //    off the bed"). Put the feet at the FOOT end instead so the body
+        //    lies centred with the head ON the pillow.
+        const northBed = (b.headAngle || 0) < 0; // north rooms: pillow at -Z
         p.pos.x = b.x; p.pos.z = b.z;
-        p.mesh.position.set(b.x, 0.55, b.z);
-        p.mesh.rotation.set(-Math.PI / 2, northBed ? Math.PI : 0, 0);
+        p.mesh.rotation.order = 'YXZ';
+        p.mesh.rotation.set(-Math.PI / 2, northBed ? 0 : Math.PI, 0);
+        p.mesh.position.set(b.x, 0.58, northBed ? b.z + 0.85 : b.z - 0.85);
         p.visualAngle = b.headAngle || 0; // so it doesn't snap on stand
-        // Hide the held weapon while lying (846) - restored on stand.
+        // Hide held gear (weapon/shield/helmet overlays) while lying - and
+        // RE-ASSERT every frame, since the anim/gear systems can re-show them
+        // (the "weapon still in the hand" report).
         if (!this._lyWeaponHidden) {
           this._lyWeaponHidden = [];
           p.mesh.traverse((o) => {
-            if (o.isMesh && /sword|mace|axe|bow|wand|staff|hammer|dagger|blade|weapon|shield|spear/i.test(o.name || '') && o.visible) {
-              o.visible = false; this._lyWeaponHidden.push(o);
+            if (o.isMesh && /sword|mace|axe|bow|crossbow|wand|staff|hammer|dagger|blade|weapon|shield|spear|helmet|hat/i.test(o.name || '') && o.visible) {
+              this._lyWeaponHidden.push(o);
             }
           });
         }
+        for (const o of this._lyWeaponHidden) o.visible = false;
       }
     }
 
