@@ -170,6 +170,14 @@ export async function preloadHeroModels(onProgress) {
       });
       const box = anyBody ? bodyBox : new THREE.Box3().setFromObject(gltf.scene);
       const height = box.max.y - box.min.y || 1;
+      // Strip bone-SCALE tracks from every clip (Obsidian 760/809): the KayKit
+      // exports key a constant 1.0 scale on each bone, which made the mixer
+      // stomp the female silhouette's static bone scales every frame. Dropping
+      // the (visually inert) scale tracks changes nothing for males and lets
+      // the reshaped female skeleton survive animation.
+      for (const clip of gltf.animations) {
+        clip.tracks = clip.tracks.filter((t) => !t.name.endsWith('.scale'));
+      }
       loaded.set(classId, {
         scene: gltf.scene,
         animations: gltf.animations,
@@ -1083,15 +1091,31 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
 
   const mesh = skeletonClone(data.scene);
   mesh.scale.setScalar(data.scale);
-  // The KayKit base rigs ship a single body shape with no separate male/female
-  // meshes, so gender can only be reflected as a silhouette hint, not real
-  // anatomy. A female hero gets a slightly narrower, slightly taller build via a
-  // non-uniform scale on the shared scale; a male keeps the stock proportions.
-  // This is deliberately subtle so it never distorts the animations.
+  // REAL female silhouette via bone-level shaping (Obsidian 760/809): the old
+  // whole-mesh squish literally rendered "the male body squished". Instead the
+  // skeleton itself is reshaped - wider hips/glutes, a narrower waist, a bust
+  // hint at the chest - with counter-scales down the chain so the head, legs
+  // and arms keep near-true proportions (the head's slight narrowing doubles
+  // as the softer female face). Values are LOCAL per bone; each row's comment
+  // is the NET effect after the parent chain. Composes safely with animation:
+  // the KayKit clips key rotation/position, not scale.
   if (gender === 'female') {
-    mesh.scale.x *= 0.94;
-    mesh.scale.z *= 0.94;
-    mesh.scale.y *= 1.03;
+    mesh.scale.y *= 1.02; // a touch taller overall
+    const shape = {
+      hips: [1.14, 1, 1.10],        // net 1.14 wide, 1.10 deep - hips + glutes
+      spine: [0.79, 1, 0.855],      // net 0.90 x 0.94 - waist
+      chest: [1.156, 1, 1.213],     // net 1.04 x 1.14 - bust
+      head: [0.96, 1, 0.877],       // net ~1.0 - slightly slimmer female face
+      upperlegl: [0.895, 1, 0.927], // net ~1.02 - legs stay true
+      upperlegr: [0.895, 1, 0.927],
+      upperarml: [0.923, 1, 0.842], // net ~0.96 - shoulders/arms stay slim
+      upperarmr: [0.923, 1, 0.842],
+    };
+    mesh.traverse((o) => {
+      if (!o.isBone) return;
+      const s = shape[o.name.toLowerCase().replace(/\./g, '')];
+      if (s) o.scale.set(o.scale.x * s[0], o.scale.y * s[1], o.scale.z * s[2]);
+    });
   }
   let hoodedHead = null, headMesh = null, bakedHat = null;
   const spellbookMeshes = []; // mage's baked Spellbook/Spellbook_open - reused as the real Tome offhand mesh below
