@@ -182,8 +182,14 @@ const MALE_HINT = /male|daniel|alex|fred|arthur|george|aaron|guy|david|mark|jame
 // emphasis words (MINE, TWO, BURN, STAY, THAT, DARE) and em-dashes in
 // GREETINGS; the interjection table exists for any line added later.
 const VOCALIZATIONS = [
-  [/\bh+m+\b/gi, 'hum'],        // hmm, hmmm, hm -> "hum" (bare "hmm" gets spelled out on several system voices)
-  [/\bm{2,}h?m*\b/gi, 'hum'],   // mm, mmm, mhm -> "hum" (743: same initialism problem as hm)
+  // hmm / mmm / mm-hmm: system voices either SPELL these ("H M M") or read our
+  // old "hum" replacement as the literal verb "hum" (890: user heard the word
+  // "hum"). Neither is the soft thinking/pleasure sound intended. On the
+  // web-speech path drop them to a comma PAUSE instead - the caption keeps the
+  // original "Mmm" text, so she still reads as murmuring, the voice just pauses.
+  // (Neural/Kokoro voices don't run this filter and say "Mmm" naturally.)
+  [/\bh+m+\b/gi, ','],          // hmm, hmmm, hm -> pause
+  [/\bm{2,}h?m*\b/gi, ','],     // mm, mmm, mhm -> pause
   [/\bheh+\b/gi, 'heh'],        // heh, hehe -> unchanged; reads fine as a real word on tested system voices
   [/\bgr+\b/gi, 'gurr'],        // grr, grrr -> "gurr" (no vowel for the synth to grab onto otherwise)
   [/\b(?:tsk)+\b/gi, 'tisk'],   // tsk, tsktsk -> "tisk"
@@ -205,7 +211,14 @@ export function normalizeForSpeech(text) {
   // ALL-CAPS emphasis words -> lowercase (web-speech spells some caps out letter by letter)
   t = t.replace(/\b[A-Z]{2,}\b/g, (m) => m.toLowerCase());
   // collapse leftover whitespace / stray punctuation runs
-  t = t.replace(/\s+/g, ' ').replace(/\s+([,.!?])/g, '$1').replace(/(,){2,}/g, ',').trim();
+  t = t.replace(/\s+/g, ' ').replace(/\s+([,.!?])/g, '$1').replace(/(,){2,}/g, ',');
+  // murmur->pause substitutions (890) can leave orphan punctuation like ",."
+  // ",-," or a leading comma - tidy those so the pause reads clean.
+  t = t.replace(/,\s*[-–]\s*,/g, ',')   // ",-," -> ","
+    .replace(/,\s*([.!?])/g, '$1')       // ",." -> "."
+    .replace(/([.!?]),/g, '$1')          // "!," -> "!"
+    .replace(/^[\s,.\-–]+/, '')          // drop leading pause/comma/period
+    .replace(/\s+/g, ' ').trim();
   return t;
 }
 
