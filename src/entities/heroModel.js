@@ -602,8 +602,13 @@ function addHairMesh(mesh, headMesh, style, hex) {
       [w * 0.008, -h * 1.05],
     ].map(([r, y]) => new THREE.Vector2(Math.max(0.008, r), y));
     const tail = new THREE.Mesh(new THREE.LatheGeometry(tailPts, 12), mat);
-    tail.position.copy(tie.position);
-    tail.rotation.x = -0.12; // hangs close behind the head, slight outward sweep
+    // The tail's AXIS must start OUTSIDE the skull (883/images 133-134): parked
+    // at the tie's own (embedded) position, most of the tail was buried in the
+    // head and only a thin surface sliver poked out - it read as a flat BAND
+    // running from the tie down the back of the head. Hang it from the tie but
+    // clear of the skull's back face, tipped away so it falls behind the neck.
+    tail.position.set(tie.position.x, tie.position.y, bb.min.z - d * 0.05);
+    tail.rotation.x = -0.22; // swings down-and-back, away from the skull
     tail.castShadow = false; tail.receiveShadow = false; tail.frustumCulled = false;
     group.add(tail);
   } else if (style === 'bun') {
@@ -630,17 +635,24 @@ function addHairMesh(mesh, headMesh, style, hex) {
     // visible top rim and a flat mid-section - it read as a SHIELD/turtle shell
     // strapped to the back, not hair). The rim now starts against the skull's
     // own radius just below the crown and the curve tapers continuously.
+    // Narrow nape DRAPE, not a shell (865): even slimmed, the full back-half
+    // sweep at skull width still read as a SHIELD strapped to her back from
+    // behind. Sweep only the central ~115 degrees of the back, pull the radii
+    // in tighter/shorter, and squash it laterally so it reads as a sheet of
+    // hair falling from the crown down the nape - never silhouetting past the
+    // shoulders or covering the back.
     const pts = [
-      [d * 0.46, -h * 0.02],  // tucked against the skull - no exposed rim
-      [d * 0.54, -h * 0.35],
-      [d * 0.52, -h * 0.75],
-      [d * 0.44, -h * 1.1],
-      [d * 0.26, -h * 1.45],  // drapes onto the collar, tapering the whole way
-      [d * 0.06, -h * 1.6],
+      [d * 0.44, -h * 0.02],  // tucked against the skull - no exposed rim
+      [d * 0.48, -h * 0.32],
+      [d * 0.42, -h * 0.70],
+      [d * 0.32, -h * 1.05],
+      [d * 0.16, -h * 1.35],  // ends at the collar, tapering the whole way
+      [d * 0.04, -h * 1.5],
     ].map(([r, y]) => new THREE.Vector2(r, y));
     const shell = new THREE.Mesh(
-      new THREE.LatheGeometry(pts, 16, Math.PI / 2, Math.PI),
+      new THREE.LatheGeometry(pts, 14, Math.PI * 0.68, Math.PI * 0.64),
       new THREE.MeshStandardMaterial({ color: hex, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide }));
+    shell.scale.x = 0.8; // slimmer than the skull side-to-side
     shell.position.set(cx, bb.max.y - h * 0.05, cz);
     shell.castShadow = false; shell.receiveShadow = false; shell.frustumCulled = false;
     group.add(shell);
