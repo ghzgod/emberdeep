@@ -1550,6 +1550,16 @@ export class Game {
           'To us! *drinks deep* Mmm — you\'re better company than half this room put together.',
           '*taps her mug to yours* To handsome strangers and honeyed ale.',
         ]);
+      } else if (/your story|tell me (something|about)|who are you|where.*from|what.*your name|about yourself/i.test(playerLabel || '')) {
+        // The player ASKED HER SOMETHING and the LLM is down (901): answer the
+        // question with a canned about-her line instead of a random flirt that
+        // reads as a non-sequitur. She actually tells you a bit about herself.
+        line = this._pick([
+          'My story? Grew up two villages east, ran from a dull betrothal, and I\'ve been charming coin out of taverns ever since.',
+          'Not much to tell - I like strong ale, warm fires, and men who ask instead of assume. You\'re doing fine so far.',
+          'I came for the harvest fair years back and never left. Magda took me in. Now I know everyone\'s secrets and keep most of them.',
+          'A travelling player, once. The road got lonely, the stage got cold. Here the audience buys me drinks. Better deal.',
+        ]);
       } else {
         // Don't route a non-forward line into the tier-3 upstairs-tease bank:
         // only lines that actually SAY "somewhere quieter" earn that reply.
