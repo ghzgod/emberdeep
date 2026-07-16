@@ -6641,6 +6641,20 @@ export class Game {
             fs.hStep -= dt; if (fs.hStep <= 0) { fs.hStep = 0.36; audio.play('footstep', { volume: 0.25 }); }
           } else { npc.tick(dt, 0); }
         }
+        // 923-refine: don't let the hero and Rosalind clip THROUGH each other
+        // mid-walk. If they overlap, push both apart symmetrically along the line
+        // between them (they're headed to opposite sides of the bed, so once
+        // there they're well clear and this no-ops).
+        if (npc) {
+          const dx = fs.pWalk.x - npc.mesh.position.x, dz = fs.pWalk.z - npc.mesh.position.z;
+          const d = Math.hypot(dx, dz) || 1, MIN = 0.8;
+          if (d < MIN) {
+            const push = (MIN - d) / 2, ux = dx / d, uz = dz / d;
+            fs.pWalk.x += ux * push; fs.pWalk.z += uz * push;
+            npc.mesh.position.x -= ux * push; npc.mesh.position.z -= uz * push;
+            p.pos.x = fs.pWalk.x; p.pos.z = fs.pWalk.z;
+          }
+        }
         if (!pMoving && !hMoving) {
           fs.arrived = true;
           p.scriptedSpeed = 0;
