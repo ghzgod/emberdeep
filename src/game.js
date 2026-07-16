@@ -1357,6 +1357,7 @@ export class Game {
       // updateDayNight's cosine - dayAmt is low and rising there).
       this.townClock = Game.DAY_NIGHT_PERIOD * 0.72;
       ov.textContent = '— you wake at first light —';
+      audio.rooster(); // cock-a-doodle-doo at dawn (930)
     }, 1600);
     setTimeout(() => {
       ov.style.opacity = '0';
@@ -1790,6 +1791,7 @@ export class Game {
         ov.style.opacity = '0';
         const bp = this.dungeonMeshes?.rosalindBedPos;
         if (bp) roaster.sayGated(this, 'Rosalind', 'Mmm… you\'re trouble, you know that? Stay a while.', this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000, priority: true });
+        this._sleepInvited = true; // she asked you to stay -> the Sleep option unlocks (926)
         setTimeout(() => { if (ov) ov.style.pointerEvents = 'none'; }, 1400);
         this._stopFadeAudio();
       });
@@ -6005,9 +6007,11 @@ export class Game {
           }
         }
       }
-      if (!candidate && this.inUpstairs && this._lyingBed && !this._sleeping) {
+      if (!candidate && this.inUpstairs && this._lyingBed && !this._sleeping && this._sleepInvited) {
         // Sleep the night away (875): advances the town clock to sunrise so
         // stepping outside after shows morning. Moving still just gets you up.
+        // Only offered once Rosalind has invited you to stay (926) - it does not
+        // pop up on every random bed.
         candidate = { label: 'Sleep till morning', icon: '😴', action: () => this.sleepUntilMorning() };
       }
       // Sitting at a stool you're RIGHT ON TOP OF wins over Magda's talk prompt

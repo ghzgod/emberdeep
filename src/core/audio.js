@@ -1076,6 +1076,41 @@ export class AudioEngine {
     } catch { /* already stopped */ }
   }
 
+  // Rooster crow on waking (Obsidian 930): a stylized "cock-a-doodle-doo"
+  // synthesized (no downloaded file) - a bright sawtooth through a vocal-ish
+  // bandpass formant with vibrato, shaped into the 4-syllable crow contour
+  // (cock-a-doodle-dooooo) by a pitch + amplitude envelope. Routed through the
+  // SFX chain so the SFX slider controls it; consistent level by construction.
+  rooster() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator(); osc.type = 'sawtooth';
+    const vib = this.ctx.createOscillator(); vib.type = 'sine'; vib.frequency.value = 14;
+    const vibGain = this.ctx.createGain(); vibGain.gain.value = 22; // vibrato depth
+    vib.connect(vibGain); vibGain.connect(osc.frequency);
+    // pitch contour: cock (620) - a (560) - doodle (760, held) - dooo (700->500 fall)
+    const f = osc.frequency;
+    f.setValueAtTime(620, t);
+    f.setValueAtTime(560, t + 0.16);
+    f.setValueAtTime(760, t + 0.34);
+    f.linearRampToValueAtTime(760, t + 0.72);
+    f.linearRampToValueAtTime(500, t + 1.05);
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 950; bp.Q.value = 3.5;
+    const g = this.ctx.createGain();
+    // 4 syllable amplitude bumps
+    g.gain.setValueAtTime(0.0001, t);
+    const bumps = [[0.02, 0.14], [0.18, 0.10], [0.36, 0.16], [0.56, 0.16]];
+    for (const [start, len] of bumps) {
+      g.gain.setValueAtTime(0.0001, t + start);
+      g.gain.exponentialRampToValueAtTime(0.14, t + start + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.02, t + start + len);
+    }
+    g.gain.setValueAtTime(0.09, t + 0.72);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.15);
+    osc.connect(bp); bp.connect(g); g.connect(this.sfxGain);
+    osc.start(t); vib.start(t); osc.stop(t + 1.2); vib.stop(t + 1.2);
+  }
+
   // Pouring a drink (Obsidian 902): filtered noise whose bandpass pitch RISES
   // as the vessel fills (the classic "pouring liquid" cue), with a little
   // amplitude wobble for the glug. ~1.1s. Public so Magda's serve can call it.
