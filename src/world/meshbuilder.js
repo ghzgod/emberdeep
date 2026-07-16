@@ -703,6 +703,28 @@ export function setWallCellStage(dungeonMeshes, dungeon, x, y, stage) {
     st.gone = true;
     st.mesh = null;
     if (dungeon?.grid?.[y]) dungeon.grid[y][x] = FLOOR;
+    // 766: props that hugged this wall (candles, sconces, skulls, webs) must
+    // not float in mid-air once the wall is gone - sweep any SMALL decor mesh
+    // sitting within this cell's bounds (structural instanced meshes, lights
+    // and neighbouring cells untouched), and retire torch light anchors that
+    // were parked on the destroyed cell so no orphan glow hangs in the air.
+    const inCell = (px, pz) => Math.abs(px - st.worldX) <= TILE / 2 + 0.05 && Math.abs(pz - st.worldZ) <= TILE / 2 + 0.05;
+    const _bb = new THREE.Box3(), _sz = new THREE.Vector3();
+    for (const child of [...group.children]) {
+      if (child.isInstancedMesh || child.isLight) continue;
+      if (!inCell(child.position.x, child.position.z)) continue;
+      _bb.setFromObject(child); _bb.getSize(_sz);
+      if (_sz.x <= TILE * 1.3 && _sz.z <= TILE * 1.3 && _sz.y <= WALL_HEIGHT) {
+        group.remove(child);
+        child.traverse((o) => o.geometry?.dispose?.());
+      }
+    }
+    if (Array.isArray(dungeonMeshes.torchPositions)) {
+      for (let i = dungeonMeshes.torchPositions.length - 1; i >= 0; i--) {
+        const t = dungeonMeshes.torchPositions[i];
+        if (inCell(t.x, t.z)) dungeonMeshes.torchPositions.splice(i, 1);
+      }
+    }
     spawnWallRubblePile(group, dungeonMeshes.wallTex, st.worldX, st.worldZ);
     return;
   }
