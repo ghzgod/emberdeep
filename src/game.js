@@ -4950,6 +4950,7 @@ export class Game {
     // hallway auto-rotate: inside a 1- or 2-wide corridor, latch and complete
     // the quarter-turn that runs the hallway vertically on screen
     this.updateCorridorYaw(dt, p);
+    this.updateUpstairsCamera(dt, p);
     this.updateCameraFollow(dt);
 
     // player light follows. In town it rides at torso height so walking up to
@@ -5076,6 +5077,33 @@ export class Game {
   // ease - it caused re-rotations in rooms where the camera was already fine).
   // Manual rotation (Q/E, twist) kills the latch until the corridor is left.
   // Dungeon floors only.
+  // Upstairs guest-floor camera (876): the hall runs east-west with rooms
+  // branching north/south. In the HALLWAY the camera runs the hall vertically
+  // (behind your travel, defaulting to face the east-end stairs) so you can see
+  // where you are and find the way down. On stepping INTO a bedroom it snaps so
+  // the BED is at the top of the screen - north rooms have the pillow at -Z
+  // (yaw 0), south rooms at +Z (yaw PI) - and it holds there while you lie down.
+  // Leaving the room re-runs the hallway. Manual Q/E rotation overrides it.
+  updateUpstairsCamera(dt, p) {
+    if (!this.inUpstairs) { this._upLastDx = 0; return; }
+    if ((this._yawManualT || 0) > 0) return; // hands off while the player orbits
+    const z = p.pos.z;
+    // Hall band sits between the north wall row (~z 9) and south wall row (~z 15);
+    // rooms are beyond those. Bed z: north 3.5, south 20.5; hall spawn 11.
+    let target;
+    if (z < 8.5) target = 0;                 // north room: pillow at -Z -> north up
+    else if (z > 15.5) target = Math.PI;     // south room: pillow at +Z -> south up
+    else {
+      let dx = p.moveDir?.x || 0;
+      if (Math.abs(dx) < 0.1) dx = this._upLastDx || 1; // idle -> face the stairs (east)
+      else this._upLastDx = dx;
+      target = dx >= 0 ? -Math.PI / 2 : Math.PI / 2; // run the E-W hall vertically
+    }
+    const d = this._angDiff(target, this.camYaw);
+    if (Math.abs(d) < 0.01) { this.camYaw += d; return; }
+    this.camYaw += d * Math.min(1, 2.4 * dt);
+  }
+
   updateCorridorYaw(dt, p) {
     if (this.inTown || this.inTavern) { this._hallway = null; return; }
     const tx = Math.floor(p.pos.x / TILE), tz = Math.floor(p.pos.z / TILE);
