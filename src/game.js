@@ -416,6 +416,7 @@ export class Game {
     this.elitesKilled = 0;
     this.storySeen = [];
     this.vendorMemory = {}; // per-vendor { met, lastItem } for greeting-first dialogue
+    if (this._tavernKeep) { this._tavernKeep.meshes.group.traverse((o) => o.geometry?.dispose?.()); this._tavernKeep = null; }
     this._rosalindMet = false; // fresh character: she'll walk up to you once
     this.clearedFloors = {}; // fresh character, nothing culled yet
     this.destroyedWallsSession = {}; // fresh session: every wall whole again
@@ -693,15 +694,49 @@ export class Game {
   }
 
   // Step inside The Sleeping Golem.
+  // Quick-return tavern cache (Obsidian 763): leaving the tavern stashes the
+  // LIVE interior (meshes + NPC positions + conversation timers) instead of
+  // destroying it, so stepping out and back in within a minute resumes the room
+  // exactly - nobody teleports back to their seat, the banter doesn't reset.
+  _stashTavern() {
+    if (!this.inTavern || this.inUpstairs || !this.dungeonMeshes || !this.dungeonMeshes.patronMeshes?.length) return;
+    if (this._tavernKeep) this._tavernKeep.meshes.group.traverse((o) => o.geometry?.dispose?.());
+    this.scene.remove(this.dungeonMeshes.group);
+    this._tavernKeep = {
+      dungeon: this.dungeon, meshes: this.dungeonMeshes, at: performance.now(),
+      convoT: this._convoT, convo: this._tavernConvo, convoIdx: this._convoIdx,
+      convoPlans: this._tavernConvoPlans, planIdx: this._tavernPlanIdx,
+    };
+    this.dungeonMeshes = null; // teardownFloor skips disposal of a stashed room
+  }
+
   loadTavern() {
+    // resume the stashed room if we left it moments ago (763)
+    const keep = this._tavernKeep;
+    const resume = keep && performance.now() - keep.at < 60000;
+    if (keep && !resume) {
+      // expired: free the old room's geometry before rebuilding fresh
+      keep.meshes.group.traverse((o) => o.geometry?.dispose?.());
+      this._tavernKeep = null;
+    }
+    this._stashTavern(); // (coming DOWN from upstairs never stashes - guard above)
     this.teardownFloor();
     this.inTown = true;
     this.inTavern = true;
     this.inUpstairs = false;
     if (this._lyingBed) { this._lyingBed = null; if (this.player?.mesh) this.player.mesh.rotation.x = 0; }
-    this.dungeon = generateTavernInterior();
-    this.dungeonMeshes = buildTavernInterior();
-    this.scene.add(this.dungeonMeshes.group);
+    if (resume) {
+      this._tavernKeep = null;
+      this.dungeon = keep.dungeon;
+      this.dungeonMeshes = keep.meshes;
+      this.scene.add(this.dungeonMeshes.group);
+      this._convoT = keep.convoT; this._tavernConvo = keep.convo; this._convoIdx = keep.convoIdx;
+      this._tavernConvoPlans = keep.convoPlans; this._tavernPlanIdx = keep.planIdx;
+    } else {
+      this.dungeon = generateTavernInterior();
+      this.dungeonMeshes = buildTavernInterior();
+      this.scene.add(this.dungeonMeshes.group);
+    }
     // The REAL town outside the windows (Obsidian 852): Embervale is fully
     // deterministic (fixed seed), so build the actual town meshes around the
     // interior, aligned so the tavern's own plot centre sits at the interior's
@@ -777,8 +812,10 @@ export class Game {
     // Ambient table-talk lines are pre-synthesized ONCE here (736): the
     // exchanges then replay from cache while the player idles - no periodic
     // Kokoro inference while chilling in the room.
-    this._tavernConvoPlans = roaster.prepareTavernConvo();
-    this._tavernPlanIdx = 0;
+    if (!resume) {
+      this._tavernConvoPlans = roaster.prepareTavernConvo();
+      this._tavernPlanIdx = 0;
+    }
     this.stairsCooldown = 1.5;
   }
 
@@ -789,6 +826,7 @@ export class Game {
   // tavern flag (inTavern) so the guarded per-frame tavern code no-ops safely,
   // plus inUpstairs to swap the stair interacts and the floor label.
   loadTavernUpstairs(opts = {}) {
+    this._stashTavern(); // the ground floor resumes exactly when you come back down (763)
     this.teardownFloor();
     this.inTown = true;
     this.inTavern = true;
@@ -814,6 +852,7 @@ export class Game {
 
   // ---------------- town ----------------
   loadTown(opts = {}) {
+    this._stashTavern(); // quick re-entry resumes the same room (763)
     this.teardownFloor();
     this.inTown = true;
     this.inTavern = false;
