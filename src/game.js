@@ -1766,15 +1766,14 @@ export class Game {
     const ctx = { timers: [], nodes: [] };
     this._fadeAudio = ctx;
     const T = (ms, fn) => { const id = setTimeout(() => { if (this._fadeAudio === ctx) fn(); }, ms); ctx.timers.push(id); return id; };
-    // helper: play a data-URI clip; returns the HTMLAudioElement (tracked so we
-    // can stop/fade it). Falls back silently if the module failed to load.
-    const play = (src, { loop = false, volume = 0.7 } = {}) => {
+    // Play a normalized clip THROUGH THE SFX CHAIN (911): audio.playData routes
+    // BufferSource -> sfxGain so the SFX volume slider controls it (raw HTMLAudio
+    // bypassed it entirely). Returns a handle we track to stop/fade.
+    const play = (src, opts = {}) => {
       if (!src) return null;
-      const a = new Audio(src);
-      a.loop = loop; a.volume = volume;
-      a.play().catch(() => {}); // autoplay may be blocked; scene still proceeds on timers
-      ctx.nodes.push(a);
-      return a;
+      const h = audio.playData(src, opts); // async, returns a handle immediately
+      ctx.nodes.push(h);
+      return h;
     };
     ov.textContent = 'The lantern winks out…';
     // bsc loops as the bed; gb plays once (11.85s)
@@ -1783,16 +1782,7 @@ export class Game {
     const GB_LEN = 11853, BR_LEN = 12000;
     // 3s after gb ends: fade the bsc loop out over ~1s, then start br
     T(GB_LEN + 3000, () => {
-      if (bsc) { // gentle fade then stop
-        const t0 = performance.now();
-        const fade = () => {
-          if (this._fadeAudio !== ctx) return;
-          const k = Math.min(1, (performance.now() - t0) / 1000);
-          bsc.volume = 0.55 * (1 - k);
-          if (k < 1) requestAnimationFrame(fade); else { bsc.pause(); }
-        };
-        fade();
-      }
+      if (bsc) audio.stopData(bsc, 1.0); // fade the loop out over 1s
       ov.textContent = '— some time later —';
       const br = mod ? play(mod.brOnce, { volume: 0.75 }) : null;
       // when br finishes, bring the lights back up + morning-after line
@@ -1811,7 +1801,7 @@ export class Game {
     if (!ctx) return;
     this._fadeAudio = null;
     for (const id of ctx.timers) clearTimeout(id);
-    for (const a of ctx.nodes) { try { a.pause(); a.src = ''; } catch { /* ignore */ } }
+    for (const h of ctx.nodes) { try { audio.stopData(h, 0); } catch { /* ignore */ } }
   }
 
   // Ask the keyless LLM (Pollinations) for Rosalind's next line, in character

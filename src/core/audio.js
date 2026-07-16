@@ -1029,6 +1029,53 @@ export class AudioEngine {
     if (note && N[note]) this._lute(N[note]);
   }
 
+  // Play a base64 data-URI clip THROUGH THE SFX CHAIN (Obsidian 911): decodes
+  // the audio and routes it BufferSource -> per-clip gain -> sfxGain -> master,
+  // so the SFX volume slider controls it (raw HTMLAudio bypassed the chain).
+  // Returns a handle with stop() and fadeOut(sec). Async decode; the handle's
+  // node fields populate once decoded. Loudness of the clips is already
+  // normalized (loudnorm) so their levels are consistent.
+  playData(dataUri, { loop = false, volume = 1 } = {}) {
+    // Returns the handle SYNCHRONOUSLY (so callers can stopData it right away);
+    // the decode + wiring happens async and populates handle.src when ready.
+    const handle = { src: null, gain: null, stopped: false, volume };
+    if (!this.ctx) return handle;
+    (async () => {
+      try {
+        const b64 = dataUri.split(',')[1] || dataUri;
+        const bin = atob(b64);
+        const buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+        const audioBuf = await this.ctx.decodeAudioData(buf.buffer);
+        if (handle.stopped) return; // stopped before decode finished
+        const src = this.ctx.createBufferSource();
+        src.buffer = audioBuf; src.loop = loop;
+        const g = this.ctx.createGain(); g.gain.value = handle.volume;
+        src.connect(g); g.connect(this.sfxGain); // <- the SFX volume chain
+        src.start();
+        handle.src = src; handle.gain = g;
+      } catch { /* decode/format failure - stay silent */ }
+    })();
+    return handle;
+  }
+
+  // Stop / fade a handle from playData (911).
+  stopData(handle, fadeSec = 0) {
+    if (!handle) return;
+    handle.stopped = true;
+    const { src, gain } = handle;
+    if (!src) return;
+    try {
+      if (fadeSec > 0 && gain) {
+        const t = this.ctx.currentTime;
+        gain.gain.cancelScheduledValues(t);
+        gain.gain.setValueAtTime(gain.gain.value, t);
+        gain.gain.linearRampToValueAtTime(0.0001, t + fadeSec);
+        src.stop(t + fadeSec + 0.05);
+      } else { src.stop(); }
+    } catch { /* already stopped */ }
+  }
+
   // Pouring a drink (Obsidian 902): filtered noise whose bandpass pitch RISES
   // as the vessel fills (the classic "pouring liquid" cue), with a little
   // amplitude wobble for the glug. ~1.1s. Public so Magda's serve can call it.
