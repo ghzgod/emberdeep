@@ -861,6 +861,22 @@ export class Game {
     // flight so the very first audible exchange is LLM-written when reachable.
     this._fetchFreshConvo(); this._fetchFreshConvo();
     this.stairsCooldown = 1.5;
+    // 934: coming back down after the upstairs racket, a chance a patron razzes
+    // you about the noise you made. Consumes the flag set by _fadeScene so it
+    // only fires once per encounter.
+    if (this._bedroomNoiseMade) {
+      this._bedroomNoiseMade = false;
+      if (Math.random() < 0.7) {
+        setTimeout(() => {
+          if (!this.inTavern || this.inUpstairs) return;
+          const patrons = this.dungeonMeshes?.patronMeshes || [];
+          const pm = patrons[Math.floor(Math.random() * patrons.length)];
+          if (!pm) return;
+          const speaker = pm.name || (pm.drunk ? 'Tipsy Regular' : 'Tavern Patron');
+          roaster.sayGated(this, speaker, this._bedroomNoiseLines(), this._noiseVoice(), pm, { priority: true, durationMs: 4500 });
+        }, 2600);
+      }
+    }
   }
 
   // ---------------- tavern upstairs rooms (Obsidian 800) ----------------
@@ -1905,6 +1921,9 @@ export class Game {
   // after beat. Deliberately NO on-screen sexual content.
   _fadeScene() {
     if (!this._flirtActive && !this.inUpstairs) return;
+    // 934: remember the upstairs racket so patrons downstairs razz you about the
+    // noise when you next come back down (consumed in loadTavern).
+    this._bedroomNoiseMade = true;
     let ov = document.getElementById('scene-fade');
     if (!ov) {
       ov = document.createElement('div');
@@ -1934,6 +1953,33 @@ export class Game {
   // Orchestrates the lights-out audio + timed screen fade (881/881b). Kept
   // separate so the fade overlay logic stays readable; all timers are stored so
   // leaving the room (teardown) can cancel them and stop the audio.
+  // 934: canned "noise from upstairs" quips patrons throw out. The crude bank
+  // is 18+-only; the clean bank is used otherwise. Funny, never explicit.
+  _bedroomNoiseLines() {
+    const clean = [
+      'Gods, listen to that racket. What ARE they doing up there?',
+      'Someone fetch a mop for the ceiling.',
+      'That\'s either love or a bar brawl. Can\'t tell which.',
+      'Keep it down up there — some of us are trying to drink!',
+    ];
+    const crude = [
+      'Bloody hell, they\'re going at it like rabbits up there.',
+      'Oi! We can HEAR you! Save some for the honeymoon!',
+      'That ceiling\'s about to cave in. Get a room — oh, wait.',
+      'Louder! The dead two towns over haven\'t heard you yet!',
+    ];
+    const bank = this.settings.adult18 ? crude : clean;
+    return bank[Math.floor(Math.random() * bank.length)];
+  }
+
+  // A generic tipsy-patron voice for the offscreen noise quips (934), randomly
+  // male or female so it isn't always the same speaker below the floor.
+  _noiseVoice() {
+    return Math.random() < 0.5
+      ? { female: false, vi: 6, pitch: 1.02, rate: 0.85, kokoro: 'bm_daniel', kSpeed: 0.85 }
+      : { female: true, vi: 3, pitch: 1.05, rate: 0.98, kokoro: 'af_sarah', kSpeed: 1.0 };
+  }
+
   async _playFadeAudio(ov) {
     this._stopFadeAudio(); // clear any prior run
     let mod;
@@ -1957,6 +2003,23 @@ export class Game {
     const gb = mod ? play(mod.gbOnce, { volume: 0.8 }) : null;
     const GB_LEN = 11853, BR_LEN = 12000;
     // 3s after gb ends: fade the bsc loop out over ~1s, then start br
+    // 934: partway through the blackout, a chance the patrons DOWNSTAIRS holler
+    // up about the noise - voiced (offscreen, from below) + shown as a discreet
+    // caption on the black screen since bubbles sit under the fade overlay.
+    T(Math.round(GB_LEN * 0.55), () => {
+      if (Math.random() > 0.6) return; // ~60% chance
+      const line = this._bedroomNoiseLines();
+      let sub = ov.querySelector('.fade-heckle');
+      if (!sub) {
+        sub = document.createElement('div');
+        sub.className = 'fade-heckle';
+        sub.style.cssText = 'margin-top:14px;font:italic 15px Georgia,serif;color:#c9b070;opacity:0.85;';
+        ov.appendChild(sub);
+      }
+      sub.textContent = `(from downstairs) "${line}"`;
+      roaster.speakAs(line, this._noiseVoice(), { x: this.player.pos.x, z: this.player.pos.z + 4 });
+      setTimeout(() => { if (sub) sub.textContent = ''; }, 5000);
+    });
     T(GB_LEN + 3000, () => {
       if (bsc) audio.stopData(bsc, 1.0); // fade the loop out over 1s
       ov.textContent = '— some time later —';
