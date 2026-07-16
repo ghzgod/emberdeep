@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FLOOR, WALL } from './dungeon.js';
 import { TILE, tileToWorld, buildNpcModel } from './meshbuilder.js';
 import { makeWoodTexture, makePlankTexture, makeHearthStoneTexture, makeTavernSignTexture } from './textures.js';
+import { audio } from '../core/audio.js';
 
 // ---- shared "where's the nearest player" lookup for the tavern's own NPC
 // drivers (Magda's amble, patrons' body-turn) — mirrors meshbuilder.js's
@@ -1188,12 +1189,26 @@ export function buildTavernInterior() {
             group.add(vs.group);
             vs.spot = LINGER_SPOTS[Math.floor(Math.random() * LINGER_SPOTS.length)];
             vs._greeted = false; // fresh visitor gets a fresh hello (750)
+            audio.play('door_open', { volume: 0.5 }); // you HEAR them come in (798)
             vs.mode = 'in';
           }
           return;
         }
         const prevX = vs.group.position.x, prevZ = vs.group.position.z;
+        // NPCs never clip THROUGH the hero (user report): after any walk step,
+        // resolve a circle push-out against the nearest player so the visitor
+        // bumps and slides around instead of phasing through.
+        const bumpHero = () => {
+          const h = nearestHero(vs.group, 0.6);
+          if (!h) return;
+          const dx = vs.group.position.x - h.x, dz = vs.group.position.z - h.z;
+          const d = Math.hypot(dx, dz);
+          const ux = d > 0.001 ? dx / d : 0, uz = d > 0.001 ? dz / d : 1;
+          const push = 0.6 - d;
+          if (push > 0) { vs.group.position.x += ux * push; vs.group.position.z += uz * push; }
+        };
         if (vs.mode === 'in') {
+          bumpHero();
           if (walkToward(vs.group, vs.spot.x, vs.spot.z, dt) < 0.05) {
             vs.mode = 'linger';
             vs.waitT = 25 + Math.random() * 30;
@@ -1205,6 +1220,7 @@ export function buildTavernInterior() {
           // aren't interactable, so they never have a reason to stare.
           if (vs.waitT <= 0) vs.mode = 'out';
         } else if (vs.mode === 'out') {
+          bumpHero();
           if (walkToward(vs.group, doorSpot.x, doorSpot.z + 0.8, dt) < 0.05) {
             group.remove(vs.group);
             // materials are per-instance clones; geometry is shared with the

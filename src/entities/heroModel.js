@@ -593,14 +593,17 @@ function addHairMesh(mesh, headMesh, style, hex) {
     // Draped back-shell that now falls LONGER, past the neck and OVER the collar
     // (Obsidian 811): stays wide down to ~1.3 head-heights so it rests on the
     // shoulders instead of stopping at the neck, then tapers to a soft tip.
+    // Slimmed + tucked (image 124: the old profile bulged past the skull with a
+    // visible top rim and a flat mid-section - it read as a SHIELD/turtle shell
+    // strapped to the back, not hair). The rim now starts against the skull's
+    // own radius just below the crown and the curve tapers continuously.
     const pts = [
-      [d * 0.30, 0],
-      [d * 0.58, -h * 0.18],
-      [d * 0.60, -h * 0.55],
-      [d * 0.58, -h * 0.95],
-      [d * 0.50, -h * 1.3],   // still broad here - drapes onto the collar/shoulders
-      [d * 0.30, -h * 1.55],
-      [d * 0.08, -h * 1.66],
+      [d * 0.46, -h * 0.02],  // tucked against the skull - no exposed rim
+      [d * 0.54, -h * 0.35],
+      [d * 0.52, -h * 0.75],
+      [d * 0.44, -h * 1.1],
+      [d * 0.26, -h * 1.45],  // drapes onto the collar, tapering the whole way
+      [d * 0.06, -h * 1.6],
     ].map(([r, y]) => new THREE.Vector2(r, y));
     const shell = new THREE.Mesh(
       new THREE.LatheGeometry(pts, 16, Math.PI / 2, Math.PI),

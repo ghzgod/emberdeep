@@ -188,6 +188,8 @@ const VOCALIZATIONS = [
   [/\bgr+\b/gi, 'gurr'],        // grr, grrr -> "gurr" (no vowel for the synth to grab onto otherwise)
   [/\b(?:tsk)+\b/gi, 'tisk'],   // tsk, tsktsk -> "tisk"
   [/\bpf+t+\b/gi, 'pft'],       // pfft, pft -> "pft"
+  [/\bh+m+p+h*\b/gi, 'humph'],  // hmph -> "humph" (image 125: got spelled H.M.P.H.)
+  [/\bsh+\b/gi, 'shush'],       // shh, shhh -> "shush" (vowel-less, same spelling risk)
 ];
 
 // Web-speech-only text cleanup. Captions/subtitles always keep the original
