@@ -814,8 +814,8 @@ export class Game {
     this.setupTorchLights({ ...theme, accent: 0xffb877 });
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner('THE SLEEPING GOLEM', 'Rest a while, hero', true);
-    audio.playMusic('tavern');
-    audio.startAmbience('tavern'); // room tone + occasional pops
+    audio.stopMusic(); // NO mp3 track in the tavern (880): the procedural LIVE
+    audio.startAmbience('tavern'); // lute + hearth + murmur below IS the tavern music
     // Positional hearth crackle (Obsidian 717): a dedicated loop whose level
     // tracks the player's distance to the fire each frame (see updatePlaying),
     // so standing at the hearth is unmistakably crackly and the far corner
@@ -857,7 +857,7 @@ export class Game {
     this.setupTorchLights({ ...theme, accent: 0xffb877 });
     this.ui.minimap.setDungeon(this.dungeon);
     this.ui.showFloorBanner('THE SLEEPING GOLEM', 'Upstairs — guest rooms', true);
-    audio.playMusic('tavern');
+    audio.stopMusic(); // procedural lute (880) carries the upstairs too
     audio.startAmbience('tavern');
     // no ambient table-talk up here (no patrons) - keep the shared driver a no-op
     this._tavernConvoPlans = [];

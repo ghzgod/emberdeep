@@ -970,12 +970,18 @@ export class AudioEngine {
       const dg = this.ctx.createGain(); dg.gain.value = P.droneGain || 0.05;
       drone.connect(dg); dg.connect(this.ambGain); drone.start();
     }
+    // Live-lute state (Obsidian 880): a wandering minstrel plays a slow medieval
+    // phrase in the corner - synthesized plucks, NOT an mp3, so it reads as
+    // someone actually playing in the room rather than a recording.
+    let luteBeat = 0;
     const timer = setInterval(() => {
       if (!this.ctx || this.ctx.state !== 'running') return;
       if (P.crackle && Math.random() < P.crackle) this._crackle();
       if (P.chirp && Math.random() < P.chirp) this._chirp();
       if (P.drip && Math.random() < P.drip) this._drip();
       if (P.murmur && Math.random() < P.murmur) this._murmur();
+      // step the lute melody every ~680ms (2 ambience ticks) at a relaxed tempo
+      if (P.lute) { if (luteBeat % 2 === 0) this._luteStep(); luteBeat++; }
     }, 340);
     this._amb = { profile, src, g, drone, timer };
   }
@@ -987,6 +993,40 @@ export class AudioEngine {
     try { a.g.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.6); } catch { /* */ }
     setTimeout(() => { try { a.src.stop(); } catch {} try { a.drone?.stop(); } catch {} }, 700);
     this._amb = null;
+  }
+
+  // Procedural LUTE (Obsidian 880): a plucked-string note - fast attack, long
+  // string-like decay, a couple of detuned voices + a soft harmonic for body,
+  // through a lowpass so it sits warm under the room tone. Synthesized, so the
+  // tavern has LIVE music instead of an anachronistic recording.
+  _lute(freq) {
+    const t = this.ctx.currentTime;
+    const out = this.ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(0.05, t + 0.01);   // quick pluck attack
+    out.gain.exponentialRampToValueAtTime(0.012, t + 0.35);  // body
+    out.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);  // string decay
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.setValueAtTime(2600, t);
+    lp.frequency.exponentialRampToValueAtTime(900, t + 0.9); // brightness fades as it rings
+    for (const [type, mult, gain, detune] of [['triangle', 1, 1, 0], ['sawtooth', 1, 0.35, 4], ['sine', 2, 0.25, 0]]) {
+      const o = this.ctx.createOscillator();
+      o.type = type; o.frequency.value = freq * mult; o.detune.value = detune;
+      const vg = this.ctx.createGain(); vg.gain.value = gain;
+      o.connect(vg); vg.connect(lp);
+      o.start(t); o.stop(t + 1.2);
+    }
+    lp.connect(out); out.connect(this.ambGain);
+  }
+
+  // Step through a gentle D-Dorian medieval phrase (0 = a rest/breath), looping.
+  _luteStep() {
+    // D4 E4 F4 G4 A4 C5 D5, plus A3/C4 lower - a lilting tune resolving to D.
+    const N = { D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.0, A4: 440.0, C5: 523.25, D5: 587.33, A3: 220.0, C4: 261.63 };
+    const M = ['A3', 'D4', 'F4', 'A4', 0, 'G4', 'F4', 'E4', 'D4', 0, 'F4', 'E4', 'D4', 'C4', 'D4', 0];
+    this._luteIdx = ((this._luteIdx || 0) + 1) % M.length;
+    const note = M[this._luteIdx];
+    if (note && N[note]) this._lute(N[note]);
   }
 
   _crackle() { // a short fire pop
@@ -1047,7 +1087,7 @@ export class AudioEngine {
 // Per-area ambience recipes. Drips live ONLY in the wet-cave acts.
 const AMBIENCE = {
   town:          { freq: 480, bed: 0.05, chirp: 0.05 },                          // open square: wind + birds
-  tavern:        { freq: 700, bed: 0.045, crackle: 0.5, murmur: 0.55 },            // room tone + hearth + crowd murmur (781)
+  tavern:        { freq: 700, bed: 0.045, crackle: 0.5, murmur: 0.55, lute: true },  // room tone + hearth + crowd murmur (781) + live lute (880)
   'dungeon-wet': { freq: 300, bed: 0.05, drone: 62, droneGain: 0.05, drip: 0.05 }, // stone/moss caves
   'dungeon-dry': { freq: 260, bed: 0.045, drone: 55, droneGain: 0.06 },           // ember/cursed/abyss drone
 };
