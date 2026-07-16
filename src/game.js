@@ -1019,6 +1019,31 @@ export class Game {
     const vendors = this.dungeonMeshes?.vendorMeshes;
     if (!vendors) return;
     this._vt = (this._vt || 0) + dt;
+    // 900b: rarely a booth vendor slips off to the tavern for a spell - their
+    // stall CLOSES (keeper gone, no shop, the interact shows 'gone to the
+    // tavern') and REOPENS on their own when they wander back. One at a time.
+    this._vendorAwayT = (this._vendorAwayT || 0) - dt;
+    if (this._vendorAway) {
+      // keep the absent vendor hidden every frame so a town rebuild (fresh
+      // vendor meshes) doesn't pop them back before they've actually returned
+      const av = vendors.find((v) => v.name === this._vendorAway.name);
+      if (av?.keeper && av.keeper.visible && performance.now() < this._vendorAway.returnAt) av.keeper.visible = false;
+      if (performance.now() >= this._vendorAway.returnAt) {
+        const rv = vendors.find((v) => v.name === this._vendorAway.name);
+        if (rv?.keeper) rv.keeper.visible = true;
+        if (rv) this.ui.floaters?.spawn({ x: rv.wx, y: 1.7, z: rv.wz }, `🚪 ${this._vendorAway.name} is back at the stall`, 'crit');
+        this._vendorAway = null;
+      }
+    } else if (this._vendorAwayT <= 0) {
+      this._vendorAwayT = 60 + Math.random() * 60; // re-roll every 1-2 min
+      if (Math.random() < 0.22) {
+        const v = vendors[Math.floor(Math.random() * vendors.length)];
+        if (v?.keeper && v.name && this.activeVendor !== v) {
+          v.keeper.visible = false;
+          this._vendorAway = { name: v.name, returnAt: performance.now() + (90 + Math.random() * 90) * 1000 };
+        }
+      }
+    }
     const p = this.player;
     const TETHER = 1.2;   // max wander radius around the booth anchor
     const SPEED = 0.6;    // slow amble, world units/sec
@@ -2614,6 +2639,7 @@ export class Game {
   }
 
   openShop(vendor) {
+    if (this._vendorAway?.name === vendor?.name) return; // 900b: closed while they're at the tavern
     this.activeVendor = vendor;
     vendor._shopOpen = true; // keeper head-glance gate (740, read in meshbuilder)
     this.state = 'shop';
@@ -6550,7 +6576,12 @@ export class Game {
       }
       if (!candidate && this.shopCooldown <= 0) {
         for (const v of this.dungeonMeshes.vendorMeshes) {
-          if (near(v.wx, v.wz, 2.4)) { candidate = { label: `Talk to ${v.name}`, icon: '💬', talk: true, action: () => this.openShop(v) }; break; }
+          if (near(v.wx, v.wz, 2.4)) {
+            candidate = (this._vendorAway?.name === v.name)
+              ? { label: `${v.name}'s stall is closed — gone to the tavern`, icon: '🚪', action: () => {} } // 900b: away, no shop
+              : { label: `Talk to ${v.name}`, icon: '💬', talk: true, action: () => this.openShop(v) };
+            break;
+          }
         }
       }
       if (!candidate && this.wanderer && near(this.wanderer.pos.x, this.wanderer.pos.z, 2.6)) {
