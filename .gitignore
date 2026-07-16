@@ -19,3 +19,9 @@ emberdeep_check*.png
 fenwick-*.png
 cobweb*.txt
 bs
+
+# never commit secrets / env files (Emberdeep uses a proxy for LLM keys)
+.env
+.env.*
+*.key
+secrets.*
