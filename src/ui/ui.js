@@ -2350,15 +2350,17 @@ export class UI {
       btn.onclick = async () => {
         const pm = this._flirtPm;
         // The "follow her upstairs" payoff (829): not a reply - take her up.
-        if (c.followUp) { this.game.followRosalindUpstairs(); return; }
+        // c.upstairs is the LLM-authored variant of the same invite (853).
+        if (c.followUp || c.upstairs) { this.game.followRosalindUpstairs(); return; }
         // "Buy her a drink" (822): not a reply - kick off the walk-to-bar beat.
         if (c.buyDrink) { this.game.buyRosalindDrink(pm); return; }
         // Dismiss the picker the instant you choose (Obsidian 826/848): her reply
         // plays as a bubble over her head, and flirtSelect itself reveals the next
         // choices AFTER she's actually spoken (onShown-gated) - so the UI just
-        // hides the picker here and lets the game drive the next reveal.
+        // hides the picker here and lets the game drive the next reveal. The
+        // chosen label rides along so the LLM sees what you actually said (853).
         $('flirt-dialog').classList.add('hidden');
-        this.game.flirtSelect(pm, c.tier);
+        this.game.flirtSelect(pm, c.tier, c.label);
       };
       list.appendChild(btn);
     }
