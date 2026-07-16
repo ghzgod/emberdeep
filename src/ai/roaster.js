@@ -396,6 +396,17 @@ export class Roaster {
       [['drunk', ["One more floor, then I retire. I always say that.", "Someday I'll clear a floor myself. Someday."]],
        ['magda', ["You've never set foot below, Bram.", "The closest you've been to the dungeon is the cellar."]],
        ['patron', ["The stairs don't count, love.", "Falling down the cellar steps isn't delving."]]],
+      // Rosalind joins the room's banter (Obsidian 857) - she was the only
+      // regular who never spoke unless the player walked up to her.
+      [['rosalind', ["Quiet night. Someone buy me something loud.", "Mmm, slow evening. Surprise me, someone."]],
+       ['magda', ["You've a tab longer than the bar, Ros.", "Your coin purse says otherwise, love."]],
+       ['drunk', ["I'd buy, but my coin's... resting.", "Put it on my tab! ...what do you mean 'no'."]]],
+      [['patron', ["Some adventurer was eyeing the stairs earlier.", "Saw a hero poking about the stairwell."]],
+       ['rosalind', ["Was he handsome? Asking for a friend.", "*sips* If they're pretty, send them my way."]],
+       ['magda', ["Behave, Ros. This is a respectable house.", "The rooms are for SLEEPING, Rosalind."]]],
+      [['rosalind', ["Magda, love, the fire's low and so am I.", "Another honeyed ale before I wilt, Magda."]],
+       ['magda', ["Coming, coming. Hold your garters.", "Patience, petal. The keg's not going anywhere."]],
+       ['patron', ["She'll wilt into someone's lap, more like.", "The lady wilts nightly, regular as the moon."]]],
     ];
     const convo = C[Math.floor(Math.random() * C.length)];
     return convo.map(([who, variants]) => ({ who, text: variants[Math.floor(Math.random() * variants.length)] }));

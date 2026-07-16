@@ -1110,6 +1110,7 @@ export class Game {
 
   // ---------------- tavern folk + notice board ----------------
   barkeepChat() {
+    this._conversationZoom();
     const p = this.player;
     const n = this.playerName();
     const bodies = [];
@@ -1135,6 +1136,7 @@ export class Game {
   }
 
   patronChat(pm) {
+    this._conversationZoom();
     const drunkLines = [
       'I saw the Dungeon Lord once. *hic* Or a very tall barrel. One of those.',
       '*hic* You\'re my besht friend. Whoever you are.',
@@ -1219,7 +1221,14 @@ export class Game {
     this._seatCd = performance.now() + 500;
   }
 
+  // If the camera is zoomed right in, ease it back out when a conversation
+  // starts so the speech bubble over the NPC's head is actually readable (858).
+  _conversationZoom() {
+    if ((this.camZoom || 1) < 0.85) this.camZoom = 0.85;
+  }
+
   flirtChat(pm) {
+    this._conversationZoom();
     if (pm.affinity == null) pm.affinity = 0;
     // Any conversation counts as "met" (828): once you've talked to her, she
     // never walks up to you again - you approach her from then on. Persisted.
@@ -1255,9 +1264,12 @@ export class Game {
     this._openFlirtAfterSpeaking(pm, opener, female);
   }
 
-  // Speak a Rosalind line, then reveal the reply choices ~0.7s after her bubble
-  // actually appears (never before/while she's still "thinking") - Obsidian 848.
+  // Speak a Rosalind line, then reveal the reply choices only once she's DONE
+  // saying it (image 121: they used to pop up while she was mid-sentence). The
+  // reveal timer runs from the moment her bubble actually appears (onShown) for
+  // most of the caption window, so you read/hear the line first.
   _openFlirtAfterSpeaking(pm, line, female) {
+    const DUR = 4800;
     clearTimeout(this._flirtOpenTimer);
     const reveal = () => {
       clearTimeout(this._flirtOpenTimer);
@@ -1265,10 +1277,10 @@ export class Game {
         if (this.state === 'flirt' && this.ui._flirtPm !== null) {
           this.ui.openFlirtDialog(pm, line, this._flirtChoices(pm, female));
         }
-      }, 750);
+      }, Math.max(1400, DUR - 1200));
     };
     this.ui._flirtPm = pm; // claim the conversation so a stray close doesn't race
-    roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 4800, onShown: reveal });
+    roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: DUR, onShown: reveal });
     // Safety net: if onShown never fires (no speech path at all), still reveal.
     this._flirtOpenTimer = setTimeout(reveal, 4500);
   }
@@ -1334,7 +1346,7 @@ export class Game {
           ? [{ tier: 3, label: '💋 Follow her upstairs', followUp: true }]
           : this._flirtChoices(pm, female);
         this.ui.openFlirtDialog(pm, line, choices);
-      }, 750);
+      }, 4000); // she finishes her reply before your next options show (121)
     };
     roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 5200, onShown: reveal });
     this._flirtOpenTimer = setTimeout(reveal, 5200); // safety net if onShown never fires
@@ -5550,6 +5562,22 @@ export class Game {
     if (this.wanderer && this.inTown && !this.inTavern) this.wanderer.update(dt, this);
     if (this.inTown && !this.inTavern) this.updateVendors(dt);
 
+    // Solid NPCs (Obsidian 849): the hero can't walk THROUGH tavern folk - a
+    // cheap circle push-out against each patron. Skipped while seated/lying or
+    // during scripted beats, whose position pins own the hero.
+    if (this.inTavern && !this.inUpstairs && !this.seatedAt && !this.sittingOnCouch && !this._buyScene && this.state === 'playing') {
+      const pp = this.player;
+      for (const pmc of (this.dungeonMeshes.patronMeshes || [])) {
+        const dx = pp.pos.x - pmc.x, dz = pp.pos.z - pmc.z;
+        const d = Math.hypot(dx, dz);
+        if (d >= 0.6) continue;
+        // unit push direction; if exactly overlapping, default to south
+        const ux = d > 0.001 ? dx / d : 0, uz = d > 0.001 ? dz / d : 1;
+        const push = 0.6 - d;
+        pp.pos.x += ux * push; pp.pos.z += uz * push;
+      }
+    }
+
     // Buy-her-a-drink scripted beat (Obsidian 822/847 rework): you and Rosalind
     // walk to two adjacent BAR STOOLS (room side - never through the counter),
     // both SIT, Magda serves two visible mugs on the counter, then the chat
@@ -5750,7 +5778,12 @@ export class Game {
       // the tiny CPU engine; kokoro ids remain the fallback voices.
       const speakerOf = (who) => {
         if (who === 'magda') return { name: 'Magda', cast: { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95, lite: 'expr-voice-5-f' }, pos: this.dungeonMeshes.barkeepPos };
-        const pm = (this.dungeonMeshes.patronMeshes || []).find((p) => (who === 'drunk') === !!p.drunk);
+        // Rosalind takes part in the room's banter too (857), in her own voice.
+        if (who === 'rosalind') {
+          const rp = (this.dungeonMeshes.patronMeshes || []).find((p) => p.flirty);
+          return rp ? { name: 'Rosalind', cast: { ...this._flirtVoice(), lite: 'expr-voice-4-f' }, pos: rp } : null;
+        }
+        const pm = (this.dungeonMeshes.patronMeshes || []).find((p) => !p.flirty && (who === 'drunk') === !!p.drunk);
         if (!pm) return null;
         return who === 'drunk'
           ? { name: 'Tipsy Regular', cast: { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82, lite: 'expr-voice-2-m' }, pos: pm }

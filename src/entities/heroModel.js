@@ -548,30 +548,36 @@ function addHairMesh(mesh, headMesh, style, hex) {
     // as "three lumps hanging off the neck". Now a gathered TIE knot at the
     // back crown feeds a single continuous tapered tail (a lathe profile - thick
     // at the tie, tapering smoothly to a point) that sweeps down and back.
+    // Fix (image 120): the tie used to FLOAT just off the crown and the tail's
+    // top ring - wider than the tie - swept outward at -0.34, so from the side
+    // an ugly flat wedge "connector" showed between the ball and the skull.
+    // The tie is now half-EMBEDDED in the back of the skull (no gap at any
+    // angle) and the tail emerges from INSIDE the tie (top radius < tie radius)
+    // hanging close to the head with only a slight sweep.
     const tieR = w * 0.15;
     const tie = new THREE.Mesh(new THREE.SphereGeometry(tieR, 12, 10), mat);
     tie.scale.set(1, 0.9, 1.05);
-    tie.position.set(cx, bb.max.y - h * 0.12, bb.min.z - d * 0.03);
+    tie.position.set(cx, bb.max.y - h * 0.16, bb.min.z + d * 0.02);
     tie.castShadow = false; tie.receiveShadow = false; tie.frustumCulled = false;
     group.add(tie);
     const tailPts = [
-      [w * 0.16, 0],
-      [w * 0.185, -h * 0.22],
-      [w * 0.15, -h * 0.55],
-      [w * 0.09, -h * 0.86],
-      [w * 0.03, -h * 1.02],
-      [w * 0.008, -h * 1.08],
+      [w * 0.10, 0],
+      [w * 0.14, -h * 0.25],
+      [w * 0.115, -h * 0.55],
+      [w * 0.07, -h * 0.85],
+      [w * 0.02, -h * 1.0],
+      [w * 0.008, -h * 1.05],
     ].map(([r, y]) => new THREE.Vector2(Math.max(0.008, r), y));
     const tail = new THREE.Mesh(new THREE.LatheGeometry(tailPts, 12), mat);
-    tail.position.set(cx, bb.max.y - h * 0.14, bb.min.z - d * 0.05);
-    tail.rotation.x = -0.34; // sweeps down and out behind the head
+    tail.position.copy(tie.position);
+    tail.rotation.x = -0.12; // hangs close behind the head, slight outward sweep
     tail.castShadow = false; tail.receiveShadow = false; tail.frustumCulled = false;
     group.add(tail);
   } else if (style === 'bun') {
     // A single squashed sphere sitting high at the back crown.
     const bun = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.025, w * 0.2), 12, 10), mat);
     bun.scale.set(1, 0.66, 0.9);
-    bun.position.set(cx, bb.max.y - h * 0.08, bb.min.z - d * 0.02);
+    bun.position.set(cx, bb.max.y - h * 0.08, bb.min.z + d * 0.03); // embedded - no gap at any angle
     bun.castShadow = false; bun.receiveShadow = false; bun.frustumCulled = false;
     group.add(bun);
   } else if (style === 'long') {
