@@ -1348,6 +1348,7 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.02 / data.scale;
+  shadow.name = 'BlobShadow'; // named so lie-down can hide it (it would tip with the body)
   mesh.add(shadow);
 
   const mixer = new THREE.AnimationMixer(mesh);

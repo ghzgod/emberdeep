@@ -5562,7 +5562,7 @@ export class Game {
         if (!this._lyWeaponHidden) {
           this._lyWeaponHidden = [];
           p.mesh.traverse((o) => {
-            if (o.isMesh && /sword|mace|axe|bow|crossbow|wand|staff|hammer|dagger|blade|weapon|shield|spear|helmet|hat/i.test(o.name || '') && o.visible) {
+            if (o.isMesh && /sword|mace|axe|bow|crossbow|wand|staff|hammer|dagger|blade|weapon|shield|spear|helmet|hat|blobshadow/i.test(o.name || '') && o.visible) {
               this._lyWeaponHidden.push(o);
             }
           });
