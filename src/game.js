@@ -5901,6 +5901,33 @@ export class Game {
           const turn = this._tavernConvo[this._convoIdx++];
           if (!turn) { this._tavernConvo = null; this._convoT = 25 + Math.random() * 25; }
           else {
+            // Social memory (Obsidian 787): the regulars NOTICE repeats. If this
+            // exact line was said within the last 5 minutes, another participant
+            // calls it out right after ("you said that already") and their
+            // relationship sours a notch - at rel <= -3 the callouts turn openly
+            // hostile, so rivalries develop organically from the room's own
+            // banter loops. Callouts themselves are never called out.
+            if (!turn._callout) {
+              const nowMs = performance.now();
+              this._tavernSaid = this._tavernSaid || new Map();
+              const saidKey = turn.who + '|' + turn.text;
+              const lastSaid = this._tavernSaid.get(saidKey);
+              this._tavernSaid.set(saidKey, nowMs);
+              if (lastSaid !== undefined && nowMs - lastSaid < 300000) {
+                const others = ['magda', 'drunk', 'patron', 'rosalind'].filter((w) => w !== turn.who && speakerOfAny(w));
+                if (others.length) {
+                  const caller = others[Math.floor(Math.random() * others.length)];
+                  this._npcRel = this._npcRel || {};
+                  const pairKey = [turn.who, caller].sort().join('|');
+                  this._npcRel[pairKey] = (this._npcRel[pairKey] || 0) - 1;
+                  const hostile = this._npcRel[pairKey] <= -3;
+                  const callout = hostile
+                    ? this._pick(['Stars above, not this AGAIN.', 'Say it a third time and I\'m moving tables.', 'Someone drown him in his own mug, please.'])
+                    : this._pick(['You said that already, love.', 'Aye, you\'ve told us. Twice now.', 'We heard you the first time, dear.']);
+                  this._tavernConvo.splice(this._convoIdx, 0, { who: caller, text: callout, _callout: true });
+                }
+              }
+            }
             const spk = speakerOfAny(turn.who);
             if (spk) {
               roaster.sayGated(this, spk.name, turn.text, spk.cast, spk.pos, { durationMs: 3400 });
