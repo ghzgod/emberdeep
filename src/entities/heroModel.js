@@ -1521,15 +1521,19 @@ export function buildAnimatedHero(classId, name = '', opts = {}) {
       if (this.actions.run) this.actions.run.setEffectiveTimeScale(0.75 + speed01 * 0.9);
 
       if (!dt) return;
-      // Idle breathing sway + occasional weight shift, applied to the rig's
-      // root transform rather than individual bones so it never fights the
-      // baked idle/run/attack clips. Skipped while moving or mid-attack.
+      // Idle breathing sway + occasional weight shift. The vertical bob is now
+      // stored in this.swayY instead of being WRITTEN absolutely onto
+      // mesh.position.y - the old code clobbered whatever base height the caller
+      // set, so a hero standing on a raised tile (the tavern duckboard, a dais)
+      // snapped back to y=0 and clipped THROUGH the platform (898/897). The
+      // caller adds swayY on top of its own base y (player.js uses pos.y). The
+      // rotation.z lean has no base to fight (rig base is 0) so it stays direct.
       if (!moving && !attacking) {
         this._idleT += dt;
-        this.mesh.position.y = Math.sin(this._idleT * 1.6) * 0.012;
+        this.swayY = Math.sin(this._idleT * 1.6) * 0.012;
         this.mesh.rotation.z = Math.sin(this._idleT * 0.35) * 0.05;
       } else {
-        this.mesh.position.y += (0 - this.mesh.position.y) * Math.min(1, 10 * dt);
+        this.swayY = (this.swayY || 0) * (1 - Math.min(1, 10 * dt));
         this.mesh.rotation.z += (0 - this.mesh.rotation.z) * Math.min(1, 10 * dt);
       }
       // ARM-driven swing (owner spec: a real human swing moves the ARM across

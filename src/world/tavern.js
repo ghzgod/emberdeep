@@ -523,7 +523,10 @@ export function buildTavernInterior() {
       { x: visitTable.x + 1.6, z: visitTable.z, y: 0 }, // stand beside the table
     ];
     const randPace = () => ({ x: paceLeftX + Math.random() * (paceRightX - paceLeftX), z: barZ });
-    const SPEED = 0.6; // slow amble, world units/sec — matches the vendor amble's feel
+    // 1.3 u/s (was 0.6): at the old crawl her stride barely covered ground so
+    // the walk read as gliding-in-place (896). A brisker travel speed makes the
+    // stride length match her movement so the leg cycle reads as real walking.
+    const SPEED = 1.3;
     const st = {
       mode: 'bar', wp: 0, waitT: 1 + Math.random() * 2,
       paceTarget: randPace(),
