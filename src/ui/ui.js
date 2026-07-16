@@ -77,6 +77,15 @@ export class UI {
     // any pointer activity elsewhere on the map keeps it awake while open;
     // once collapsed it just relies on the tap handler above.
     canvas.addEventListener('pointermove', wake);
+    // Tapping ANYWHERE outside the expanded map collapses it (860) - capture
+    // phase so other handlers' stopPropagation can't swallow the close, and a
+    // target check so the toggle tap on the map itself still works.
+    document.addEventListener('pointerdown', (e) => {
+      if (!canvas.classList.contains('expanded') || e.target === canvas) return;
+      canvas.classList.remove('expanded');
+      if (canvas.width !== NORMAL_RES) { canvas.width = NORMAL_RES; canvas.height = NORMAL_RES; }
+      wake();
+    }, true);
     wake();
   }
 
@@ -1304,6 +1313,19 @@ export class UI {
     shake.checked = s.screenShake;
     shake.onchange = () => { s.screenShake = shake.checked; this.game.saveSettings(); };
 
+    // Ability hotkey hint chips (861): desktop-only preference; touch layouts
+    // hide them unconditionally via body.touch-mode CSS.
+    const hotkeys = $('set-hotkeys');
+    if (hotkeys) {
+      hotkeys.checked = s.hotkeyHints !== false;
+      document.body.classList.toggle('no-hotkeys', s.hotkeyHints === false);
+      hotkeys.onchange = () => {
+        s.hotkeyHints = hotkeys.checked;
+        document.body.classList.toggle('no-hotkeys', !hotkeys.checked);
+        this.game.saveSettings();
+      };
+    }
+
     // Desktop click-to-attack (Obsidian 769): on by default; disable here.
     const mouseAtk = $('set-mouse-attack');
     if (mouseAtk) {
@@ -2122,7 +2144,10 @@ export class UI {
     $('xp-bar').style.width = `${(player.xp / need) * 100}%`;
     $('xp-text').textContent = 'XP';
     const pts = player.skillPoints();
-    $('hud-level').textContent = pts > 0 ? `Lv ${player.level} ✦${pts}` : `Lv ${player.level}`;
+    // Level as a small gold ring badge instead of the plain "Lv 7" text the
+    // user called ugly (859) - the ringed number reads as "level" on its own.
+    const lvHud = `<span class="lv-badge">${player.level}</span>${pts > 0 ? `<span class="lv-pts">✦${pts}</span>` : ''}`;
+    if (this._hudLevelHtml !== lvHud) { this._hudLevelHtml = lvHud; $('hud-level').innerHTML = lvHud; }
     $('hud-gold').innerHTML = `${player.gold} <span class="coin-stack"><span class="coin"></span><span class="coin c2"></span></span>`;
     const potHud = `${player.potions} ${svgIcon('flask')}`;
     if (this._hudPotionsHtml !== potHud) { this._hudPotionsHtml = potHud; $('hud-potions').innerHTML = potHud; }
