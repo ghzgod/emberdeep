@@ -760,6 +760,13 @@ export class Game {
       this.dungeon = generateTavernInterior();
       this.dungeonMeshes = buildTavernInterior();
       this.scene.add(this.dungeonMeshes.group);
+      // 910: a rebuilt tavern makes a FRESH Rosalind (pmEntry) with no
+      // _knowsName, so she'd forget your name and call you 'hero' again. Restore
+      // it from persistent NPC memory - if the room recorded that she learned
+      // your name, she keeps knowing it forever (the resume path already reuses
+      // the live pmEntry, so this only matters on a true rebuild / save-reload).
+      const rosalind = (this.dungeonMeshes.patronMeshes || []).find((p) => p.flirty);
+      if (rosalind && (this._npcMem?.rosalind || []).some((f) => /adventurer is called/i.test(f))) rosalind._knowsName = true;
     }
     // The REAL town outside the windows (Obsidian 852): Embervale is fully
     // deterministic (fixed seed), so build the actual town meshes around the
@@ -1363,6 +1370,20 @@ export class Game {
   // the small canned banks would sometimes reroll her previous line verbatim
   // ("she repeated a line she already said"). Track the last pick and reroll
   // once so consecutive canned lines are always different.
+  // 910: once an NPC has learned the player's name, address them BY NAME instead
+  // of the generic 'hero'/'gorgeous'/'love' the canned banks use - swap clear
+  // vocatives for the name so a named NPC never reverts to 'traveler'/'hero'.
+  // Only the CANNED path needs this; the LLM path already gets the name in its
+  // prompt. Kept conservative (comma-anchored + end-of-clause forms) so it never
+  // mangles a word used as anything but direct address.
+  _useName(pm, line) {
+    if (!pm?._knowsName || !line) return line;
+    const n = this.playerName();
+    return line
+      .replace(/,\s+(hero|gorgeous|handsome|stranger|love|darling|sweetheart)\b/gi, `, ${n}`)
+      .replace(/\b(hero|gorgeous|handsome|stranger)\b(?=[.,!?…]|$)/gi, n);
+  }
+
   _pick(arr) {
     if (!arr || !arr.length) return '';
     if (arr.length === 1) return arr[0];
@@ -1527,7 +1548,7 @@ export class Game {
       if (this._flirtActive !== pm) return; // player walked off while she "thought"
       let opener;
       if (turn) { opener = turn.line; pm._llmOptions = turn.options; }
-      else { pm._llmOptions = null; opener = cannedOpener(); }
+      else { pm._llmOptions = null; opener = this._useName(pm, cannedOpener()); }
       this._openFlirtAfterSpeaking(pm, opener, female);
     })();
   }
@@ -1683,11 +1704,11 @@ export class Game {
     else {
       pm._llmOptions = null;
       if (toast) {
-        line = this._pick([
+        line = this._useName(pm, this._pick([
           '*clinks mugs* To us, love. May the ale stay cold and the night stay young.',
           'To us! *drinks deep* Mmm — you\'re better company than half this room put together.',
           '*taps her mug to yours* To handsome strangers and honeyed ale.',
-        ]);
+        ]));
       } else if (/your story|tell me (something|about)|who are you|where.*from|what.*your name|about yourself/i.test(playerLabel || '')) {
         // The player ASKED HER SOMETHING and the LLM is down (901): answer the
         // question with a canned about-her line instead of a random flirt that
@@ -1703,7 +1724,7 @@ export class Game {
         // only lines that actually SAY "somewhere quieter" earn that reply.
         const forwardish = /quieter|upstairs|room|somewhere|all night|take me|your place/i.test(playerLabel || '');
         const replyTier = tier === 3 && !forwardish ? 2 : tier;
-        line = (await this._flirtLLMLine(pm, replyTier, adult, female)) || this._flirtReply(pm, replyTier, adult, female);
+        line = (await this._flirtLLMLine(pm, replyTier, adult, female)) || this._useName(pm, this._flirtReply(pm, replyTier, adult, female));
       }
     }
     pm.talkUntil = performance.now() + 12000;
