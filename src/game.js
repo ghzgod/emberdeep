@@ -1383,14 +1383,38 @@ export class Game {
         get phase() { return _ph; }, set phase(v) { const dt = Math.min(0.1, Math.max(0, v - _ph)); _ph = v; npc.tick(dt); },
       });
     }
-    // She welcomes you; in 18+ mode the door shuts and the rest FADES TO BLACK
-    // (implied, tasteful) - then a morning-after beat. No on-screen explicit content.
+    // She welcomes you; in 18+ mode the scripted beat plays out: you both lie in
+    // her bed together, she kisses you, and the lights go OUT (fade-to-black,
+    // implied) - then a morning-after line. No on-screen explicit content.
     const adult = this.settings.adult18;
     const line = adult
       ? 'Mmm, finally alone. Door\'s locked, hero — now get over here.'
       : 'Finally, a little privacy. Sit with me a while.';
     roaster.sayGated(this, 'Rosalind', line, this._flirtVoice(), anchor, { durationMs: 4200 });
-    if (adult) this._roomFadeTimer = setTimeout(() => this._fadeScene(), 4000);
+    const bedC = (this.dungeonMeshes.bedPositions || []).find((bb) => bb.fancy);
+    if (adult && bedC && npc) {
+      clearTimeout(this._roomFadeTimer);
+      const T = (ms, fn) => setTimeout(() => { if (this.inUpstairs) fn(); }, ms);
+      // 1) both into the bed: she lies on the far side (same YXZ lie the player
+      //    uses - her bed is a SOUTH bed, so yaw PI puts her head on the pillow),
+      //    and the player is pinned lying on the near side via _lyingBed.
+      T(3200, () => {
+        npc.mesh.rotation.order = 'YXZ';
+        npc.mesh.rotation.set(-Math.PI / 2, Math.PI, 0);
+        npc.mesh.position.set(bedC.x - 0.34, 0.58, bedC.z - 0.85);
+        // her blob shadow would stand up vertically once tipped - hide it (119)
+        npc.mesh.traverse((o) => { if (o.name === 'BlobShadow') o.visible = false; });
+        this._lyingBed = { x: bedC.x + 0.34, z: bedC.z, headAngle: bedC.headAngle, standZ: bedC.standZ };
+        this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💕', 'crit');
+      });
+      // 2) the kiss
+      T(5200, () => {
+        roaster.sayGated(this, 'Rosalind', '*kisses you* C\'mere, you…', this._flirtVoice(), { x: bedC.x, z: bedC.z }, { durationMs: 2400 });
+        this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💋', 'crit');
+      });
+      // 3) lights out
+      this._roomFadeTimer = T(7600, () => this._fadeScene());
+    }
   }
 
   // A tasteful fade-to-black for the implied 18+ upstairs encounter (851): the
@@ -1405,7 +1429,7 @@ export class Game {
       ov.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;z-index:9999;transition:opacity 1.2s ease;pointer-events:none;display:flex;align-items:center;justify-content:center;color:#e8c8d2;font:italic 22px Georgia,serif;text-align:center;';
       document.body.appendChild(ov);
     }
-    ov.textContent = 'The door clicks shut behind you…';
+    ov.textContent = 'The lantern winks out…';
     ov.style.pointerEvents = 'auto';
     requestAnimationFrame(() => { ov.style.opacity = '1'; });
     setTimeout(() => { ov.textContent = '— some time later —'; }, 2200);
