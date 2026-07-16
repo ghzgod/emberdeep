@@ -739,7 +739,10 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
 #relic-card #btn-relic-take { min-width: 140px; }
 /* interaction prompt pill */
 #interact-prompt {
-  position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
+  /* Low + centered (933): vertically in line with the potion / cluster bubbles
+     (bottom ~40px) but centered on the screen width, clear of the bottom-right
+     cluster and the bottom-left joystick. */
+  position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
   pointer-events: auto; cursor: pointer; font-family: inherit;
   font-size: 15px; color: var(--parchment); padding: 10px 22px;
   background: rgba(20, 14, 28, 0.92); border: 1px solid var(--gold); border-radius: 22px;
@@ -756,7 +759,7 @@ body.low-hp .bar.hp { animation: low-hp-fill 1.05s ease-in-out infinite; }
    230px clears it with margin. The short-landscape variant below (touch-mode
    + max-height:540px) uses the smaller 172px hotbar, whose act-slot-0 top
    edge is ~186px, so 200px clears that layout instead. */
-body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster AND the first-run joystick ghost label */
+body.touch-mode #interact-prompt { bottom: 44px; } /* low + centered, in line with the potion cluster (933) - centered so it clears the right cluster + left joystick */
 #interact-prompt .key-chip {
   display: inline-block; background: #241a30; border: 1px solid var(--panel-border);
   border-radius: 5px; padding: 1px 8px; margin-left: 8px; font-size: 12px; color: var(--gold);
@@ -2023,7 +2026,7 @@ body.touch-mode #chat-title { font-size: 11px; }
      the base compact layout - 200px still clears it (see comment above the
      base body.touch-mode #interact-prompt rule) without floating too high on
      a screen only ~390-540px tall. */
-  body.touch-mode #interact-prompt { bottom: 200px; }
+  body.touch-mode #interact-prompt { bottom: 40px; } /* low + centered (933) */
   #chat { bottom: 128px; width: min(44vw, 300px); }
   #chat-recent { max-height: 32vh; }
   #minimap { width: 84px; height: 84px; }

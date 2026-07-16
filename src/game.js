@@ -1333,6 +1333,23 @@ export class Game {
     this.seatedAt = null;
     this._seatCd = performance.now() + 600; // block an immediate re-sit (805)
     if (s && s.kind === 'bar') this.player.pos.z = s.z + 0.7;
+    this._playerShadow(false); // restore the ground shadow now that they're standing (920)
+  }
+
+  // Hide/restore the player's blob ground shadow (920): a SEATED character
+  // (bar stool / couch) is perched off the floor, so a shadow directly under
+  // them on the ground reads as detached and wrong - hide it while seated.
+  _playerShadow(hide) {
+    const mesh = this.player?.mesh;
+    if (!mesh) return;
+    if (hide) {
+      if (this._pShadowHidden) return;
+      this._pShadowHidden = [];
+      mesh.traverse((o) => { if (o.name === 'BlobShadow' && o.visible) { o.visible = false; this._pShadowHidden.push(o); } });
+    } else if (this._pShadowHidden) {
+      this._pShadowHidden.forEach((o) => { o.visible = true; });
+      this._pShadowHidden = null;
+    }
   }
 
   // Sleep the night away (875): fade to black, advance the town day/night clock
@@ -6410,7 +6427,7 @@ export class Game {
         if (!this._lyWeaponHidden) {
           this._lyWeaponHidden = [];
           p.mesh.traverse((o) => {
-            if (o.isMesh && /sword|mace|axe|bow|crossbow|wand|staff|hammer|dagger|blade|weapon|shield|spear|helmet|hat|hood|cape|cloak|pauldron|shoulder|bracer|belt|scabbard|quiver|blobshadow/i.test(o.name || '') && o.visible) {
+            if (o.isMesh && /sword|mace|axe|bow|crossbow|wand|staff|hammer|dagger|blade|weapon|shield|spear|helmet|hat|hood|cape|cloak|pauldron|shoulder|bracer|belt|scabbard|quiver|boot|shoe|greave|foot|blobshadow/i.test(o.name || '') && o.visible) {
               this._lyWeaponHidden.push(o);
             }
           });
@@ -6425,17 +6442,19 @@ export class Game {
     if (this.inTavern && this.sittingOnCouch) {
       const cp = this.dungeonMeshes.couchPos;
       const p = this.player;
-      if (!cp) { this.sittingOnCouch = false; }
+      if (!cp) { this.sittingOnCouch = false; this._playerShadow(false); }
       else if (Math.abs(p.moveDir.x) > 0.01 || Math.abs(p.moveDir.z) > 0.01) {
         this.sittingOnCouch = false;
         p.pos.x = cp.x + 0.9; p.pos.z = cp.z;
+        this._playerShadow(false); // restore shadow on standing (920)
       } else {
         p.pos.x = cp.x; p.pos.z = cp.z;
         p.aimAngle = Math.atan2(cp.faceZ - cp.z, cp.faceX - cp.x);
         p.faceAimTimer = Math.max(p.faceAimTimer, 0.3); // keep facing the fire
         p.mesh.position.y += 0.34; // perched on the cushion, not standing in it
+        this._playerShadow(true); // no detached ground shadow while perched (920)
       }
-    } else if (this.sittingOnCouch) this.sittingOnCouch = false;
+    } else if (this.sittingOnCouch) { this.sittingOnCouch = false; this._playerShadow(false); }
 
     // Seated on a tavern stool (Obsidian 792): pin to the seat, face the bar
     // or table, perch at seat height. DELIBERATE movement stands back up, but
@@ -6452,6 +6471,7 @@ export class Game {
         p.aimAngle = Math.atan2(s.faceZ - s.z, s.faceX - s.x);
         p.faceAimTimer = Math.max(p.faceAimTimer, 0.3);
         p.mesh.position.y += s.perchY; // perched on the stool, not standing through it
+        this._playerShadow(true); // no detached ground shadow while perched (920)
       }
     } else if (this.seatedAt) this.seatedAt = null;
 
