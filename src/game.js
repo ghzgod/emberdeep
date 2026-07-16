@@ -728,6 +728,8 @@ export class Game {
     this.inTavern = true;
     this.inUpstairs = false;
     if (this._lyingBed) { this._lyingBed = null; if (this.player?.mesh) this.player.mesh.rotation.x = 0; }
+    this._followScene = null; // coming back down cancels any in-flight walk (873)
+    this._sceneLock = false;  // re-arm the stuck-failsafe off the scripted floor (874)
     if (resume) {
       this._tavernKeep = null;
       this.dungeon = keep.dungeon;
@@ -869,6 +871,7 @@ export class Game {
     this.inTown = true;
     this.inTavern = false;
     this.inUpstairs = false;
+    this._followScene = null; this._sceneLock = false; // off the scripted floor (873/874)
     const theme = themeForFloor(1);
     this.dungeon = generateTown();
     this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme);
@@ -1326,7 +1329,22 @@ export class Game {
     }
     (this._lyWeaponHidden || []).forEach((o) => { o.visible = true; });
     this._lyWeaponHidden = null;
-    if (b && b.standZ != null) this.player.pos.z = b.standZ;
+    // Step OFF the bed to a guaranteed-walkable spot (874): the pinned lie
+    // position sits on a WALL-flagged bed tile, so just restoring standZ could
+    // still land on solid ground and trip the stuck-failsafe the moment you
+    // stand ("freed from the stone" on get-up). Walk outward until clear.
+    const p = this.player;
+    if (b && b.standZ != null) p.pos.z = b.standZ;
+    if (!this.isWalkable(p.pos.x, p.pos.z, 0.3)) {
+      outer: for (let r = 1; r <= 4; r++) {
+        for (const [ox, oz] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+          const x = p.pos.x + ox * r * (TILE / 2), z = p.pos.z + oz * r * (TILE / 2);
+          if (this.isWalkable(x, z, 0.3)) { p.pos.set(x, 0, z); break outer; }
+        }
+      }
+    }
+    // brief failsafe grace so a one-frame overlap during the step-off can't fire
+    this._stuckT = -0.5;
     this._seatCd = performance.now() + 500;
   }
 
@@ -1575,67 +1593,69 @@ export class Game {
   followRosalindUpstairs() {
     this.ui.closeFlirt?.();
     this._npcWitness('went upstairs with Rosalind'); // the whole room saw it (884)
+    this._sceneLock = true; // suppress the stuck-failsafe for the WHOLE scripted scene (874)
     audio.play('door_open');
     this.loadTavernUpstairs();
     const bp = this.dungeonMeshes.rosalindBedPos || { x: 21.4, z: 20.5 };
-    // Stand in HER room, beside the bed, facing it (Obsidian 851: it used to drop
-    // you in the wrong room with no Rosalind).
-    this.player.pos.set(bp.x + 1.5, 0, bp.z);
-    this.player.visualAngle = Math.atan2(bp.x - this.player.pos.x, bp.z - this.player.pos.z) - Math.PI / 2;
-    // Rosalind is actually HERE now: build her rig by the bed and add it to the
-    // upstairs group so teardown cleans it up. Skimpy crimson tint like the tavern.
+    // Build Rosalind and drop her NEXT TO the player at the top of the stairs
+    // (the hall spawn) - then she LEADS you down the hall to her room on foot
+    // (873: it used to teleport you straight to the bed with her missing). The
+    // _followScene tick walks you both there with footsteps + walk animation.
     const npc = buildNpcModel('mage', 'Rosalind', {
       gender: 'female', skinTone: 'light', hairColor: 'auburn', hairStyle: 'long', faceShape: 'narrow', eyeColor: 'violet',
     });
-    let anchor = { x: bp.x - 0.7, z: bp.z };
+    const p = this.player;
     if (npc) {
-      npc.mesh.position.set(bp.x - 0.7, 0, bp.z);
-      npc.mesh.rotation.y = Math.atan2(this.player.pos.x - npc.mesh.position.x, this.player.pos.z - npc.mesh.position.z);
+      npc.mesh.position.set(p.pos.x + 0.9, 0, p.pos.z);
+      npc.mesh.rotation.y = 0;
       npc.mesh.traverse((o) => {
         if (!o.isMesh || !o.material || !o.name) return;
         if (/_Body$/i.test(o.name)) { o.material = o.material.clone(); o.material.color.setHex(0x8a1f3a); }
         else if (/_Leg/i.test(o.name)) { o.material = o.material.clone(); o.material.color.setHex(0xf3c9a6); }
       });
       this.dungeonMeshes.group.add(npc.mesh);
-      // idle animation via the shared upstairs smokePuffs tick
-      let _ph = 0;
-      (this.dungeonMeshes.smokePuffs = this.dungeonMeshes.smokePuffs || []).push({
-        kind: 'firefly', mesh: new THREE.Object3D(), baseY: 0, speed: 1,
-        get phase() { return _ph; }, set phase(v) { const dt = Math.min(0.1, Math.max(0, v - _ph)); _ph = v; npc.tick(dt); },
-      });
     }
-    // She welcomes you; in 18+ mode the scripted beat plays out: you both lie in
-    // her bed together, she kisses you, and the lights go OUT (fade-to-black,
-    // implied) - then a morning-after line. No on-screen explicit content.
+    roaster.sayGated(this, 'Rosalind', 'This way, hero — my room\'s just down the hall. *takes your hand*', this._flirtVoice(), { x: p.pos.x, z: p.pos.z }, { durationMs: 3600, priority: true });
+    const bedC = (this.dungeonMeshes.bedPositions || []).find((bb) => bb.fancy) || { x: bp.x, z: bp.z, headAngle: 0, standZ: bp.z };
+    // walk targets: she leads to the far side of the bed, you stop on the near side
+    this._followScene = {
+      npc, bedC,
+      herTarget: { x: bp.x - 0.7, z: bp.z },
+      myTarget: { x: bp.x + 1.2, z: bp.z },
+      pStep: 0, hStep: 0, arrived: false,
+    };
+  }
+
+  // The implied 18+ payoff once you've WALKED into her room (873): a couple of
+  // flirty/giggly beats, then you both lie in the bed together, she kisses you,
+  // and the lantern goes out (fade-to-black). No on-screen explicit content.
+  _upstairsBeats(npc, bedC) {
     const adult = this.settings.adult18;
-    const line = adult
-      ? 'Mmm, finally alone. Door\'s locked, hero — now get over here.'
-      : 'Finally, a little privacy. Sit with me a while.';
-    roaster.sayGated(this, 'Rosalind', line, this._flirtVoice(), anchor, { durationMs: 4200, priority: true });
-    const bedC = (this.dungeonMeshes.bedPositions || []).find((bb) => bb.fancy);
-    if (adult && bedC && npc) {
-      clearTimeout(this._roomFadeTimer);
-      const T = (ms, fn) => setTimeout(() => { if (this.inUpstairs) fn(); }, ms);
-      // 1) both into the bed: she lies on the far side (same YXZ lie the player
-      //    uses - her bed is a SOUTH bed, so yaw PI puts her head on the pillow),
-      //    and the player is pinned lying on the near side via _lyingBed.
-      T(3200, () => {
-        npc.mesh.rotation.order = 'YXZ';
-        npc.mesh.rotation.set(-Math.PI / 2, Math.PI, 0);
-        npc.mesh.position.set(bedC.x - 0.34, 0.58, bedC.z - 0.85);
-        // her blob shadow would stand up vertically once tipped - hide it (119)
-        npc.mesh.traverse((o) => { if (o.name === 'BlobShadow') o.visible = false; });
-        this._lyingBed = { x: bedC.x + 0.34, z: bedC.z, headAngle: bedC.headAngle, standZ: bedC.standZ };
-        this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💕', 'crit');
-      });
-      // 2) the kiss
-      T(5200, () => {
-        roaster.sayGated(this, 'Rosalind', '*kisses you* C\'mere, you…', this._flirtVoice(), { x: bedC.x, z: bedC.z }, { durationMs: 2400, priority: true });
-        this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💋', 'crit');
-      });
-      // 3) lights out
-      this._roomFadeTimer = T(7600, () => this._fadeScene());
-    }
+    const anchor = { x: bedC.x, z: bedC.z };
+    roaster.sayGated(this, 'Rosalind', adult ? 'Mmm, finally alone. Door\'s locked, hero.' : 'Finally, a little privacy.', this._flirtVoice(), anchor, { durationMs: 3600, priority: true });
+    clearTimeout(this._roomFadeTimer);
+    const T = (ms, fn) => { const id = setTimeout(() => { if (this.inUpstairs) fn(); }, ms); return id; };
+    if (!adult || !npc) return;
+    // 1) a giggle/flirt beat before anything happens (foreplay, tasteful)
+    T(3200, () => {
+      roaster.sayGated(this, 'Rosalind', '*laughs softly* Come here, then. Don\'t be shy.', this._flirtVoice(), anchor, { durationMs: 3000, priority: true });
+      this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💕', 'crit');
+    });
+    // 2) both lie down together (same YXZ lie the player uses; her south bed -> yaw PI)
+    T(6000, () => {
+      npc.mesh.rotation.order = 'YXZ';
+      npc.mesh.rotation.set(-Math.PI / 2, Math.PI, 0);
+      npc.mesh.position.set(bedC.x - 0.34, 0.58, bedC.z - 0.85);
+      npc.mesh.traverse((o) => { if (o.name === 'BlobShadow') o.visible = false; });
+      this._lyingBed = { x: bedC.x + 0.34, z: bedC.z, headAngle: bedC.headAngle, standZ: bedC.standZ, _scene: true };
+    });
+    // 3) the kiss
+    T(8000, () => {
+      roaster.sayGated(this, 'Rosalind', '*kisses you* C\'mere, you…', this._flirtVoice(), anchor, { durationMs: 2400, priority: true });
+      this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💋', 'crit');
+    });
+    // 4) lights out (fade to black, implied)
+    this._roomFadeTimer = T(10400, () => this._fadeScene());
   }
 
   // A tasteful fade-to-black for the implied 18+ upstairs encounter (851): the
@@ -3769,7 +3789,9 @@ export class Game {
           const x = p.pos.x + ox * TILE, z = p.pos.z + oz * TILE;
           if (!this.isWalkable(x, z, 0.35)) continue;
           p.pos.set(x, 0, z);
-          this.ui.floaters?.spawn(p.pos, 'Freed from the stone', 'crit');
+          // Plain wording (874): the old 'Freed from the stone' read as a
+          // status effect that doesn't exist and confused players when it fired.
+          this.ui.floaters?.spawn(p.pos, 'Pulled you free', 'crit');
           audio.play('blink', { volume: 0.5 });
           return true;
         }
@@ -4735,7 +4757,12 @@ export class Game {
     // on every side (knockback can shove you into a door gap that then seals),
     // snap to the nearest open tile instead of leaving the player trapped.
     this._stuckT = (this._stuckT || 0) + dt;
-    if (this._stuckT >= 1 && p && !p.dead) {
+    // Skip the failsafe whenever the hero is DELIBERATELY pinned (874): lying in
+    // a bed, sitting on a bar stool or the couch parks p.pos on a tile that is
+    // flagged solid for collision (beds are WALL tiles so you can't walk through
+    // them). Without this guard the failsafe read that as "embedded in geometry"
+    // and ejected the player every second with the 'Freed from the stone' toast.
+    if (this._stuckT >= 1 && p && !p.dead && !this._lyingBed && !this.seatedAt && !this.sittingOnCouch && !this._buyScene && !this._followScene && !this._sceneLock) {
       this._stuckT = 0;
       const embedded = !this.isWalkable(p.pos.x, p.pos.z, 0.25);
       let freedom = 0;
@@ -5919,6 +5946,49 @@ export class Game {
       this._cullTavernOutside();
     }
 
+    // Follow-upstairs walk (873): once upstairs, Rosalind LEADS the hero down
+    // the hall to her room on foot (walk anim + footsteps for both), then the
+    // implied beats play. A full position pin like the buy-drink beat so live
+    // input can't fight the scripted walk.
+    if (this._followScene && this.inUpstairs) {
+      const fs = this._followScene, p = this.player, npc = fs.npc;
+      if (!fs.arrived) {
+        if (!fs.pWalk) fs.pWalk = { x: p.pos.x, z: p.pos.z };
+        // player walks to the near side of the bed
+        const pdx = fs.myTarget.x - fs.pWalk.x, pdz = fs.myTarget.z - fs.pWalk.z, pd = Math.hypot(pdx, pdz) || 1;
+        let pMoving = false;
+        if (pd > 0.14) {
+          const s = Math.min(pd, 2.4 * dt);
+          fs.pWalk.x += pdx / pd * s; fs.pWalk.z += pdz / pd * s;
+          p.aimAngle = Math.atan2(pdz, pdx); p.faceAimTimer = 0.2;
+          p.anim?.setLocomotion(1, dt);
+          pMoving = true;
+          fs.pStep -= dt; if (fs.pStep <= 0) { fs.pStep = 0.34; audio.play('footstep', { volume: 0.4 }); }
+        }
+        p.pos.x = fs.pWalk.x; p.pos.z = fs.pWalk.z;
+        // Rosalind LEADS - she walks a touch faster to the far side
+        let hMoving = false;
+        if (npc) {
+          const hdx = fs.herTarget.x - npc.mesh.position.x, hdz = fs.herTarget.z - npc.mesh.position.z, hd = Math.hypot(hdx, hdz) || 1;
+          if (hd > 0.14) {
+            const s = Math.min(hd, 2.7 * dt);
+            npc.mesh.position.x += hdx / hd * s; npc.mesh.position.z += hdz / hd * s;
+            npc.mesh.position.y = 0;
+            npc.mesh.rotation.y = Math.atan2(hdx, hdz);
+            npc.tick(dt, 2.7);
+            hMoving = true;
+            fs.hStep -= dt; if (fs.hStep <= 0) { fs.hStep = 0.36; audio.play('footstep', { volume: 0.25 }); }
+          } else { npc.tick(dt, 0); }
+        }
+        if (!pMoving && !hMoving) {
+          fs.arrived = true;
+          if (npc) npc.mesh.rotation.y = Math.atan2(p.pos.x - npc.mesh.position.x, p.pos.z - npc.mesh.position.z);
+          this._upstairsBeats(npc, fs.bedC);
+          this._followScene = null;
+        }
+      }
+    }
+
     if (this._buyScene && this.inTavern && !this.inUpstairs) {
       const bs = this._buyScene, pm = bs.pm, p = this.player;
       if (!bs.seats) {
@@ -6045,13 +6115,16 @@ export class Game {
         p.mesh.rotation.set(-Math.PI / 2, northBed ? 0 : Math.PI, 0);
         p.mesh.position.set(b.x, 0.58, northBed ? b.z + 0.85 : b.z - 0.85);
         p.visualAngle = b.headAngle || 0; // so it doesn't snap on stand
-        // Hide held gear (weapon/shield/helmet overlays) while lying - and
-        // RE-ASSERT every frame, since the anim/gear systems can re-show them
-        // (the "weapon still in the hand" report).
+        // Hide held gear AND worn armour/hood while lying (874: "take my hoodie
+        // off my head, my armor off") - and RE-ASSERT every frame, since the
+        // anim/gear systems can re-show them (the "weapon still in the hand"
+        // report). The regex is overlay-only: it never matches the base
+        // Body/Head/Leg/skin meshes, so the hero still reads as themselves,
+        // just undressed down to the underlayer.
         if (!this._lyWeaponHidden) {
           this._lyWeaponHidden = [];
           p.mesh.traverse((o) => {
-            if (o.isMesh && /sword|mace|axe|bow|crossbow|wand|staff|hammer|dagger|blade|weapon|shield|spear|helmet|hat|blobshadow/i.test(o.name || '') && o.visible) {
+            if (o.isMesh && /sword|mace|axe|bow|crossbow|wand|staff|hammer|dagger|blade|weapon|shield|spear|helmet|hat|hood|cape|cloak|pauldron|shoulder|bracer|belt|scabbard|quiver|blobshadow/i.test(o.name || '') && o.visible) {
               this._lyWeaponHidden.push(o);
             }
           });

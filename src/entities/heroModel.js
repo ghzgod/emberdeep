@@ -641,16 +641,20 @@ function addHairMesh(mesh, headMesh, style, hex) {
     // in tighter/shorter, and squash it laterally so it reads as a sheet of
     // hair falling from the crown down the nape - never silhouetting past the
     // shoulders or covering the back.
+    // A short BOB, not a back-length cape (image 136: even the narrowed drape
+    // still fell ~1.5 head-heights to the belt and read as a red SHIELD on her
+    // back). Stop it just below the jaw (~0.55 head-heights), keep every radius
+    // tight to the skull, and sweep only the back ~100 degrees. It now clearly
+    // sits ABOVE the shoulders and never covers the back.
     const pts = [
-      [d * 0.44, -h * 0.02],  // tucked against the skull - no exposed rim
-      [d * 0.48, -h * 0.32],
-      [d * 0.42, -h * 0.70],
-      [d * 0.32, -h * 1.05],
-      [d * 0.16, -h * 1.35],  // ends at the collar, tapering the whole way
-      [d * 0.04, -h * 1.5],
+      [d * 0.40, -h * 0.02],  // tucked against the skull - no exposed rim
+      [d * 0.42, -h * 0.22],
+      [d * 0.36, -h * 0.42],
+      [d * 0.24, -h * 0.55],  // ends just below the jaw
+      [d * 0.08, -h * 0.62],
     ].map(([r, y]) => new THREE.Vector2(r, y));
     const shell = new THREE.Mesh(
-      new THREE.LatheGeometry(pts, 14, Math.PI * 0.68, Math.PI * 0.64),
+      new THREE.LatheGeometry(pts, 14, Math.PI * 0.72, Math.PI * 0.56),
       new THREE.MeshStandardMaterial({ color: hex, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide }));
     shell.scale.x = 0.8; // slimmer than the skull side-to-side
     shell.position.set(cx, bb.max.y - h * 0.05, cz);
