@@ -6764,7 +6764,9 @@ export class Game {
           // flight (thinking pill up / choices pending) the pill would offer
           // "Chat up Rosalind" AGAIN over the active conversation.
           if (this._flirtActive === pm || this.ui._flirtPm === pm || pm._away) continue; // 929a: hidden = not here
-          if (near(pm.x, pm.z, 1.8)) {
+          // 917a: reach 2.2u (was 1.8) so chatting works when you're simply NEXT
+          // to a seated/standing NPC at a table, not only on an exact spot.
+          if (near(pm.x, pm.z, 2.2)) {
             candidate = pm.flirty
               ? { label: `Chat up ${pm.name || 'her'}`, icon: '💋', talk: true, action: () => this.flirtChat(pm) }
               : { label: pm.drunk ? 'Nudge the drunk' : 'Chat with the patron', icon: '💬', talk: true, action: () => this.patronChat(pm) };
