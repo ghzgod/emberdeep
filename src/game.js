@@ -1503,7 +1503,7 @@ export class Game {
     const mood = a <= -3 ? 'fed up and dismissive' : a >= 6 ? 'smitten' : a >= 3 ? 'warming up' : a >= 1 ? 'curious' : 'cool but intrigued';
     pm._flirtHistory = pm._flirtHistory || [];
     if (playerLine) pm._flirtHistory.push({ role: 'user', content: `Adventurer: ${playerLine}` });
-    const sys = `You are Rosalind, a tipsy, flirtatious regular at a fantasy tavern, talking with an adventurer${female ? ' (a woman - you are into women)' : ''}. Your mood right now: ${mood} (affinity ${a} on a -4..8 scale). ${adult ? '18+ MODE IS ON: be crude, vulgar and explicitly sexual with profanity when your mood is warm.' : 'Keep it suggestive and playful but CLEAN - no profanity or explicit content.'} You do NOT jump to bed with someone you just met - escalate naturally over the conversation. Reply with ONLY a JSON object, no prose:\n{"line":"<your ONE short spoken line, max 22 words, in character>","options":[<EXACTLY 4 objects>{"text":"<a short line the ADVENTURER could say back, max 11 words>","warmth":<integer -2..2, how forward/warm it is>${adult ? ',"upstairs":<true ONLY if this option is you being invited to her room and she is smitten>' : ''}}]}\nThe 4 options MUST be varied and fit THIS moment: one cold/dismissive (warmth -2 or -1), one neutral (0), one warm (1), one bold (2).`;
+    const sys = `You are Rosalind, a tipsy, flirtatious regular at a fantasy tavern, talking with an adventurer${female ? ' (a woman - you are into women)' : ''}. Your mood right now: ${mood} (affinity ${a} on a -4..8 scale). ${adult ? '18+ MODE IS ON: be crude, vulgar and explicitly sexual with profanity when your mood is warm.' : 'Keep it suggestive and playful but CLEAN - no profanity or explicit content.'} You do NOT jump to bed with someone you just met - escalate naturally over the conversation. Write ONLY natural pronounceable words (text-to-speech reads your line aloud): no vowel-less interjections like "Hmph"/"Pfft"/"Tsk" - use real words or "Hmm". Reply with ONLY a JSON object, no prose:\n{"line":"<your ONE short spoken line, max 22 words, in character>","options":[<EXACTLY 4 objects>{"text":"<a short line the ADVENTURER could say back, max 11 words>","warmth":<integer -2..2, how forward/warm it is>${adult ? ',"upstairs":<true ONLY if this option is you being invited to her room and she is smitten>' : ''}}]}\nThe 4 options MUST be varied and fit THIS moment: one cold/dismissive (warmth -2 or -1), one neutral (0), one warm (1), one bold (2).`;
     const msgs = [{ role: 'system', content: sys }, ...pm._flirtHistory.slice(-8)];
     const out = await llm.chat(msgs, { timeout: 6000, temperature: 1.05, maxTokens: 240 });
     if (!out) return null;
@@ -4437,13 +4437,14 @@ export class Game {
     this._frameNo = (this._frameNo || 0) + 1;
     // Render-rate policy (741 + 755, per the three.js power guidance:
     // "render on demand / cap the rate" is the #1 battery-and-heat lever):
-    //   - long idle (30s+): render 1 frame in 3
-    //   - idle (8s+): render 1 frame in 2
+    //   - long idle (12s+): render 1 frame in 3 (user report: GPU high while
+    //     "just sitting in the tavern doing nothing" - engage sooner)
+    //   - idle (3s+): render 1 frame in 2
     //   - battery saver, any time in gameplay: render 1 frame in 2 (the
     //     mode's whole point; sim still runs every frame so nothing skips)
     // Any input/combat resets to full rate on the very next frame.
-    const skipMod = this._idleT > 30 ? 3
-      : this._idleT > 8 ? 2
+    const skipMod = this._idleT > 12 ? 3
+      : this._idleT > 3 ? 2
         : (this.settings.batterySaver && this.state === 'playing') ? 2 : 0;
     if (!(skipMod && this._frameNo % skipMod !== 0)) {
       this.renderer.render(this.scene, this.camera);
