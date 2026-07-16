@@ -2368,7 +2368,7 @@ export class UI {
   // The LLM enhancement (801) landed while the dialog is still open - swap the
   // canned line for the fresher one.
   updateFlirtLine(text) {
-    if (this.game.state === 'flirt' && this._flirtPm) $('flirt-line').textContent = text;
+    if (this.game._flirtActive && this._flirtPm) $('flirt-line').textContent = text;
   }
   _flirtMood(aff) {
     const el = $('flirt-mood');
@@ -2381,7 +2381,7 @@ export class UI {
   closeFlirt() {
     $('flirt-dialog').classList.add('hidden');
     this._flirtPm = null;
-    if (this.game.state === 'flirt') this.game.state = 'playing';
+    this.game._flirtActive = null;
   }
 
   // Zoltan's mystery relic: reveal what fate handed over, click to keep.
