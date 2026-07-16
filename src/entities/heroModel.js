@@ -612,10 +612,28 @@ function addHairMesh(mesh, headMesh, style, hex) {
     tail.castShadow = false; tail.receiveShadow = false; tail.frustumCulled = false;
     group.add(tail);
   } else if (style === 'bun') {
-    // A single squashed sphere sitting high at the back crown.
+    // A rounded hair CAP over the back of the skull with the bun knotted on top
+    // (image 140: a bare squashed sphere floating on a bald head left a visible
+    // seam/gap that read as a "connector" from the bun to the head). The cap
+    // covers the crown/back so the bun sits IN the hair, not stuck on bare skin.
+    const cz = (bb.min.z + bb.max.z) / 2;
+    const capPts = [
+      [w * 0.06, h * 0.05],   // near-closed at the crown
+      [w * 0.44, -h * 0.06],
+      [w * 0.50, -h * 0.20],  // hugs the back of the skull
+      [w * 0.42, -h * 0.34],
+      [w * 0.20, -h * 0.44],  // stops high, at the nape
+    ].map(([r, y]) => new THREE.Vector2(r, y));
+    const cap = new THREE.Mesh(
+      new THREE.LatheGeometry(capPts, 18, Math.PI * 0.35, Math.PI * 1.30), // wrap the back+sides, open at the face
+      new THREE.MeshStandardMaterial({ color: hex, roughness: 0.9, metalness: 0.0, side: THREE.FrontSide }));
+    cap.position.set(cx, bb.max.y - h * 0.05, cz);
+    cap.castShadow = false; cap.receiveShadow = false; cap.frustumCulled = false;
+    group.add(cap);
+    // the knot itself, embedded into the cap at the high back crown
     const bun = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.025, w * 0.2), 12, 10), mat);
     bun.scale.set(1, 0.66, 0.9);
-    bun.position.set(cx, bb.max.y - h * 0.08, bb.min.z + d * 0.03); // embedded - no gap at any angle
+    bun.position.set(cx, bb.max.y - h * 0.02, bb.min.z + d * 0.12); // sits ON the cap, flush - no floating gap
     bun.castShadow = false; bun.receiveShadow = false; bun.frustumCulled = false;
     group.add(bun);
   } else if (style === 'long') {
