@@ -1594,8 +1594,18 @@ function upstairsBedTiles() {
   for (const r of U_ROOMS) {
     const north = r.czW < 12;
     const bedX = r.cxW - 2.6, bedZ = north ? 3.5 : (H * TILE - 3.5);
-    for (const dx of [-0.7, 0.7]) for (const dz of [-1.05, 1.05]) {
-      tiles.push([Math.floor((bedX + dx) / TILE), Math.floor((bedZ + dz) / TILE)]);
+    // The bed mesh is only ~1.4 wide x 2.1 deep against the wall, but the old
+    // 4-corner spread marked a full 2x2 tile block (4x4 world units) as solid -
+    // so the hero clipped on ~2.5 units of INVISIBLE space and couldn't walk up
+    // to the bed (924). Mark ONLY the bed's real footprint: its two DEPTH tiles
+    // in the single x-column its centre sits in, freeing the open side so you
+    // can stand right next to it while still not walking through it.
+    const tx = Math.floor(bedX / TILE);
+    const seen = new Set();
+    for (const dz of [-1.0, 0, 1.0]) {
+      const tz = Math.floor((bedZ + dz) / TILE);
+      const key = tx + ',' + tz;
+      if (!seen.has(key)) { seen.add(key); tiles.push([tx, tz]); }
     }
   }
   return tiles;
