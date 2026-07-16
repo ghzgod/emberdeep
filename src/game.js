@@ -5879,6 +5879,29 @@ export class Game {
       if (!candidate && this.inUpstairs && this._lyingBed) {
         candidate = { label: 'Get up', icon: '🧍', action: () => this._standFromBed() };
       }
+      // Sitting at a stool you're RIGHT ON TOP OF wins over Magda's talk prompt
+      // (892): Magda's 3.8-unit talk radius covered every bar stool, so it always
+      // won and you could never sit at a stool near her ("only Talk to Magda").
+      // A tight 1.15 radius here means walking onto a stool offers the sit; the
+      // across-the-counter Talk-to-Magda still shows from the bar front where
+      // you're not on a stool.
+      const seatReadyEarly = performance.now() >= (this._seatCd || 0);
+      if (!candidate && seatReadyEarly && !this.seatedAt && !this.sittingOnCouch && this.dungeonMeshes.seats) {
+        let best = null, bestD = 1.15;
+        for (const s of this.dungeonMeshes.seats) {
+          const d = Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z);
+          if (d < bestD && !(this.dungeonMeshes.patronMeshes || []).some((pm) => Math.hypot(pm.x - s.x, pm.z - s.z) < 0.7)) { best = s; bestD = d; }
+        }
+        if (best) candidate = {
+          label: best.kind === 'bar' ? 'Sit at the bar' : 'Sit down', icon: '🪑', action: () => {
+            if (performance.now() < (this._seatCd || 0)) return;
+            this.seatedAt = best;
+            this._seatCd = performance.now() + 600;
+            this.player.pos.x = best.x; this.player.pos.z = best.z;
+            audio.play('ui_click', { volume: 0.5 });
+          },
+        };
+      }
       // 3.8 (was 2.4, Obsidian 746): the bar rework (720) put Magda a full
       // aisle + counter away from a customer standing at the bar front, past
       // the old radius - across-the-counter talking must always reach her.
