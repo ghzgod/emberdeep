@@ -788,7 +788,27 @@ export class UI {
     const P = this._csPrev = {
       renderer, scene, camera, turntable, canvas,
       lastT: performance.now(), hero: null, raf: 0, w, h,
+      dist: 2.9, // camera distance - wheel/pinch zoom (913)
     };
+    // Zoom the preview in/out (913): wheel on desktop, two-finger pinch on touch.
+    // Clamped so you can see the whole model without clipping into it.
+    const applyZoom = (delta) => {
+      P.dist = Math.max(1.6, Math.min(5.5, P.dist + delta));
+      P.camera.position.set(0, 1.3, P.dist);
+      P.camera.lookAt(0, 0.9, 0);
+    };
+    canvas.addEventListener('wheel', (e) => { e.preventDefault(); applyZoom(e.deltaY * 0.0022); }, { passive: false });
+    let pinchStart = 0, pinchDist0 = 0;
+    canvas.addEventListener('touchmove', (e) => {
+      if (e.touches.length !== 2) return;
+      e.preventDefault();
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      if (!pinchStart) { pinchStart = d; pinchDist0 = P.dist; return; }
+      P.dist = Math.max(1.6, Math.min(5.5, pinchDist0 * (pinchStart / d)));
+      P.camera.position.set(0, 1.3, P.dist);
+      P.camera.lookAt(0, 0.9, 0);
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => { pinchStart = 0; }, { passive: true });
     this.refreshCharPreview();
     const loop = () => {
       if (this._csPrev !== P) return;
@@ -859,23 +879,13 @@ export class UI {
       mesh = buildHeroMesh(CLASSES[clsId], name);
       gait = mesh.userData.updateGait;
     }
-    // PREVIEW-ONLY gender amplification: the in-game female silhouette hint
-    // (x0.94 / y1.03 in buildAnimatedHero) is deliberately subtle and reads
-    // as near-identical on this small turntable, so the preview pushes it
-    // further - noticeably slimmer + taller build and a smaller head - so
-    // male vs female are visibly different the moment the picker flips. The
-    // head shrink must be re-applied AFTER every mixer.update in the render
-    // loop because the idle animation keys bone scale and resets it each
-    // frame. The spawned in-game hero keeps the subtle proportions untouched.
-    let headBone = null;
-    if (gender === 'female') {
-      mesh.scale.x *= 0.85;
-      mesh.scale.z *= 0.85;
-      mesh.scale.y *= 1.06;
-      mesh.traverse((o) => { if (!headBone && o.isBone && /^head$/i.test(o.name)) headBone = o; });
-    }
+    // Female preview is the SAME SIZE as male (913: the old preview shrank the
+    // whole female mesh to x/z 0.85 + a smaller head, which read as "the female
+    // is smaller" rather than female-shaped). The base per-bone female shaping
+    // from buildAnimatedHero (wider hips/bust, slimmer waist) already gives her
+    // a distinct silhouette without shrinking her overall build.
     P.turntable.add(mesh);
-    P.hero = { mesh, anim, gait, headBone, headScale: 0.86 };
+    P.hero = { mesh, anim, gait, headBone: null, headScale: 1 };
   }
 
   stopCharPreview() {
