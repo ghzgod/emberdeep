@@ -662,22 +662,23 @@ export function buildTavernInterior() {
             if (st.wp >= path.length) {
               if (st.mode === 'toTable') {
                 st.mode = 'atTable'; st.waitT = 3 + Math.random() * 2;
-                // She serves a round (902): pour cue + a fresh mug on the table
-                // that stays until she heads back, so the visit reads as service.
+                // 945: real table service - if a previous (drained) round is
+                // still on the table, GRAB the empty cup first, then pour and set
+                // a fresh full one. So the loop reads as: bring a round -> patron
+                // drinks it down -> she returns, clears the empty, brings another.
+                if (st.servedMug) { group.remove(st.servedMug); st.servedMug.geometry.dispose(); st.servedMug = null; }
                 audio.pour();
-                if (!st.servedMug) {
-                  const mug = new THREE.Mesh(
-                    new THREE.CylinderGeometry(0.07, 0.07, 0.13, 8),
-                    new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.4, roughness: 0.5 }));
-                  mug.position.set(visitTable.x, 1.02, visitTable.z);
-                  group.add(mug); st.servedMug = mug; st.mugFill = 1; // fresh full round (902)
-                }
+                const mug = new THREE.Mesh(
+                  new THREE.CylinderGeometry(0.07, 0.07, 0.13, 8),
+                  new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.4, roughness: 0.5 }));
+                mug.position.set(visitTable.x, 1.02, visitTable.z);
+                group.add(mug); st.servedMug = mug; st.mugFill = 1; // fresh full round (902)
               } else {
                 st.mode = 'bar'; st.paceTarget = randPace(); st.waitT = 2 + Math.random() * 2;
                 st.nextVisitAt = now + (30 + Math.random() * 30) * 1000;
-                // clear the served mug once she's back behind the bar (the
-                // patron "finished" it) - keeps the scene from accumulating mugs.
-                if (st.servedMug) { group.remove(st.servedMug); st.servedMug.geometry.dispose(); st.servedMug = null; }
+                // 945: LEAVE the drained mug on the table between rounds (she
+                // clears it on her next visit) so the table shows a used cup, not
+                // an instantly-vanishing one.
               }
             }
           } else {
