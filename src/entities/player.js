@@ -549,7 +549,14 @@ export class Player {
     }
     // Normalize actual speed (walk vs a dash/sprint) into 0-1 so the gait
     // reads faster when moving faster, instead of one fixed-speed loop.
-    const curSpeed = this.dash ? this.dash.speed : (movingNow ? this.moveSpeed : 0);
+    // Scripted walks (buy-a-drink 866, follow-upstairs 873) move p.pos via a pin
+    // with NO input, so movingNow is false and the legs would freeze/glide. The
+    // scene sets this.scriptedSpeed to the walk speed so the player animates
+    // through its OWN locomotion pipeline here, instead of a second setLocomotion
+    // call after update() that update() just overwrites next frame (889).
+    const curSpeed = this.dash ? this.dash.speed
+      : movingNow ? this.moveSpeed
+        : (this.scriptedSpeed || 0);
     const speed01 = curSpeed > 0 ? Math.min(1, curSpeed / (this.speed * 1.8)) : 0;
     if (this.anim) {
       if (this.whirl) {
