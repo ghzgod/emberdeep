@@ -25,3 +25,7 @@ bs
 .env.*
 *.key
 secrets.*
+
+# raw audio sources (compressed+base64-embedded in src/sceneAudio.js instead)
+sounds/
+*.wav

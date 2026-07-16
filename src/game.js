@@ -730,6 +730,7 @@ export class Game {
     if (this._lyingBed) { this._lyingBed = null; if (this.player?.mesh) this.player.mesh.rotation.x = 0; }
     this._followScene = null; // coming back down cancels any in-flight walk (873)
     this._sceneLock = false;  // re-arm the stuck-failsafe off the scripted floor (874)
+    this._stopFadeAudio?.();  // stop the lights-out audio if the player bails mid-scene (881)
     if (resume) {
       this._tavernKeep = null;
       this.dungeon = keep.dungeon;
@@ -872,6 +873,7 @@ export class Game {
     this.inTavern = false;
     this.inUpstairs = false;
     this._followScene = null; this._sceneLock = false; // off the scripted floor (873/874)
+    this._stopFadeAudio?.(); // stop lights-out audio when leaving to town (881)
     const theme = themeForFloor(1);
     this.dungeon = generateTown();
     this.dungeonMeshes = buildDungeonMeshes(this.dungeon, theme);
@@ -1681,13 +1683,79 @@ export class Game {
     ov.textContent = 'The lantern winks out…';
     ov.style.pointerEvents = 'auto';
     requestAnimationFrame(() => { ov.style.opacity = '1'; });
+    // Lights-out audio (Obsidian 881/881b): the three supplied clips play over
+    // the blackout, then the lights come back on when they finish. bsc loops as
+    // a bed; gb plays once; the loop fades out 3s after gb ends; then br plays
+    // once; when br ends we fade the screen back in. Dynamically imported so the
+    // ~490KB of base64 audio never loads unless this scene actually fires.
+    if (this.settings.adult18) { this._playFadeAudio(ov); return; }
+    // clean (non-18+) path keeps the old timed morning-after with no audio
     setTimeout(() => { ov.textContent = '— some time later —'; }, 2200);
     setTimeout(() => {
       ov.style.opacity = '0';
       const bp = this.dungeonMeshes?.rosalindBedPos;
-      if (bp) roaster.sayGated(this, 'Rosalind', this.settings.adult18 ? 'Mmm… you\'re trouble, you know that? Stay a while.' : 'That was nice. Stay a while?', this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000, priority: true });
+      if (bp) roaster.sayGated(this, 'Rosalind', 'That was nice. Stay a while?', this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000, priority: true });
     }, 4200);
     setTimeout(() => { if (ov) ov.style.pointerEvents = 'none'; }, 5600);
+  }
+
+  // Orchestrates the lights-out audio + timed screen fade (881/881b). Kept
+  // separate so the fade overlay logic stays readable; all timers are stored so
+  // leaving the room (teardown) can cancel them and stop the audio.
+  async _playFadeAudio(ov) {
+    this._stopFadeAudio(); // clear any prior run
+    let mod;
+    try { mod = await import('./sceneAudio.js'); } catch { mod = null; }
+    if (!this.inUpstairs) return; // left the room while it loaded
+    const ctx = { timers: [], nodes: [] };
+    this._fadeAudio = ctx;
+    const T = (ms, fn) => { const id = setTimeout(() => { if (this._fadeAudio === ctx) fn(); }, ms); ctx.timers.push(id); return id; };
+    // helper: play a data-URI clip; returns the HTMLAudioElement (tracked so we
+    // can stop/fade it). Falls back silently if the module failed to load.
+    const play = (src, { loop = false, volume = 0.7 } = {}) => {
+      if (!src) return null;
+      const a = new Audio(src);
+      a.loop = loop; a.volume = volume;
+      a.play().catch(() => {}); // autoplay may be blocked; scene still proceeds on timers
+      ctx.nodes.push(a);
+      return a;
+    };
+    ov.textContent = 'The lantern winks out…';
+    // bsc loops as the bed; gb plays once (11.85s)
+    const bsc = mod ? play(mod.bscLoop, { loop: true, volume: 0.55 }) : null;
+    const gb = mod ? play(mod.gbOnce, { volume: 0.8 }) : null;
+    const GB_LEN = 11853, BR_LEN = 12000;
+    // 3s after gb ends: fade the bsc loop out over ~1s, then start br
+    T(GB_LEN + 3000, () => {
+      if (bsc) { // gentle fade then stop
+        const t0 = performance.now();
+        const fade = () => {
+          if (this._fadeAudio !== ctx) return;
+          const k = Math.min(1, (performance.now() - t0) / 1000);
+          bsc.volume = 0.55 * (1 - k);
+          if (k < 1) requestAnimationFrame(fade); else { bsc.pause(); }
+        };
+        fade();
+      }
+      ov.textContent = '— some time later —';
+      const br = mod ? play(mod.brOnce, { volume: 0.75 }) : null;
+      // when br finishes, bring the lights back up + morning-after line
+      T(BR_LEN + 400, () => {
+        ov.style.opacity = '0';
+        const bp = this.dungeonMeshes?.rosalindBedPos;
+        if (bp) roaster.sayGated(this, 'Rosalind', 'Mmm… you\'re trouble, you know that? Stay a while.', this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000, priority: true });
+        setTimeout(() => { if (ov) ov.style.pointerEvents = 'none'; }, 1400);
+        this._stopFadeAudio();
+      });
+    });
+  }
+
+  _stopFadeAudio() {
+    const ctx = this._fadeAudio;
+    if (!ctx) return;
+    this._fadeAudio = null;
+    for (const id of ctx.timers) clearTimeout(id);
+    for (const a of ctx.nodes) { try { a.pause(); a.src = ''; } catch { /* ignore */ } }
   }
 
   // Ask the keyless LLM (Pollinations) for Rosalind's next line, in character
