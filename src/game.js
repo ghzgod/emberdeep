@@ -774,24 +774,34 @@ export class Game {
         grp.updateMatrixWorld(true);
         const _bb = new THREE.Box3(), _sz = new THREE.Vector3();
         const _m = new THREE.Matrix4(), _zero = new THREE.Matrix4().makeScale(0, 0, 0);
-        for (const child of [...grp.children]) {
-          if (child.isLight) continue;
-          if (child.isInstancedMesh) {
+        // DEEP traverse to the LEAF meshes (864/852 leak: trees stream in nested
+        // inside a town-sized subgroup whose overall bbox is >40 units, so the
+        // old direct-children groundLike check skipped the whole group and never
+        // inspected the individual trees - one poked through the tavern floor).
+        // Every leaf mesh whose WORLD bbox intrudes into the room is HIDDEN
+        // (idempotent - survives re-adds/streamed loads; a hidden mesh outside
+        // the room through the window is untouched).
+        grp.traverse((o) => {
+          if (o.isLight) return;
+          if (o.isInstancedMesh) {
+            o.updateWorldMatrix(true, false);
+            const wm = o.matrixWorld.elements;
             let dirty = false;
-            for (let i = 0; i < child.count; i++) {
-              child.getMatrixAt(i, _m);
-              const wx = _m.elements[12] + grp.position.x, wz = _m.elements[14] + grp.position.z;
+            for (let i = 0; i < o.count; i++) {
+              o.getMatrixAt(i, _m);
+              const wx = _m.elements[12] + wm[12], wz = _m.elements[14] + wm[14];
               if (wx > roomRect.min.x && wx < roomRect.max.x && wz > roomRect.min.z && wz < roomRect.max.z) {
-                child.setMatrixAt(i, _zero); dirty = true;
+                o.setMatrixAt(i, _zero); dirty = true;
               }
             }
-            if (dirty) child.instanceMatrix.needsUpdate = true;
-            continue;
+            if (dirty) o.instanceMatrix.needsUpdate = true;
+            return;
           }
-          _bb.setFromObject(child); _bb.getSize(_sz);
-          const groundLike = _sz.x > 40 || _sz.z > 40; // spans the town: ground/roads
-          if (!groundLike && _bb.intersectsBox(roomRect)) grp.remove(child);
-        }
+          if (!o.isMesh) return;
+          _bb.setFromObject(o); _bb.getSize(_sz);
+          const groundLike = _sz.x > 40 || _sz.z > 40; // a big ground/road plane, keep it
+          if (!groundLike && _bb.intersectsBox(roomRect)) o.visible = false;
+        });
       };
       // moonlit-dusk fill so the village reads through the panes at night
       outside.group.add(new THREE.HemisphereLight(0x8fa0c8, 0x0c0c14, 0.4));
@@ -1812,6 +1822,21 @@ export class Game {
   // (not muted by the circuit breaker). Deliberately NOT gated on the AI/
   // battery toggles - those only govern voice (884a).
   llmAvailable() { return llm.ready; }
+
+  // A footstep for a WALKING NPC (905), throttled per-mover and attenuated by
+  // distance from the hero so a walker across the room is a faint tap, not a
+  // stomp. `key` names the per-mover step timer on the game so several NPCs can
+  // step independently. Feed the NPC's world x/z + dt each frame it moves.
+  _npcFootstep(x, z, dt, key) {
+    const now = performance.now();
+    const next = this[key] || 0;
+    if (now < next) return;
+    this[key] = now + 340; // ~one step per 0.34s, matching the player's cadence
+    const p = this.player?.pos;
+    const d = p ? Math.hypot(x - p.x, z - p.z) : 0;
+    const vol = Math.max(0.05, 0.34 * (1 - Math.min(1, d / 12))); // fades to ~0 past 12u
+    audio.play('footstep', { volume: vol });
+  }
 
   // Per-NPC persistent memory (884d): tiny fact files the regulars accumulate -
   // what they've learned about EACH OTHER through their own conversations, and
@@ -6371,10 +6396,15 @@ export class Game {
           this._rosalindApproaching = true;
           rp.talkUntil = performance.now() + 1500; // face you as she comes over
           if (dist > 2.0) {
-            const step = Math.min(dist - 1.9, 1.7 * dt);
+            // 2.4 u/s (was 1.7): a brisker walk so her stride matches the ground
+            // she covers and reads as walking, not gliding (905). Her leg cycle
+            // is driven by the patron world-delta driver; add FOOTSTEPS too,
+            // attenuated by distance from the hero like all NPC steps (905).
+            const step = Math.min(dist - 1.9, 2.4 * dt);
             rp.mesh.position.x += (dx / dist) * step;
             rp.mesh.position.z += (dz / dist) * step;
             rp.x = rp.mesh.position.x; rp.z = rp.mesh.position.z; // keep interact/anchor in sync
+            this._npcFootstep(rp.x, rp.z, dt, '_rosApproachStep');
           } else {
             this._rosalindMet = true;
             this._rosalindApproaching = false;
