@@ -234,50 +234,20 @@ export function buildTavernInterior() {
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   };
-  let winSeed = 11;
   const mkWindow = (x, z, roty) => {
     const grp = new THREE.Group();
-    // Genuinely see-through (Obsidian 824-followup): the walls are now CUT through
-    // at each window (mkWall `wins`), so the 3D "outside" is RECESSED behind the
-    // wall into the void - a sky backdrop, a receding ground plane and trees at
-    // staggered depth, framed at the opening. Real depth + parallax, viewed
-    // through an actual hole rather than a box jutting into the room.
-    const FRONT = 0.06;         // frame, just proud of the inner opening
-    const BACK = -1.85;         // sky plane, out past the wall's outer face
-    const tunMat = new THREE.MeshStandardMaterial({ color: 0x1c140d, roughness: 1 });
-    const tD = FRONT - BACK, tCz = (FRONT + BACK) / 2;
-    const tTop = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.08, tD), tunMat); tTop.position.set(0, 0.63, tCz);
-    const tBot = tTop.clone(); tBot.position.y = -0.63;
-    const tL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.34, tD), tunMat); tL.position.set(-0.73, 0, tCz);
-    const tR = tL.clone(); tR.position.x = 0.73;
-    grp.add(tTop, tBot, tL, tR);
-    let s = (winSeed = (winSeed * 7 + 13) >>> 0);
-    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
-    const sky = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.3),
-      new THREE.MeshBasicMaterial({ color: 0x9fc0e6 }));
-    sky.position.set(0, 0, BACK); grp.add(sky);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1.4, tD),
-      new THREE.MeshBasicMaterial({ color: 0x5d8a48 }));
-    ground.rotation.x = -Math.PI / 2; ground.position.set(0, -0.58, tCz); grp.add(ground);
-    // trees at staggered depths in front of the sky -> real parallax
-    for (let i = 0; i < 3; i++) {
-      const tz = BACK + 0.08 + rnd() * (tD - 0.14), tx = (rnd() - 0.5) * 1.0, ts = 0.7 + rnd() * 0.5;
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.045, 0.22 * ts, 6),
-        new THREE.MeshBasicMaterial({ color: 0x4a3320 }));
-      trunk.position.set(tx, -0.58 + 0.11 * ts, tz); grp.add(trunk);
-      const crown = new THREE.Mesh(new THREE.ConeGeometry(0.17 * ts, 0.4 * ts, 7),
-        new THREE.MeshBasicMaterial({ color: 0x3a5c30 }));
-      crown.position.set(tx, -0.58 + 0.42 * ts, tz); grp.add(crown);
-    }
-    // frame + muntins at the FRONT of the shadow-box (so the 3D view sits behind
-    // the glazing bars, not poking through them)
-    const top = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.09, 0.14), darkWood); top.position.set(0, 0.6, FRONT);
-    const bot = top.clone(); bot.position.set(0, -0.6, FRONT);
-    const l = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.3, 0.14), darkWood); l.position.set(-0.69, 0, FRONT);
+    // Genuinely see-through (Obsidian 852): the walls are CUT at each window
+    // (mkWall `wins`) and the REAL town is built around the interior (see
+    // loadTavern's _tavernOutside), so the opening needs NO diorama any more -
+    // just the frame + muntins, and you look straight out at actual Embervale
+    // (the same houses/lamps/trees you walk between outside).
+    const top = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.09, 0.14), darkWood); top.position.set(0, 0.6, 0.06);
+    const bot = top.clone(); bot.position.set(0, -0.6, 0.06);
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.3, 0.14), darkWood); l.position.set(-0.69, 0, 0.06);
     const r = l.clone(); r.position.x = 0.69;
     grp.add(top, bot, l, r);
-    const mV = new THREE.Mesh(new THREE.BoxGeometry(0.045, 1.1, 0.045), darkWood); mV.position.z = FRONT + 0.02;
-    const mH = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.045, 0.045), darkWood); mH.position.z = FRONT + 0.02;
+    const mV = new THREE.Mesh(new THREE.BoxGeometry(0.045, 1.1, 0.045), darkWood); mV.position.z = 0.08;
+    const mH = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.045, 0.045), darkWood); mH.position.z = 0.08;
     grp.add(mV, mH);
     grp.position.set(x, 1.7, z); grp.rotation.y = roty;
     group.add(grp);
