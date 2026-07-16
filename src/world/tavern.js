@@ -496,7 +496,7 @@ export function buildTavernInterior() {
   // anchor (position + the +z facing), so only the look changes. If the GLB
   // isn't loaded, buildNpcModel returns null and the box barkeep above stays
   // visible as the fallback. She keeps her held mug in hand.
-  const barlow = buildNpcModel('villager', 'Magda', { gender: 'female', skinTone: 'tan' });
+  const barlow = buildNpcModel('mage', 'Magda', { gender: 'female', skinTone: 'tan' });
   if (barlow) {
     for (let i = keeper.children.length - 1; i >= 0; i--) {
       const c = keeper.children[i];
@@ -924,14 +924,14 @@ export function buildTavernInterior() {
     // Distinct looks off the SHARED hero library (Obsidian 789 rev): different
     // class rig + skin/hair/style/face per patron so no two read the same, the
     // same variety the char-creator exposes.
-    { tile: [3, 4], angle: 0.9, name: 'patron', cls: 'scout', gender: 'female', skin: 'tan', hairColor: 'darkbrown', hairStyle: 'bun', faceShape: 'round', eyeColor: 'green', npcName: 'Tavern Patron', mood: 'rude' },
-    { tile: [12, 4], angle: -2.0, name: 'drunk', cls: 'cleric', gender: 'male', skin: 'brown', hairColor: 'grey', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown', npcName: 'Tipsy Regular', mood: 'friendly' },
+    { tile: [3, 4], angle: 0.9, name: 'patron', cls: 'knight', gender: 'female', skin: 'tan', hairColor: 'darkbrown', hairStyle: 'bun', faceShape: 'round', eyeColor: 'green', npcName: 'Tavern Patron', mood: 'rude' },
+    { tile: [12, 4], angle: -2.0, name: 'drunk', cls: 'barbarian', gender: 'male', skin: 'brown', hairColor: 'grey', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown', npcName: 'Tipsy Regular', mood: 'friendly' },
     // Rosalind (Obsidian 783/808): the tavern flirt. A named regular the player
     // can chat up through a branching, affinity-driven dialogue; her tone warms
     // or cools with the player's replies and turns overtly sexual only in 18+
     // mode (793). `slutty` post-tints her shared-rig outfit to a crimson bodice
     // + bare legs so she reads as the alluring one (808) without a bespoke mesh.
-    { tile: [8, 8], angle: 1.4, name: 'flirt', cls: 'drifter', gender: 'female', skin: 'light', hairColor: 'auburn', hairStyle: 'long', faceShape: 'narrow', eyeColor: 'violet', npcName: 'Rosalind', given: 'Rosalind', mood: 'friendly', flirty: true, slutty: true },
+    { tile: [8, 8], angle: 1.4, name: 'flirt', cls: 'mage', gender: 'female', skin: 'light', hairColor: 'auburn', hairStyle: 'long', faceShape: 'narrow', eyeColor: 'violet', npcName: 'Rosalind', given: 'Rosalind', mood: 'friendly', flirty: true, slutty: true },
   ];
   // ---- seat picking (Obsidian 788): each patron's "AI" decides whether to
   // STAND, sit at a TABLE, or sit at the BAR, then claims a free slot of that
@@ -1113,10 +1113,10 @@ export function buildTavernInterior() {
     // off the SHARED hero library - different class rig + skin/hair-colour/hair-
     // style/face/eyes - so the room never shows two of the same person.
     const VISITOR_LOOKS = [
-      { cls: 'drifter', gender: 'male', skin: 'tan', hairColor: 'darkbrown', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown' },
-      { cls: 'scout', gender: 'female', skin: 'light', hairColor: 'blonde', hairStyle: 'ponytail', faceShape: 'narrow', eyeColor: 'blue' },
-      { cls: 'drifter', gender: 'male', skin: 'fair', hairColor: 'chestnut', hairStyle: 'short', faceShape: 'round', eyeColor: 'green' },
-      { cls: 'cleric', gender: 'female', skin: 'brown', hairColor: 'black', hairStyle: 'bun', faceShape: 'standard', eyeColor: 'amber' },
+      { cls: 'knight', gender: 'male', skin: 'tan', hairColor: 'darkbrown', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown' },
+      { cls: 'mage', gender: 'female', skin: 'light', hairColor: 'blonde', hairStyle: 'ponytail', faceShape: 'narrow', eyeColor: 'blue' },
+      { cls: 'barbarian', gender: 'male', skin: 'fair', hairColor: 'chestnut', hairStyle: 'short', faceShape: 'round', eyeColor: 'green' },
+      { cls: 'knight', gender: 'female', skin: 'brown', hairColor: 'black', hairStyle: 'bun', faceShape: 'standard', eyeColor: 'amber' },
       { cls: 'knight', gender: 'male', skin: 'deep', hairColor: 'black', hairStyle: 'short', faceShape: 'standard', eyeColor: 'brown' },
       { cls: 'ranger', gender: 'female', skin: 'tan', hairColor: 'auburn', hairStyle: 'long', faceShape: 'round', eyeColor: 'green' },
       { cls: 'mage', gender: 'male', skin: 'light', hairColor: 'grey', hairStyle: 'short', faceShape: 'narrow', eyeColor: 'violet' },

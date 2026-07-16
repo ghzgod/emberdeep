@@ -34,7 +34,7 @@ class LLM {
 
   // messages: [{ role, content }]. Returns the assistant text, or null on any
   // failure/timeout/empty (caller falls back to its canned lines). Never throws.
-  async chat(messages, { timeout = DEFAULT_TIMEOUT, temperature = 0.9 } = {}) {
+  async chat(messages, { timeout = DEFAULT_TIMEOUT, temperature = 0.9, maxTokens = 90 } = {}) {
     if (!this.ready) return null;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeout);
@@ -44,7 +44,7 @@ class LLM {
         const res = await fetch(ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model, messages, temperature, max_tokens: 90 }),
+          body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
           signal: ctrl.signal,
           cache: 'no-store',
         }).catch(() => null);
