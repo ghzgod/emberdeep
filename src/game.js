@@ -6369,33 +6369,79 @@ export class Game {
         const nearestPm = pms.slice().sort((a, b) =>
           Math.hypot(a.x - visitorState.group.position.x, a.z - visitorState.group.position.z)
           - Math.hypot(b.x - visitorState.group.position.x, b.z - visitorState.group.position.z))[0];
+        // Varied greeting, no repeats (895: the room kept saying the same
+        // "Any room by the fire?" / "Always room, traveler. Mind your boots.").
+        // A larger pool + a used-set that persists across arrivals; when it's
+        // exhausted it resets. (A full LLM greeting is 884's job; this keeps the
+        // arrival beat instant and never-repeating without a round-trip.)
         const G = [
           ['Evening, all. Any room by the fire?', 'Always room, traveler. Mind your boots.'],
           ['Long road behind me. Is the ale as good as they say?', 'Better. Magda pours honest.'],
           ['Cold out there tonight.', 'Then you found the right door. Sit.'],
+          ['Whew - smells like home in here.', 'That\'d be the stew. Or the drunk. Hard to say.'],
+          ['Anyone sitting here?', 'Only ghosts, and they tip poorly. It\'s yours.'],
+          ['Gods, my feet. Point me at the nearest stool.', 'Right there, friend. Mind the wobbly leg.'],
+          ['Is it always this lively?', 'You caught us on a quiet night, believe it or not.'],
+          ['A drink, and make it strong.', 'Strong\'s the only kind Magda pours, love.'],
+          ['Room for one more weary soul?', 'Always. Pull up a chair before you fall down.'],
+          ['That fire looks like heaven right now.', 'Then thaw out, traveler. No charge for the warmth.'],
         ];
-        const pick = G[Math.floor(Math.random() * G.length)];
+        this._greetUsed = this._greetUsed || new Set();
+        if (this._greetUsed.size >= G.length) this._greetUsed.clear();
+        let gi = Math.floor(Math.random() * G.length);
+        for (let n = 0; n < G.length && this._greetUsed.has(gi); n++) gi = (gi + 1) % G.length;
+        this._greetUsed.add(gi);
+        const pick = G[gi];
         this._tavernConvo = [
           { who: '_visitor', text: pick[0] },
           { who: nearestPm?.drunk ? 'drunk' : 'patron', text: pick[1] },
         ];
         this._convoIdx = 0;
         this._convoGap = 0.6;
+        this._convoBurst = 0; // a new arrival is an EVENT - conversation picks back up (893)
       } else {
         this._convoT = (this._convoT ?? 14) - dt;
         if (this._convoT <= 0 && !this.npcSpeechActive()) {
-          // LLM-FIRST (884): the room's banter is written by the LLM whenever
-          // it's reachable - a small pool is kept topped up ahead of need so
-          // every exchange is already generated when its turn comes. The
-          // prewarmed canned trees are strictly the can't-reach-LLM fallback.
-          this._llmConvoPool = this._llmConvoPool || [];
-          if (this._llmConvoPool.length < 2) this._fetchFreshConvo();
-          const plans = this._tavernConvoPlans;
-          this._tavernConvo = this._llmConvoPool.length
-            ? this._llmConvoPool.shift()
-            : (plans?.length ? plans[(this._tavernPlanIdx++) % plans.length] : roaster.composeTavernConvo());
-          this._convoIdx = 0;
-          this._convoGap = 0;
+          // PROXIMITY-GATED, 2-PERSON exchanges (893): real people only chat with
+          // someone near them, not the whole room at once. Pick a PAIR of present
+          // NPCs who are within ~4.5 units of each other; if nobody is close
+          // enough, hold a natural lull instead of forcing chatter. The LLM
+          // writes generic banter (884); we REMAP its turns onto the chosen near
+          // pair, alternating speakers, so the two who are actually together are
+          // the ones talking.
+          const present = ['magda', 'drunk', 'patron', 'rosalind']
+            .map((w) => ({ who: w, s: speakerOfAny(w) })).filter((e) => e.s && e.s.pos);
+          // ~7 units = a few steps / 3-4 tiles: near neighbours can chat, but
+          // someone at the fire and someone at the far end of the bar (15+ units)
+          // won't (893, the user's own example).
+          let pair = null, pairD = 7.0;
+          for (let i = 0; i < present.length; i++) for (let j = i + 1; j < present.length; j++) {
+            const a = present[i].s.pos, b = present[j].s.pos;
+            const d = Math.hypot(a.x - b.x, a.z - b.z);
+            if (d < pairD) { pairD = d; pair = [present[i].who, present[j].who]; }
+          }
+          // Natural stopping (893): after a burst of exchanges, take a longer
+          // break so we don't chatter (or hit the LLM) non-stop. Events like a
+          // visitor arriving reset the burst via _convoBurst=0.
+          this._convoBurst = this._convoBurst || 0;
+          if (!pair || this._convoBurst >= 3) {
+            // no near pair, or the room just had its run - lull, and reset the
+            // burst so conversation can pick back up later.
+            this._convoT = 30 + Math.random() * 30;
+            if (this._convoBurst >= 3) this._convoBurst = 0;
+          } else {
+            this._llmConvoPool = this._llmConvoPool || [];
+            if (this._llmConvoPool.length < 2) this._fetchFreshConvo();
+            const plans = this._tavernConvoPlans;
+            const raw = this._llmConvoPool.length
+              ? this._llmConvoPool.shift()
+              : (plans?.length ? plans[(this._tavernPlanIdx++) % plans.length] : roaster.composeTavernConvo());
+            // remap onto the near pair, alternating (turn 0 -> A, 1 -> B, 2 -> A)
+            this._tavernConvo = (raw || []).map((t, i) => ({ ...t, who: pair[i % 2] }));
+            this._convoIdx = 0;
+            this._convoGap = 0;
+            this._convoBurst++;
+          }
         }
       }
     } else if (this._tavernConvo) { this._tavernConvo = null; }
