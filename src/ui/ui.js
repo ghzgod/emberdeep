@@ -2541,7 +2541,20 @@ export class UI {
     else if (aff >= 6) { el.textContent = '♥♥♥ smitten'; el.style.color = '#ff6ea6'; }
     else if (aff >= 3) { el.textContent = '♥♥ warming'; el.style.color = '#ff9ac0'; }
     else if (aff >= 1) { el.textContent = '♥'; el.style.color = '#ffb0cf'; }
+    else if (aff <= -1) { el.textContent = '❄ cool'; el.style.color = '#7fa8d0'; }
     else { el.textContent = ''; el.style.color = ''; }
+    // 929c: a Stardew/Persona-style affection METER. affinity runs -4 (cold) ..
+    // +8 (smitten); normalise to 0..1 and colour cold-blue -> warm-pink so you
+    // can SEE where you stand and watch it move as the conversation warms/cools.
+    const fill = $('flirt-afffill'), mark = $('flirt-affmark');
+    if (fill) {
+      const t = Math.max(0, Math.min(1, (aff + 4) / 12));
+      fill.style.width = `${Math.round(t * 100)}%`;
+      // hue 210 (cold blue) -> 338 (hot pink) across the range
+      const hue = Math.round(210 + (338 - 210) * t);
+      fill.style.background = `linear-gradient(90deg, hsl(210 55% 52%), hsl(${hue} 80% 60%))`;
+      if (mark) mark.style.left = `${Math.round(t * 100)}%`;
+    }
   }
   closeFlirt() {
     $('flirt-dialog').classList.add('hidden');
