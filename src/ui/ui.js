@@ -1894,6 +1894,29 @@ export class UI {
     el.classList.remove('hidden');
   }
 
+  // 925: a small centered choice menu (title + a column of buttons). Used for
+  // the bedroom "what now?" beats so nothing auto-happens - the player picks.
+  // Each option is { label, act }; picking hides the menu and runs act().
+  showChoiceMenu(title, options) {
+    let ov = document.getElementById('choice-menu');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'choice-menu';
+      document.body.appendChild(ov);
+    }
+    ov.innerHTML = `<div id="choice-card"><h3>${title}</h3><div id="choice-btns"></div></div>`;
+    const btns = ov.querySelector('#choice-btns');
+    options.forEach((o) => {
+      const b = document.createElement('button');
+      b.className = 'menu-btn choice-opt';
+      b.textContent = o.label;
+      b.onclick = () => { ov.classList.add('hidden'); try { o.act(); } catch (e) { console.error(e); } };
+      btns.appendChild(b);
+    });
+    ov.classList.remove('hidden');
+  }
+  hideChoiceMenu() { document.getElementById('choice-menu')?.classList.add('hidden'); }
+
   wireActionBar() {
     const g = this.game;
     // Desktop shares the touch utility bubbles (#touch-inv/mic/pause + potion)

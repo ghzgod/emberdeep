@@ -1982,33 +1982,76 @@ export class Game {
   // The implied 18+ payoff once you've WALKED into her room (873): a couple of
   // flirty/giggly beats, then you both lie in the bed together, she kisses you,
   // and the lantern goes out (fade-to-black). No on-screen explicit content.
+  // 925: NOTHING happens automatically in the bedroom - after she welcomes you
+  // in, a multiple-choice menu lets YOU decide the beat (bed / kiss / just sleep
+  // / get to know her). No auto-sex. The explicit act itself stays a discreet
+  // fade-to-black (18+), everything else is clean.
   _upstairsBeats(npc, bedC) {
     const adult = this.settings.adult18;
     const anchor = { x: bedC.x, z: bedC.z };
     roaster.sayGated(this, 'Rosalind', adult ? 'Mmm, finally alone. Door\'s locked, hero.' : 'Finally, a little privacy.', this._flirtVoice(), anchor, { durationMs: 3600, priority: true });
     clearTimeout(this._roomFadeTimer);
-    const T = (ms, fn) => { const id = setTimeout(() => { if (this.inUpstairs) fn(); }, ms); return id; };
-    if (!adult || !npc) return;
-    // 1) a giggle/flirt beat before anything happens (foreplay, tasteful)
-    T(3200, () => {
-      roaster.sayGated(this, 'Rosalind', '*laughs softly* Come here, then. Don\'t be shy.', this._flirtVoice(), anchor, { durationMs: 3000, priority: true });
-      this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💕', 'crit');
-    });
-    // 2) both lie down together (same YXZ lie the player uses; her south bed -> yaw PI)
-    T(6000, () => {
-      npc.mesh.rotation.order = 'YXZ';
-      npc.mesh.rotation.set(-Math.PI / 2, Math.PI, 0);
-      npc.mesh.position.set(bedC.x - 0.34, 0.58, bedC.z - 0.85);
-      npc.mesh.traverse((o) => { if (o.name === 'BlobShadow') o.visible = false; });
-      this._lyingBed = { x: bedC.x + 0.34, z: bedC.z, headAngle: bedC.headAngle, standZ: bedC.standZ, _scene: true };
-    });
-    // 3) the kiss
-    T(8000, () => {
-      roaster.sayGated(this, 'Rosalind', '*kisses you* C\'mere, you…', this._flirtVoice(), anchor, { durationMs: 2400, priority: true });
-      this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💋', 'crit');
-    });
-    // 4) lights out (fade to black, implied)
-    this._roomFadeTimer = T(10400, () => this._fadeScene());
+    if (!npc) return;
+    setTimeout(() => { if (this.inUpstairs) this._bedroomChoiceMenu(npc, bedC); }, 2600);
+  }
+
+  _bedroomChoiceMenu(npc, bedC) {
+    if (!this.inUpstairs) return;
+    const adult = this.settings.adult18;
+    const opts = [];
+    if (adult) opts.push({ label: '💋 Take her to bed', act: () => this._bedSex(npc, bedC) });
+    opts.push({ label: '😘 Just a kiss goodnight', act: () => this._bedKiss(npc, bedC) });
+    opts.push({ label: '😴 Just sleep together', act: () => this._bedSleep(npc, bedC) });
+    opts.push({ label: '💬 Get to know her', act: () => this._bedTalk(npc, bedC) });
+    opts.push({ label: '🚪 Head back down', act: () => this.headDownstairsWalk() });
+    this.ui.showChoiceMenu('What now?', opts);
+  }
+
+  // both lie down together (same YXZ lie the player uses; her south bed -> yaw PI)
+  _bedLieTogether(npc, bedC) {
+    npc.mesh.rotation.order = 'YXZ';
+    npc.mesh.rotation.set(-Math.PI / 2, Math.PI, 0);
+    npc.mesh.position.set(bedC.x - 0.34, 0.58, bedC.z - 0.85);
+    npc.mesh.traverse((o) => { if (o.name === 'BlobShadow') o.visible = false; });
+    this._lyingBed = { x: bedC.x + 0.34, z: bedC.z, headAngle: bedC.headAngle, standZ: bedC.standZ, _scene: true };
+  }
+
+  _bedSex(npc, bedC) {
+    const anchor = { x: bedC.x, z: bedC.z };
+    const T = (ms, fn) => setTimeout(() => { if (this.inUpstairs) fn(); }, ms);
+    T(200, () => { roaster.sayGated(this, 'Rosalind', '*laughs softly* Come here, then. Don\'t be shy.', this._flirtVoice(), anchor, { durationMs: 3000, priority: true }); this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💕', 'crit'); });
+    T(2600, () => this._bedLieTogether(npc, bedC));
+    T(4600, () => { roaster.sayGated(this, 'Rosalind', '*kisses you* C\'mere, you…', this._flirtVoice(), anchor, { durationMs: 2400, priority: true }); this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💋', 'crit'); });
+    this._roomFadeTimer = T(7000, () => this._fadeScene()); // fade-to-black (implied)
+  }
+
+  _bedKiss(npc, bedC) {
+    const anchor = { x: bedC.x, z: bedC.z };
+    this._bedLieTogether(npc, bedC);
+    setTimeout(() => { if (!this.inUpstairs) return; roaster.sayGated(this, 'Rosalind', '*soft kiss* Mmm. Sweet dreams, you.', this._flirtVoice(), anchor, { durationMs: 3200, priority: true }); this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💋', 'crit'); }, 400);
+    // she likes the gentleness; the Sleep option unlocks (no fade / no act)
+    if (this._flirtActive) this._flirtActive.affinity = Math.min(8, (this._flirtActive.affinity || 0) + 1);
+    this._sleepInvited = true;
+  }
+
+  _bedSleep(npc, bedC) {
+    const anchor = { x: bedC.x, z: bedC.z };
+    this._bedLieTogether(npc, bedC);
+    this._sleepInvited = true;
+    setTimeout(() => { if (!this.inUpstairs) return; roaster.sayGated(this, 'Rosalind', 'Just hold me a while. It\'s been a long day.', this._flirtVoice(), anchor, { durationMs: 3400, priority: true }); }, 400);
+    setTimeout(() => { if (this.inUpstairs && this._lyingBed) this.sleepUntilMorning(); }, 3800);
+  }
+
+  async _bedTalk(npc, bedC) {
+    const anchor = { x: bedC.x, z: bedC.z };
+    const pm = this._flirtActive || { name: 'Rosalind', affinity: 5, _flirtEx: 4, flirty: true };
+    this.ui.floaters?.showThinking(anchor);
+    const line = (await this._flirtLLMLine?.(pm, 2, this.settings.adult18, this.player.gender === 'female'))
+      || this._pick(['I grew up two villages east - ran from a dull betrothal and never looked back.', 'Magda took me in years ago. Now I know everyone\'s secrets and keep most of them.', 'A travelling player, once. The road got lonely; here the audience buys me drinks.']);
+    roaster.sayGated(this, 'Rosalind', this._useName(pm, line), this._flirtVoice(), anchor, { durationMs: 4200, priority: true });
+    if (pm.affinity != null) pm.affinity = Math.min(8, pm.affinity + 1);
+    // after she shares, offer the menu again so the beat can continue
+    setTimeout(() => { if (this.inUpstairs) this._bedroomChoiceMenu(npc, bedC); }, 4600);
   }
 
   // A tasteful fade-to-black for the implied 18+ upstairs encounter (851): the
