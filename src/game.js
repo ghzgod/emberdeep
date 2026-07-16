@@ -1740,6 +1740,7 @@ export class Game {
       const pDone = stepTo(pw, sc.approach.x - 0.7, sc.approach.z, 2.6);
       p.pos.x = pw.x; p.pos.z = pw.z; p.pos.y = 0;
       p.aimAngle = Math.atan2(sc.approach.z - pw.z, sc.approach.x - pw.x);
+      p.faceAimTimer = 0.2; // 941: face the walk direction toward the stairs
       p.scriptedSpeed = pDone ? 0 : (p.moveSpeed || 4);
       if (!pDone) this._npcFootstep(pw.x, pw.z, dt, '_stairPStep');
       let hDone = true;
@@ -1760,6 +1761,7 @@ export class Game {
       const pDone = stepTo(pw, sc.stairX - 0.5, sc.topZ, 1.7);
       p.pos.x = pw.x; p.pos.z = pw.z; p.pos.y = this._stairYAt(pw.z, sc);
       p.aimAngle = -Math.PI / 2; // face up/north
+      p.faceAimTimer = 0.2; // 941: pin facing to aimAngle (input is scene-locked)
       p.scriptedSpeed = pDone ? 0 : (p.moveSpeed || 4);
       if (!pDone) this._npcFootstep(pw.x, pw.z, dt, '_stairPStep');
       if (pm && pm.mesh) {
@@ -1827,6 +1829,7 @@ export class Game {
     const i = Math.max(0, Math.min(sc.steps, (pw.z - sc.topZ) / sc.run));
     p.pos.y = -i * sc.rise; // descend as they step down
     p.aimAngle = Math.PI / 2; // face south/down
+    p.faceAimTimer = 0.2; // 941: pin facing down the stairs (input is scene-locked)
     p.scriptedSpeed = done ? 0 : (p.moveSpeed || 4);
     if (done) {
       this._downStairScene = null; p.scriptedSpeed = 0; p.pos.y = 0; this._sceneLock = false;
@@ -5098,13 +5101,22 @@ export class Game {
       } else if (!inSafe) this._inSafeZone = false;
     }
 
+    // 941: during a scripted scene (stair climb/descent, follow-upstairs) the
+    // player must NOT be able to move the hero or twist the camera - the scene
+    // pins the position, facing and a fixed side camera. Suppress every live
+    // input source below so held keys / mouse-look can't fight the walk or spin
+    // the hero away from the stairs he's climbing.
+    const sceneLocked = !!(this._sceneLock || this._stairScene || this._downStairScene);
+
     // ---- input: camera rotation (Q/E or touch rotate buttons) ----
-    if (input.isDown('KeyQ')) this.camYaw += 2.2 * dt;
-    if (input.isDown('KeyE')) this.camYaw -= 2.2 * dt;
-    if (this.touch.rotDir) this.camYaw += this.touch.rotDir * 2.0 * dt;
+    if (!sceneLocked) {
+      if (input.isDown('KeyQ')) this.camYaw += 2.2 * dt;
+      if (input.isDown('KeyE')) this.camYaw -= 2.2 * dt;
+      if (this.touch.rotDir) this.camYaw += this.touch.rotDir * 2.0 * dt;
+    }
     // two-thumb twist gesture (accumulated in touch.js): drain the rotation
     // smoothly, with the per-frame step clamped so the camera never whips around
-    const twisting = this.touch.twistPending !== 0;
+    const twisting = !sceneLocked && this.touch.twistPending !== 0;
     if (twisting) {
       const maxStep = 2.4 * dt;
       let step = this.touch.twistPending * Math.min(1, 10 * dt);
@@ -5144,6 +5156,9 @@ export class Game {
     // loss and the events that are supposed to clear key/joystick state are
     // exactly how "walking into a wall with nothing held" bugs happen).
     if (!document.hasFocus()) { p.moveDir.x = 0; p.moveDir.z = 0; }
+    // 941: scripted scene owns the hero - kill any live move input so movingNow
+    // is false and the scene's aimAngle/faceAimTimer drives facing (up the stairs).
+    if (sceneLocked) { p.moveDir.x = 0; p.moveDir.z = 0; }
 
     // ---- input: aim via mouse raycast to ground (desktop only) ----
     // Touch devices never fire mousemove, so input.mouse.x/y sits frozen at
@@ -5158,7 +5173,7 @@ export class Game {
     // ...and never while seated on the fireside couch (Obsidian 747): the
     // per-frame mouse raycast was overriding the seated stare-at-the-fire
     // facing, so the hero's head chased the cursor from the couch.
-    if (!this.touch.enabled && !this.sittingOnCouch) {
+    if (!this.touch.enabled && !this.sittingOnCouch && !sceneLocked) {
       this._mouseNdc.set(
         (input.mouse.x / window.innerWidth) * 2 - 1,
         -(input.mouse.y / window.innerHeight) * 2 + 1
@@ -5178,7 +5193,7 @@ export class Game {
 
     // facing rule: hover/hold only steers facing, it never fires an attack -
     // attacks are button/cluster-only now (TODO 684).
-    p.aiming = !this.inTown && input.mouse.down;
+    p.aiming = !this.inTown && input.mouse.down && !sceneLocked;
 
     // live directional aim indicator: while a cluster button is held and
     // dragged (see ui.js), keep the ground arrow/cone pointing where the drag
