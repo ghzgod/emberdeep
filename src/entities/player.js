@@ -496,8 +496,9 @@ export class Player {
       const spd = this.moveSpeed;
       const mx = this.moveDir.x * spd * dt;
       const mz = this.moveDir.z * spd * dt;
-      if (mx && game.isWalkable(this.pos.x + mx, this.pos.z, 0.35)) this.pos.x += mx;
-      if (mz && game.isWalkable(this.pos.x, this.pos.z + mz, 0.35)) this.pos.z += mz;
+      // 943: also refuse a step that would push into a moving NPC (the barkeep)
+      if (mx && game.isWalkable(this.pos.x + mx, this.pos.z, 0.35) && !game.moverBlocks(this.pos.x + mx, this.pos.z, this.pos.x, this.pos.z)) this.pos.x += mx;
+      if (mz && game.isWalkable(this.pos.x, this.pos.z + mz, 0.35) && !game.moverBlocks(this.pos.x, this.pos.z + mz, this.pos.x, this.pos.z)) this.pos.z += mz;
 
       // footsteps
       if (mx || mz) {
