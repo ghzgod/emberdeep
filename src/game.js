@@ -1202,11 +1202,14 @@ export class Game {
     if (s && s.kind === 'bar') this.player.pos.z = s.z + 0.7;
   }
 
-  // Get up from a bed (Obsidian 842b): un-tip the hero, step off toward the room.
+  // Get up from a bed (Obsidian 842b/846): un-tip the hero, restore the weapon,
+  // step off toward the room.
   _standFromBed() {
     const b = this._lyingBed;
     this._lyingBed = null;
-    if (this.player.mesh) this.player.mesh.rotation.x = 0;
+    if (this.player.mesh) this.player.mesh.rotation.set(0, 0, 0); // player.js re-sets y next frame
+    (this._lyWeaponHidden || []).forEach((o) => { o.visible = true; });
+    this._lyWeaponHidden = null;
     if (b && b.standZ != null) this.player.pos.z = b.standZ;
     this._seatCd = performance.now() + 500;
   }
@@ -1337,7 +1340,7 @@ export class Game {
     this.player.visualAngle = Math.atan2(bp.x - this.player.pos.x, bp.z - this.player.pos.z) - Math.PI / 2;
     // Rosalind is actually HERE now: build her rig by the bed and add it to the
     // upstairs group so teardown cleans it up. Skimpy crimson tint like the tavern.
-    const npc = buildNpcModel('drifter', 'Rosalind', {
+    const npc = buildNpcModel('mage', 'Rosalind', {
       gender: 'female', skinTone: 'light', hairColor: 'auburn', hairStyle: 'long', faceShape: 'narrow', eyeColor: 'violet',
     });
     let anchor = { x: bp.x - 0.7, z: bp.z };
@@ -5524,13 +5527,30 @@ export class Game {
     // hero flat with the head at the headboard; deliberate movement gets up.
     if (this.inUpstairs && this._lyingBed) {
       const b = this._lyingBed, p = this.player;
-      if (Math.abs(p.moveDir.x) > 0.2 || Math.abs(p.moveDir.z) > 0.2) {
+      if (Math.abs(p.moveDir.x) > 0.25 || Math.abs(p.moveDir.z) > 0.25) {
         this._standFromBed();
-      } else {
+      } else if (p.mesh) {
+        // FULL transform lock (Obsidian 846): the old pin set only rotation.x, so
+        // player.js kept steering rotation.y from the mouse (the "mouse rotates me"
+        // wobble) and the head ended up backwards. Set the whole transform here,
+        // AFTER player.update, so nothing fights it. Head points at the headboard.
+        // Tipping -90deg about X lays the hero on their back with the head toward
+        // +Z; add a PI yaw for north-wall beds so the head still meets the pillow.
+        // Body then runs along the bed's long (Z) axis, not off the side.
+        const northBed = (b.headAngle || 0) < 0;
         p.pos.x = b.x; p.pos.z = b.z;
-        p.aimAngle = b.headAngle;
-        p.faceAimTimer = Math.max(p.faceAimTimer, 0.3);
-        if (p.mesh) { p.mesh.rotation.x = -1.35; p.mesh.position.y += 0.5; } // on their back, on the mattress
+        p.mesh.position.set(b.x, 0.55, b.z);
+        p.mesh.rotation.set(-Math.PI / 2, northBed ? Math.PI : 0, 0);
+        p.visualAngle = b.headAngle || 0; // so it doesn't snap on stand
+        // Hide the held weapon while lying (846) - restored on stand.
+        if (!this._lyWeaponHidden) {
+          this._lyWeaponHidden = [];
+          p.mesh.traverse((o) => {
+            if (o.isMesh && /sword|mace|axe|bow|wand|staff|hammer|dagger|blade|weapon|shield|spear/i.test(o.name || '') && o.visible) {
+              o.visible = false; this._lyWeaponHidden.push(o);
+            }
+          });
+        }
       }
     }
 
