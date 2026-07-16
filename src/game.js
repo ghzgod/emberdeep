@@ -418,6 +418,7 @@ export class Game {
     this.vendorMemory = {}; // per-vendor { met, lastItem } for greeting-first dialogue
     if (this._tavernKeep) { this._tavernKeep.meshes.group.traverse((o) => o.geometry?.dispose?.()); this._tavernKeep = null; }
     this._rosalindMet = false; // fresh character: she'll walk up to you once
+    this._npcMem = null; // fresh character: the regulars know nothing yet (884)
     this.clearedFloors = {}; // fresh character, nothing culled yet
     this.destroyedWallsSession = {}; // fresh session: every wall whole again
     this.destructibleWallHits = {};
@@ -444,6 +445,7 @@ export class Game {
     this.vendorMemory = data.vendorMemory || {};
     this._rosalindMet = !!data.rosalindMet; // persist "she's already approached you once" (828)
     this._usedBanter = Array.isArray(data.usedBanter) ? data.usedBanter : [];
+    this._npcMem = data.npcMem && typeof data.npcMem === 'object' ? data.npcMem : null; // per-NPC memory files (884)
     this.clearedFloors = data.clearedFloors || {}; // absent on pre-feature saves
     this.destroyedWallsSession = {}; // session-only: never persisted, always fresh
     this.destructibleWallHits = {};
@@ -823,6 +825,9 @@ export class Game {
       this._tavernConvoPlans = roaster.prepareTavernConvo();
       this._tavernPlanIdx = 0;
     }
+    // Warm the LLM banter pool the moment the door opens (884): two fetches in
+    // flight so the very first audible exchange is LLM-written when reachable.
+    this._fetchFreshConvo(); this._fetchFreshConvo();
     this.stairsCooldown = 1.5;
   }
 
@@ -1394,6 +1399,11 @@ export class Game {
       list = this._flirtChoices(pm, female).filter((c) => !c.buyDrink);
     }
     if ((pm.affinity || 0) >= 1 && !pm._hadDrink) list.push({ tier: 2, label: '🍺 Buy her a drink at the bar', buyDrink: true });
+    // She asked your name? The first option ANSWERS it with the character's
+    // actual creation name (885) - no more dodging into unrelated choices.
+    if (!pm._knowsName && /your name|what.*call you|who are you|name, (love|hero|stranger)/i.test(pm._lastLine || '')) {
+      list.unshift({ tier: 2, label: `I'm ${this.playerName()}.` });
+    }
     return list;
   }
 
@@ -1413,6 +1423,7 @@ export class Game {
       }, Math.max(1400, DUR - 1200));
     };
     this.ui._flirtPm = pm; // claim the conversation so a stray close doesn't race
+    pm._lastLine = line; // so the next option set can answer her question (885)
     roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: DUR, onShown: reveal, priority: true });
     // Safety net: if onShown never fires (no speech path at all), still reveal.
     this._flirtOpenTimer = setTimeout(reveal, 4500);
@@ -1486,8 +1497,17 @@ export class Game {
     // answer with the upstairs tease ("the room upstairs isn't ready") - a
     // total non-sequitur. Detect it, clink, and give it its own replies.
     const toast = /raises mug|to us|cheers|\bclink/i.test(playerLabel || '');
+    // Player introduced themselves (885): she knows the name from here on -
+    // the LLM prompt gets it and the room's memory records it.
+    if (!pm._knowsName && /^I'?m /.test(playerLabel || '')) {
+      pm._knowsName = true;
+      const mem = this._npcMemory();
+      mem.rosalind = [...(mem.rosalind || []), `the adventurer is called ${this.playerName()}`].slice(-8);
+      this.requestSave();
+    }
     if (toast && !pm._toasted) {
       pm._toasted = true;
+      this._npcWitness('raised a toast with Rosalind');
       audio.play('ui_click', { volume: 0.7 });
       this.ui.floaters?.spawn(this.player.pos, '🍺 Clink!', 'crit');
     }
@@ -1536,6 +1556,7 @@ export class Game {
         this.ui.openFlirtDialog(pm, line, choices);
       }, 4000); // she finishes her reply before your next options show (121)
     };
+    pm._lastLine = line; // so the next option set can answer her question (885)
     roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 5200, onShown: reveal, priority: true });
     this._flirtOpenTimer = setTimeout(reveal, 5200); // safety net if onShown never fires
     return { line, affinity: pm.affinity, disliked: end, invitedUpstairs };
@@ -1553,6 +1574,7 @@ export class Game {
   // once she's invited you (18+, earned) - the UI gates the button on that.
   followRosalindUpstairs() {
     this.ui.closeFlirt?.();
+    this._npcWitness('went upstairs with Rosalind'); // the whole room saw it (884)
     audio.play('door_open');
     this.loadTavernUpstairs();
     const bp = this.dungeonMeshes.rosalindBedPos || { x: 21.4, z: 20.5 };
@@ -1649,30 +1671,78 @@ export class Game {
   // cycle. Used opening lines are remembered (and persisted in the save) so the
   // room never repeats itself across visits; the canned trees remain the
   // offline fallback.
+  // Per-NPC persistent memory (884d): tiny fact files the regulars accumulate -
+  // what they've learned about EACH OTHER through their own conversations, and
+  // what they've seen the PLAYER do. Persisted in the save, fed back into every
+  // prompt so the room's stories build on themselves across visits.
+  _npcMemory() {
+    if (!this._npcMem) this._npcMem = { magda: [], drunk: [], patron: [], rosalind: [], player: [] };
+    if (!Array.isArray(this._npcMem.player)) this._npcMem.player = [];
+    return this._npcMem;
+  }
+
+  // Stamp something the regulars just watched the adventurer do ("bought
+  // Rosalind a drink", "went upstairs with Rosalind"). Future banter and flirt
+  // prompts see it, so the room remembers - and gossips about - you.
+  _npcWitness(text) {
+    const mem = this._npcMemory();
+    mem.player = [...mem.player, text].slice(-5);
+    this.requestSave();
+  }
+
   async _fetchFreshConvo() {
-    if (this._freshConvoBusy || !llm.ready) return;
-    this._freshConvoBusy = true;
+    // Up to 2 fetches in flight (884: entering the tavern warms a small pool so
+    // the first audible exchange is already LLM-written, not canned). The LLM
+    // is used regardless of the AI/voice/battery toggles - those gate TTS only.
+    if ((this._freshConvoBusy || 0) >= 2 || !llm.ready) return;
+    this._freshConvoBusy = (this._freshConvoBusy || 0) + 1;
     try {
       const used = (this._usedBanter || []).slice(-12).join(' | ');
-      const sys = `Write ambient background banter for a cozy fantasy tavern. Speakers: "magda" (no-nonsense barkeep), "drunk" (Bram, tipsy regular), "patron" (dry-witted regular), "rosalind" (playful flirt). Reply ONLY JSON: [{"who":"<magda|drunk|patron|rosalind>","text":"<one short spoken line, max 16 words, natural pronounceable words only - no Hmph/Pfft>"}] with EXACTLY 3 turns by different speakers - a light joke or gripe about tavern life. Do NOT reuse these earlier openers: ${used || '(none)'}`;
-      const out = await llm.chat([{ role: 'system', content: sys }, { role: 'user', content: 'Next exchange.' }], { timeout: 8000, temperature: 1.1, maxTokens: 220 });
+      const mem = this._npcMemory();
+      const memLine = ['magda', 'drunk', 'patron', 'rosalind']
+        .filter((k) => mem[k]?.length)
+        .map((k) => `${k} is known for: ${mem[k].slice(-4).join('; ')}`).join('. ');
+      const playerLine = mem.player.length ? ` They last saw the adventurer: ${mem.player.slice(-2).join('; ')}.` : '';
+      const tone = this.settings.adult18
+        ? 'Tone: 18+ - the banter may be DARK, crazy or bawdy (grim war stories, black humor, filthy jokes, profanity fine) but above all genuinely FUNNY.'
+        : 'Tone: clean but genuinely FUNNY - dry wit, absurd gripes, running jokes.';
+      const sys = `Write ambient background banter for a fantasy tavern. Speakers: "magda" (no-nonsense barkeep), "drunk" (Bram, tipsy regular), "patron" (dry-witted regular), "rosalind" (playful flirt). ${tone}${memLine ? ` Shared memory to build on (weave a callback in when it fits): ${memLine}.` : ''}${playerLine} Reply ONLY JSON: {"turns":[{"who":"<magda|drunk|patron|rosalind>","text":"<one short spoken line, max 16 words, natural pronounceable words only - no Hmph/Pfft>"}],"learned":[{"who":"<speaker>","fact":"<optional: one SHORT new thing this exchange revealed about them>"}]} with EXACTLY 3 turns by different speakers. Do NOT reuse these earlier openers: ${used || '(none)'}`;
+      const out = await llm.chat([{ role: 'system', content: sys }, { role: 'user', content: 'Next exchange. Remember: top-level JSON key MUST be "turns".' }], { timeout: 8000, temperature: 1.1, maxTokens: 300 });
       if (!out) return;
-      const arr = JSON.parse(out.match(/\[[\s\S]*\]/)[0]);
-      // codestral drifts from the schema ("speaker"/"bram"/"line") - normalize
+      const obj = JSON.parse(out.match(/\{[\s\S]*\}/)?.[0] || out.match(/\[[\s\S]*\]/)[0]);
+      let rawTurns = Array.isArray(obj) ? obj : obj.turns;
+      let rawLearned = Array.isArray(obj) ? null : obj.learned;
+      // codestral schema drift, worst case observed live: a SPEAKER-KEYED object
+      // {"magda":{"line":"...","reveal":"..."},"bram":{...}} - unfold it.
+      if (!Array.isArray(rawTurns) && obj && typeof obj === 'object') {
+        rawTurns = Object.entries(obj).map(([who, v]) => (v && typeof v === 'object')
+          ? { who, text: v.line || v.text, _fact: v.reveal || v.fact || v.learned }
+          : { who, text: v });
+        rawLearned = rawTurns.filter((t) => t._fact).map((t) => ({ who: t.who, fact: t._fact }));
+      }
+      // milder drifts ("speaker"/"bram"/"line") - normalize
       const WHO = { magda: 'magda', barkeep: 'magda', drunk: 'drunk', bram: 'drunk', patron: 'patron', regular: 'patron', rosalind: 'rosalind', ros: 'rosalind', flirt: 'rosalind' };
-      const turns = (Array.isArray(arr) ? arr : []).map((t) => {
+      const turns = (Array.isArray(rawTurns) ? rawTurns : []).map((t) => {
         if (!t) return null;
         const who = WHO[String(t.who || t.speaker || t.name || '').toLowerCase().trim()];
         const text = typeof t.text === 'string' ? t.text : (typeof t.line === 'string' ? t.line : null);
         return who && text ? { who, text: String(text).slice(0, 140) } : null;
       }).filter(Boolean).slice(0, 3);
       if (turns.length >= 2) {
-        (this._tavernConvoPlans = this._tavernConvoPlans || []).push(turns);
+        (this._llmConvoPool = this._llmConvoPool || []).push(turns);
         this._usedBanter = [...(this._usedBanter || []), turns[0].text].slice(-30);
+        // bank what the room just learned about its own people (cap 8 facts each)
+        if (Array.isArray(rawLearned)) {
+          for (const l of rawLearned.slice(0, 3)) {
+            const who = WHO[String(l?.who || '').toLowerCase().trim()];
+            const fact = typeof l?.fact === 'string' ? l.fact.slice(0, 90) : null;
+            if (who && fact && who !== 'player') mem[who] = [...(mem[who] || []), fact].slice(-8);
+          }
+        }
         this.requestSave();
       }
     } catch { /* canned trees remain the fallback */ }
-    finally { this._freshConvoBusy = false; }
+    finally { this._freshConvoBusy = (this._freshConvoBusy || 1) - 1; }
   }
 
   // LLM-DRIVEN flirt turn (Obsidian 853): the free keyless LLM generates BOTH
@@ -1688,7 +1758,9 @@ export class Game {
     const mood = a <= -3 ? 'fed up and dismissive' : a >= 6 ? 'smitten' : a >= 3 ? 'warming up' : a >= 1 ? 'curious' : 'cool but intrigued';
     pm._flirtHistory = pm._flirtHistory || [];
     if (playerLine) pm._flirtHistory.push({ role: 'user', content: `Adventurer: ${playerLine}` });
-    const sys = `You are Rosalind, a tipsy, flirtatious regular at a fantasy tavern, talking with an adventurer${female ? ' (a woman - you are into women)' : ''}. Your mood right now: ${mood} (affinity ${a} on a -4..8 scale). ${adult ? '18+ MODE IS ON: be crude, vulgar and explicitly sexual with profanity when your mood is warm.' : 'Keep it suggestive and playful but CLEAN - no profanity or explicit content.'} You do NOT jump to bed with someone you just met - escalate naturally over the conversation. Write ONLY natural pronounceable words (text-to-speech reads your line aloud): no vowel-less interjections like "Hmph"/"Pfft"/"Tsk" - use real words or "Hmm". Reply with ONLY a JSON object, no prose:\n{"line":"<your ONE short spoken line, max 22 words, in character>","options":[<EXACTLY 4 objects>{"text":"<a short line the ADVENTURER could say back, max 11 words>","warmth":<integer -2..2, how forward/warm it is>${adult ? ',"upstairs":<true ONLY if this option is you being invited to her room and she is smitten>' : ''}}]}\nThe 4 options MUST be varied and fit THIS moment: one cold/dismissive (warmth -2 or -1), one neutral (0), one warm (1), one bold (2).`;
+    const mem = this._npcMemory();
+    const remembers = [...(mem.rosalind || []).slice(-3), ...(mem.player.length ? [`you saw the adventurer ${mem.player.slice(-2).join(' and ')}`] : [])].join('; ');
+    const sys = `You are Rosalind, a tipsy, flirtatious regular at a fantasy tavern, talking with an adventurer${female ? ' (a woman - you are into women)' : ''}. Your mood right now: ${mood} (affinity ${a} on a -4..8 scale).${pm._knowsName ? ` The adventurer told you their name: ${this.playerName()} - greet and use it naturally.` : ' You do NOT know their name yet.'}${remembers ? ` You remember: ${remembers}.` : ''} ${adult ? '18+ MODE IS ON: be crude, vulgar and explicitly sexual with profanity when your mood is warm.' : 'Keep it suggestive and playful but CLEAN - no profanity or explicit content.'} You do NOT jump to bed with someone you just met - escalate naturally over the conversation. Write ONLY natural pronounceable words (text-to-speech reads your line aloud): no vowel-less interjections like "Hmph"/"Pfft"/"Tsk" - use real words or "Hmm". Reply with ONLY a JSON object, no prose:\n{"line":"<your ONE short spoken line, max 22 words, in character>","options":[<EXACTLY 4 objects>{"text":"<a short line the ADVENTURER could say back, max 11 words>","warmth":<integer -2..2, how forward/warm it is>${adult ? ',"upstairs":<true ONLY if this option is you being invited to her room and she is smitten>' : ''}}]}\nThe 4 options MUST be varied and fit THIS moment: one cold/dismissive (warmth -2 or -1), one neutral (0), one warm (1), one bold (2).`;
     const msgs = [{ role: 'system', content: sys }, ...pm._flirtHistory.slice(-8)];
     const out = await llm.chat(msgs, { timeout: 6000, temperature: 1.05, maxTokens: 240 });
     if (!out) return null;
@@ -4420,6 +4492,7 @@ export class Game {
       clearedFloors: this.clearedFloors, // { floor: true } full clears only
       rosalindMet: !!this._rosalindMet, // she only ever walks up to you ONCE (828)
       usedBanter: (this._usedBanter || []).slice(-30), // the room never repeats itself (781)
+      npcMem: this._npcMem || null, // what the regulars know about each other + the player (884)
     });
   }
 
@@ -5935,6 +6008,7 @@ export class Game {
             roaster.sayGated(this, 'Magda', 'Two honeyed ales, loves. On the counter.', { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, this.dungeonMeshes.barkeepPos, { durationMs: 3600, priority: true });
             pm.affinity = Math.min(8, (pm.affinity || 0) + 1); // a drink warms her up
             pm._hadDrink = true;                               // choices change (847)
+            this._npcWitness('bought Rosalind a drink at the bar');
             this.ui.floaters?.spawn(p.pos, '🍺 You buy Rosalind a drink', 'crit');
           }, 900);
           setTimeout(() => { this._buyScene = null; if (this.inTavern && !this.inUpstairs) this.flirtChat(pm); }, 5200);
@@ -6167,15 +6241,16 @@ export class Game {
       } else {
         this._convoT = (this._convoT ?? 14) - dt;
         if (this._convoT <= 0 && !this.npcSpeechActive()) {
-          // alternate between the visit's PREWARMED exchanges (736) so every
-          // ambient line is a cache hit - never a fresh mid-idle inference
+          // LLM-FIRST (884): the room's banter is written by the LLM whenever
+          // it's reachable - a small pool is kept topped up ahead of need so
+          // every exchange is already generated when its turn comes. The
+          // prewarmed canned trees are strictly the can't-reach-LLM fallback.
+          this._llmConvoPool = this._llmConvoPool || [];
+          if (this._llmConvoPool.length < 2) this._fetchFreshConvo();
           const plans = this._tavernConvoPlans;
-          // every canned plan has played once -> start topping the pool up with
-          // FRESH LLM-written exchanges (781); arrives in time for a later cycle
-          if ((this._tavernPlanIdx || 0) >= (plans?.length || 0)) this._fetchFreshConvo();
-          this._tavernConvo = plans?.length
-            ? plans[(this._tavernPlanIdx++) % plans.length]
-            : roaster.composeTavernConvo();
+          this._tavernConvo = this._llmConvoPool.length
+            ? this._llmConvoPool.shift()
+            : (plans?.length ? plans[(this._tavernPlanIdx++) % plans.length] : roaster.composeTavernConvo());
           this._convoIdx = 0;
           this._convoGap = 0;
         }
