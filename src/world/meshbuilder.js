@@ -222,6 +222,9 @@ const WORLD_MODEL_FILES = {
   mkWagon: 'models/megakit/Prop_Wagon.gltf',
   mkCrate: 'models/megakit/Prop_Crate.gltf',
   mkFence: 'models/megakit/Prop_WoodenFence_Single.gltf',
+  mkWallStraight: 'models/megakit/Wall_Plaster_Straight.gltf',
+  mkWallGrid: 'models/megakit/Wall_Plaster_WoodGrid.gltf',
+  mkRoof: 'models/megakit/Roof_RoundTiles_8x14.gltf',
   // inn.glb retired (Obsidian 715): the tavern is the procedural shell now.
 };
 
