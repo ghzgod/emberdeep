@@ -2490,6 +2490,25 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       roof.rotation.y = Math.PI / 2; // long axis along X (the 14-unit side)
       roof.position.set(0, 2.7, 0);  // eaves overlap the wall tops slightly
       kit.add(roof);
+      // 947-b: the round-tile roof piece has OPEN gable ends - you could see
+      // straight THROUGH the building into the interior (user image 154). Cap
+      // each X-end with a plaster triangle sized from the roof's REAL measured
+      // extents (the kit has no hardcoded ridge height), from the eave up to the
+      // ridge, so the gables read as a closed wall the way the front/back do.
+      roof.updateMatrixWorld(true);
+      const rbb = new THREE.Box3().setFromObject(roof);
+      const ridgeY = rbb.max.y, eaveY = Math.min(rbb.min.y + 0.15, 3.0);
+      const zHalf = (rbb.max.z - rbb.min.z) / 2 - 0.05;
+      const gShape = new THREE.Shape();
+      gShape.moveTo(-zHalf, eaveY); gShape.lineTo(zHalf, eaveY); gShape.lineTo(0, ridgeY); gShape.closePath();
+      const gGeo = new THREE.ShapeGeometry(gShape);
+      const gMat = new THREE.MeshStandardMaterial({ color: 0xb8a488, roughness: 0.95, side: THREE.DoubleSide });
+      for (const [gx, ry] of [[rbb.min.x + 0.12, Math.PI / 2], [rbb.max.x - 0.12, -Math.PI / 2]]) {
+        const gable = new THREE.Mesh(gGeo, gMat);
+        gable.rotation.y = ry; gable.position.set(gx, 0, 0);
+        gable.castShadow = gable.receiveShadow = true;
+        kit.add(gable);
+      }
       clearFacade();
       buildFacade((W - 0.4) / 2, halfD + 0.05, halfD - 0.2, 1.35, 1.8);
       return kit;
