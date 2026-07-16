@@ -1241,27 +1241,53 @@ export class Game {
     // intro). The introduction lines only ever play on the true first exchange.
     const talkedBefore = (pm._flirtEx || 0) > 0 || pm._greeted;
     pm._greeted = true;
-    let opener;
-    if (pm.affinity <= -3) {
-      opener = this._pick(['Oh. You again. Thought I made myself clear.', 'Back for more? I already lost interest, sweetheart.']);
-    } else if (pm._hadDrink && !pm._toasted) {
-      pm._toasted = true;
-      opener = this._pick(['*clinks your mug* To bad decisions and better company.', 'Mmm, honeyed ale. You spoil me, hero. *sips*']);
-    } else if (talkedBefore) {
-      opener = pm.affinity >= 3
-        ? this._pick(['Miss me already? Good.', 'Mmm, I was hoping you\'d come back to me.', female ? 'Back so soon, gorgeous? Sit.' : 'Back so soon, handsome? Sit.', '*smiles over her mug* Go on then, say it.'])
-        : this._pick(['Back again? I\'m starting to think you like me.', '*raises an eyebrow* Yes?', 'Couldn\'t stay away, could you?', 'Still here, still thirsty. What is it, love?']);
-    } else {
-      opener = this._pick([
+    const cannedOpener = () => {
+      if (pm.affinity <= -3) return this._pick(['Oh. You again. Thought I made myself clear.', 'Back for more? I already lost interest, sweetheart.']);
+      if (pm._hadDrink && !pm._toasted) {
+        pm._toasted = true;
+        return this._pick(['*clinks your mug* To bad decisions and better company.', 'Mmm, honeyed ale. You spoil me, hero. *sips*']);
+      }
+      if (talkedBefore) {
+        return pm.affinity >= 3
+          ? this._pick(['Miss me already? Good.', 'Mmm, I was hoping you\'d come back to me.', female ? 'Back so soon, gorgeous? Sit.' : 'Back so soon, handsome? Sit.', '*smiles over her mug* Go on then, say it.'])
+          : this._pick(['Back again? I\'m starting to think you like me.', '*raises an eyebrow* Yes?', 'Couldn\'t stay away, could you?', 'Still here, still thirsty. What is it, love?']);
+      }
+      return this._pick([
         female ? '*hic* Well aren\'t YOU a sight. Buy a girl a drink, gorgeous?' : '*hic* Well hello, hero. Come to keep a lonely girl company?',
         'You\'ve got a look about you. Sit with me a while?',
       ]);
+    };
+    // LLM-FIRST (Obsidian 853: "stop hardcoding - use the AI"): the free keyless
+    // LLM generates BOTH her opener and your reply options from the running
+    // conversation; the canned banks above are only the offline fallback. The
+    // thinking pill covers the round-trip; she still SPEAKS first and the
+    // choices reveal only after her line (848/121).
+    (async () => {
+      this.ui.floaters?.showThinking(pm);
+      const turn = await this._flirtLLMTurn(pm, null);
+      if (this.state !== 'flirt') return; // player walked off while she "thought"
+      let opener;
+      if (turn) { opener = turn.line; pm._llmOptions = turn.options; }
+      else { pm._llmOptions = null; opener = cannedOpener(); }
+      this._openFlirtAfterSpeaking(pm, opener, female);
+    })();
+  }
+
+  // The player's current reply options: LLM-generated when available (853),
+  // otherwise the canned contextual bank; the scripted buy-a-drink beat is
+  // appended as an extra action either way (once, until she's had her drink).
+  _currentChoices(pm, female) {
+    const adult = this.settings.adult18;
+    let list;
+    if (pm._llmOptions && pm._llmOptions.length) {
+      const tierOf = (w) => (w <= -1 ? 0 : w === 0 ? 1 : w === 1 ? 2 : 3);
+      const earned = adult && (pm.affinity || 0) >= 5 && (pm._flirtEx || 0) >= 4;
+      list = pm._llmOptions.map((o) => ({ tier: tierOf(o.warmth), label: o.label, upstairs: !!o.upstairs && earned }));
+    } else {
+      list = this._flirtChoices(pm, female).filter((c) => !c.buyDrink);
     }
-    // She SPEAKS first; the reply choices appear only AFTER her line actually
-    // shows (Obsidian 848: a fixed delay opened them while the thinking ellipsis
-    // was still up). onShown fires the instant the bubble replaces the pill; we
-    // then reveal the choices a short beat later.
-    this._openFlirtAfterSpeaking(pm, opener, female);
+    if ((pm.affinity || 0) >= 1 && !pm._hadDrink) list.push({ tier: 2, label: '🍺 Buy her a drink at the bar', buyDrink: true });
+    return list;
   }
 
   // Speak a Rosalind line, then reveal the reply choices only once she's DONE
@@ -1275,7 +1301,7 @@ export class Game {
       clearTimeout(this._flirtOpenTimer);
       this._flirtOpenTimer = setTimeout(() => {
         if (this.state === 'flirt' && this.ui._flirtPm !== null) {
-          this.ui.openFlirtDialog(pm, line, this._flirtChoices(pm, female));
+          this.ui.openFlirtDialog(pm, line, this._currentChoices(pm, female));
         }
       }, Math.max(1400, DUR - 1200));
     };
@@ -1308,7 +1334,7 @@ export class Game {
   }
 
   // Apply a chosen reply; returns her reaction + the next choices (or ends).
-  async flirtSelect(pm, tier) {
+  async flirtSelect(pm, tier, playerLabel = null) {
     const adult = this.settings.adult18;
     const female = this.player.gender === 'female';
     // She's MORE into you than you are into her (Obsidian 807): even a lukewarm
@@ -1320,12 +1346,18 @@ export class Game {
     // (aff>=6) below it now takes ~6 warm exchanges to win her over.
     pm.affinity = Math.max(-4, Math.min(8, (pm.affinity || 0) + [-2, 0, 1, 1][tier]));
     pm._flirtEx = (pm._flirtEx || 0) + 1; // exchanges so far - gates the payoff
-    // Decide the ONE line BEFORE showing/speaking it - the UI shows a brief "…"
-    // while the fast keyless LLM (codestral, ~0.6s) is consulted; if it answers
-    // we use it, otherwise the canned line. One line, spoken once - no jarring
-    // "she starts, stops, then says something else" swap (Obsidian 801 re-fix).
-    const canned = this._flirtReply(pm, tier, adult, female);
-    const line = (await this._flirtLLMLine(pm, tier, adult, female)) || canned;
+    // LLM-FIRST (853): the free LLM writes her reaction AND your next options
+    // from the running conversation (the player's actual chosen line goes into
+    // the history). The thinking pill covers the round-trip; the canned banks
+    // are only the offline fallback. One line, spoken once (801).
+    this.ui.floaters?.showThinking(pm);
+    let line;
+    const turn = await this._flirtLLMTurn(pm, playerLabel);
+    if (turn) { line = turn.line; pm._llmOptions = turn.options; }
+    else {
+      pm._llmOptions = null;
+      line = (await this._flirtLLMLine(pm, tier, adult, female)) || this._flirtReply(pm, tier, adult, female);
+    }
     pm.talkUntil = performance.now() + 12000;
     const end = pm.affinity <= -3; // she's had enough of a cold shoulder
     // The EARNED payoff (Obsidian 829): once she's genuinely into you (smitten,
@@ -1344,7 +1376,7 @@ export class Game {
         if (end) { this.ui.closeFlirt(); return; }
         const choices = invitedUpstairs
           ? [{ tier: 3, label: '💋 Follow her upstairs', followUp: true }]
-          : this._flirtChoices(pm, female);
+          : this._currentChoices(pm, female);
         this.ui.openFlirtDialog(pm, line, choices);
       }, 4000); // she finishes her reply before your next options show (121)
     };
@@ -1469,7 +1501,7 @@ export class Game {
     const mood = a <= -3 ? 'fed up and dismissive' : a >= 6 ? 'smitten' : a >= 3 ? 'warming up' : a >= 1 ? 'curious' : 'cool but intrigued';
     pm._flirtHistory = pm._flirtHistory || [];
     if (playerLine) pm._flirtHistory.push({ role: 'user', content: `Adventurer: ${playerLine}` });
-    const sys = `You are Rosalind, a tipsy, flirtatious regular at a fantasy tavern, talking with an adventurer${female ? ' (a woman - you are into women)' : ''}. Your mood right now: ${mood} (affinity ${a} on a -4..8 scale). ${adult ? '18+ MODE IS ON: be crude, vulgar and explicitly sexual with profanity when your mood is warm.' : 'Keep it suggestive and playful but CLEAN - no profanity or explicit content.'} You do NOT jump to bed with someone you just met - escalate naturally over the conversation. Reply with ONLY a JSON object, no prose:\n{"line":"<your ONE short spoken line, max 22 words, in character>","options":[<3 or 4 objects>{"text":"<a short line the ADVENTURER could say back, max 11 words>","warmth":<integer -2..2, how forward/warm it is>${adult ? ',"upstairs":<true ONLY if this option is you being invited to her room and she is smitten>' : ''}}]}\nMake the options sporadic and varied, always including one cold/dismissive and one warm, fitting THIS moment in the chat.`;
+    const sys = `You are Rosalind, a tipsy, flirtatious regular at a fantasy tavern, talking with an adventurer${female ? ' (a woman - you are into women)' : ''}. Your mood right now: ${mood} (affinity ${a} on a -4..8 scale). ${adult ? '18+ MODE IS ON: be crude, vulgar and explicitly sexual with profanity when your mood is warm.' : 'Keep it suggestive and playful but CLEAN - no profanity or explicit content.'} You do NOT jump to bed with someone you just met - escalate naturally over the conversation. Reply with ONLY a JSON object, no prose:\n{"line":"<your ONE short spoken line, max 22 words, in character>","options":[<EXACTLY 4 objects>{"text":"<a short line the ADVENTURER could say back, max 11 words>","warmth":<integer -2..2, how forward/warm it is>${adult ? ',"upstairs":<true ONLY if this option is you being invited to her room and she is smitten>' : ''}}]}\nThe 4 options MUST be varied and fit THIS moment: one cold/dismissive (warmth -2 or -1), one neutral (0), one warm (1), one bold (2).`;
     const msgs = [{ role: 'system', content: sys }, ...pm._flirtHistory.slice(-8)];
     const out = await llm.chat(msgs, { timeout: 6000, temperature: 1.05, maxTokens: 240 });
     if (!out) return null;
