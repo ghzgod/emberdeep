@@ -1226,6 +1226,15 @@ body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster
 /* ONE option per row, one line of text each (image 123) - a classic dialogue
    list, not a wrapping grid. */
 #flirt-choices { display: flex; flex-direction: column; gap: 5px; margin-bottom: 7px; }
+/* free-text reply (868): same card language as the choice buttons */
+#flirt-free-row { display: flex; margin-top: 2px; }
+#flirt-free {
+  flex: 1; font-family: inherit; font-size: 14px; color: var(--parchment);
+  background: rgba(20, 14, 28, 0.9); border: 1px solid #7a5f8f; border-radius: 8px;
+  padding: 9px 12px; outline: none;
+}
+#flirt-free:focus { border-color: var(--gold); box-shadow: 0 0 8px rgba(232,192,90,0.25); }
+#flirt-free::placeholder { color: #9a8fae; font-style: italic; }
 #flirt-choices .flirt-choice {
   text-align: center; white-space: normal;
   font-size: 13px; line-height: 1.25; padding: 7px 12px;

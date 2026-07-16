@@ -2389,6 +2389,30 @@ export class UI {
       };
       list.appendChild(btn);
     }
+    // Free-text reply (868): when the LLM is reachable you can just SAY
+    // anything - it goes into the conversation history and the LLM writes her
+    // reaction + the next options from your actual words. Hidden while the
+    // LLM is muted/unreachable (the canned banks can't answer free text).
+    if (this.game.llmAvailable?.()) {
+      const row = document.createElement('div');
+      row.id = 'flirt-free-row';
+      row.innerHTML = '<input id="flirt-free" type="text" maxlength="120" placeholder="Or say it in your own words…" autocomplete="off">';
+      const input = row.querySelector('input');
+      const send = () => {
+        const text = input.value.trim();
+        if (!text) return;
+        const pm = this._flirtPm;
+        $('flirt-dialog').classList.add('hidden');
+        this.game.flirtSelect(pm, 2, text); // neutral-warm nudge; the LLM reads the words
+      };
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation(); // don't leak WASD/hotkeys to the game while typing
+        if (e.key === 'Enter') send();
+        else if (e.key === 'Escape') input.blur();
+      });
+      input.addEventListener('keyup', (e) => e.stopPropagation());
+      list.appendChild(row);
+    }
   }
   // The LLM enhancement (801) landed while the dialog is still open - swap the
   // canned line for the fresher one.

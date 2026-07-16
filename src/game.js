@@ -1671,6 +1671,11 @@ export class Game {
   // cycle. Used opening lines are remembered (and persisted in the save) so the
   // room never repeats itself across visits; the canned trees remain the
   // offline fallback.
+  // The LLM is usable for free-text conversation right now (868): reachable
+  // (not muted by the circuit breaker). Deliberately NOT gated on the AI/
+  // battery toggles - those only govern voice (884a).
+  llmAvailable() { return llm.ready; }
+
   // Per-NPC persistent memory (884d): tiny fact files the regulars accumulate -
   // what they've learned about EACH OTHER through their own conversations, and
   // what they've seen the PLAYER do. Persisted in the save, fed back into every
