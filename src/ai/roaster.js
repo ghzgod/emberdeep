@@ -453,9 +453,14 @@ export class Roaster {
   // A 1.5s safety-net timeout shows the caption regardless if no onStart ever
   // fires (headless/voiceless browsers, a failed generate(), etc.) so a line
   // is never silently lost.
-  sayGated(game, speaker, line, cast, anchor, { durationMs = 4200, show, onShown } = {}) {
+  sayGated(game, speaker, line, cast, anchor, { durationMs = 4200, show, onShown, priority = false } = {}) {
     if (!this.enabled) return;
-    this._clearGate(); // a new line supersedes whatever was pending; no stacked ellipses
+    // Direct-conversation lines outrank ambient chatter (878): an ambient
+    // tavern line used to SUPERSEDE Rosalind's pending reply gate, so her
+    // line was silently dropped. Now the non-priority newcomer is the one
+    // that gets dropped while a priority gate is still pending.
+    if (this._activeGate && this._activeGate.priority && !priority) return;
+    this._clearGate(); // otherwise a new line supersedes whatever was pending; no stacked ellipses
     const hasBubble = !!(anchor && game?.ui?.floaters);
     if (hasBubble) game.ui.floaters.showThinking(anchor);
     // Caption ABOVE the speaker's head (Obsidian 780, comic-bubble style)
@@ -492,6 +497,7 @@ export class Roaster {
       if (this._activeGate === gate) this._activeGate = null;
     };
     gate.cancel = cancel;
+    gate.priority = priority;
     // TRUE safety net only (Obsidian 728): 1.5s raced fresh Kokoro synthesis
     // (several seconds for an uncached line), so the caption regularly beat
     // the audio - the exact defect the gate exists to prevent. Every path

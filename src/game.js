@@ -663,7 +663,7 @@ export class Game {
   teardownFloor() {
     this.safeZone = null;
     audio.stopFireCrackle(); // hearth loop is tavern-only (717); no-op elsewhere
-    if (this._tavernOutside) { this.scene.remove(this._tavernOutside); this._tavernOutside = null; } // 852 surround
+    if (this._tavernOutside) { this.scene.remove(this._tavernOutside); this._tavernOutside = null; this._cullTavernOutside = null; } // 852 surround
     if (this.dungeonMeshes) {
       this.scene.remove(this.dungeonMeshes.group);
       this.dungeonMeshes.group.traverse((o) => {
@@ -793,11 +793,14 @@ export class Game {
       this.scene.add(outside.group);
       this._tavernOutside = outside.group;
       cullOutside();
-      // nature props stream in from async GLB loads at unpredictable times -
-      // sweep repeatedly through the first ~15s so nothing (bushes!) pops into
-      // the room between passes.
-      for (const ms of [1000, 2000, 3500, 5000, 7000, 10000, 15000]) setTimeout(cullOutside, ms);
-    } catch { this._tavernOutside = null; /* windows fall back to their diorama */ }
+      // Nature props stream in from async GLB loads at unpredictable times, so
+      // a fixed schedule of passes always left a window for a late bush to pop
+      // through the floor (864). Keep the fn and re-sweep every 2.5s from the
+      // tavern tick for the whole stay - it only walks the surround group's
+      // direct children, so it's cheap.
+      this._cullTavernOutside = cullOutside;
+      for (const ms of [1000, 2000, 3500]) setTimeout(cullOutside, ms);
+    } catch { this._tavernOutside = null; this._cullTavernOutside = null; /* windows fall back to their diorama */ }
     this.openedDoors = new Set();
     const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
     this.player.pos.set(spawn.x, 0, spawn.z);
@@ -1233,7 +1236,7 @@ export class Game {
     // Female voice, unused elsewhere: af_kore (not shared with Maribel/af_bella,
     // the sober patron/af_sarah, or any enemy/boss cast in roaster.js).
     roaster.sayGated(this, 'Magda the Barkeep', line,
-      { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, b);
+      { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, b, { priority: true });
   }
 
   patronChat(pm) {
@@ -1283,7 +1286,7 @@ export class Game {
     // each utterance, so the moment a patron is named the label updates itself
     // (Obsidian 790).
     const speaker = pm.name || (pm.drunk ? 'Tipsy Regular' : rude ? 'Surly Patron' : 'Tavern Patron');
-    roaster.sayGated(this, speaker, line, cast, pm);
+    roaster.sayGated(this, speaker, line, cast, pm, { priority: true });
   }
 
   // ---- Rosalind, the tavern flirt (Obsidian 783) ----------------------------
@@ -1410,7 +1413,7 @@ export class Game {
       }, Math.max(1400, DUR - 1200));
     };
     this.ui._flirtPm = pm; // claim the conversation so a stray close doesn't race
-    roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: DUR, onShown: reveal });
+    roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: DUR, onShown: reveal, priority: true });
     // Safety net: if onShown never fires (no speech path at all), still reveal.
     this._flirtOpenTimer = setTimeout(reveal, 4500);
   }
@@ -1420,17 +1423,40 @@ export class Game {
   // - light banter early, a drink offer once warming, and the overt "somewhere
   // quieter" only once she's smitten. (A fully LLM-generated option set is the
   // larger 853 rework.)
+  // Canned option banks now PROGRESS with the conversation (870): the cold
+  // "leave me be" brush-offs only make sense on the FIRST exchange - once
+  // you've toasted and bought her a drink, showing them again reads absurd.
+  // Stage = how far in you are: opening -> warming -> after the drink.
   _flirtChoices(pm, female) {
     const adult = this.settings.adult18;
-    const a = pm.affinity || 0;
-    const choices = [
-      { tier: 0, label: 'Not interested. Leave me be.' },
-      { tier: 1, label: 'Just here for a quiet drink, thanks.' },
-      { tier: 2, label: female ? 'You\'re trouble, aren\'t you? *smile*' : 'You\'re bold. I like that.' },
-    ];
-    if (adult && a >= 5) choices.push({ tier: 3, label: 'Maybe we take this somewhere quieter…' });
-    else if (a >= 2) choices.push({ tier: 3, label: pm._hadDrink ? 'To us, then. *raises mug*' : (female ? 'Let me buy you a drink, gorgeous.' : 'Let me buy you a drink.') });
-    else choices.push({ tier: 3, label: female ? 'You\'ve certainly got my attention.' : 'I could get used to your company.' });
+    const a = pm.affinity || 0, ex = pm._flirtEx || 0;
+    const choices = [];
+    if (ex === 0) {
+      // first words ever this conversation: full range incl. the brush-off
+      choices.push({ tier: 0, label: 'Not interested. Leave me be.' });
+      choices.push({ tier: 1, label: 'Just here for a quiet drink, thanks.' });
+      choices.push({ tier: 2, label: female ? 'You\'re trouble, aren\'t you? *smile*' : 'You\'re bold. I like that.' });
+      choices.push({ tier: 3, label: female ? 'You\'ve certainly got my attention.' : 'I could get used to your company.' });
+    } else if (!pm._hadDrink) {
+      // warming up, pre-drink: banter, curiosity, a polite out - no brush-off
+      choices.push({ tier: 1, label: 'Careful, I might start enjoying this. *grins*' });
+      choices.push({ tier: 2, label: 'So what\'s your story, Rosalind?' });
+      choices.push({ tier: 2, label: female ? 'You\'ve got a wicked smile, you know that?' : 'That smile of yours is dangerous.' });
+      choices.push({ tier: 0, label: 'I should get going. Another time.' });
+    } else {
+      // drinks in hand: companionable + flirtier, the toast beat first
+      if (!pm._toasted) choices.push({ tier: 2, label: 'To us, then. *raises mug*', toast: true });
+      else choices.push({ tier: 2, label: 'Tell me something no one here knows about you.' });
+      choices.push({ tier: 2, label: 'Good ale, better company. *drinks*' });
+      choices.push({ tier: 3, label: female ? 'I could sit here with you all night, gorgeous.' : 'I could sit here with you all night.' });
+      choices.push({ tier: 0, label: 'It\'s getting late for me. *stands*' });
+    }
+    // the earned forward move replaces the boldest line once she's smitten
+    if (adult && a >= 5 && ex >= 4) {
+      const i = choices.findIndex((c) => c.tier === 3);
+      const quiet = { tier: 3, label: 'Maybe we take this somewhere quieter…' };
+      if (i >= 0) choices[i] = quiet; else choices.push(quiet);
+    }
     // The walk-to-bar beat is offered ONCE - after she's had her drink the
     // choices move on instead of nagging "buy her a drink" forever (847).
     if (a >= 1 && !pm._hadDrink) choices.push({ tier: 2, label: '🍺 Buy her a drink at the bar', buyDrink: true });
@@ -1455,19 +1481,45 @@ export class Game {
     // the history). The thinking pill covers the round-trip; the canned banks
     // are only the offline fallback. One line, spoken once (801).
     this.ui.floaters?.showThinking(pm);
+    // A toast is a scripted BEAT, not a generic tier-3 line (867): "To us,
+    // *raises mug*" used to fall through to the canned tier-3 bank and she'd
+    // answer with the upstairs tease ("the room upstairs isn't ready") - a
+    // total non-sequitur. Detect it, clink, and give it its own replies.
+    const toast = /raises mug|to us|cheers|\bclink/i.test(playerLabel || '');
+    if (toast && !pm._toasted) {
+      pm._toasted = true;
+      audio.play('ui_click', { volume: 0.7 });
+      this.ui.floaters?.spawn(this.player.pos, '🍺 Clink!', 'crit');
+    }
     let line;
     const turn = await this._flirtLLMTurn(pm, playerLabel);
     if (turn) { line = turn.line; pm._llmOptions = turn.options; }
     else {
       pm._llmOptions = null;
-      line = (await this._flirtLLMLine(pm, tier, adult, female)) || this._flirtReply(pm, tier, adult, female);
+      if (toast) {
+        line = this._pick([
+          '*clinks mugs* To us, love. May the ale stay cold and the night stay young.',
+          'To us! *drinks deep* Mmm — you\'re better company than half this room put together.',
+          '*taps her mug to yours* To handsome strangers and honeyed ale.',
+        ]);
+      } else {
+        // Don't route a non-forward line into the tier-3 upstairs-tease bank:
+        // only lines that actually SAY "somewhere quieter" earn that reply.
+        const forwardish = /quieter|upstairs|room|somewhere|all night|take me|your place/i.test(playerLabel || '');
+        const replyTier = tier === 3 && !forwardish ? 2 : tier;
+        line = (await this._flirtLLMLine(pm, replyTier, adult, female)) || this._flirtReply(pm, replyTier, adult, female);
+      }
     }
     pm.talkUntil = performance.now() + 12000;
     const end = pm.affinity <= -3; // she's had enough of a cold shoulder
     // The EARNED payoff (Obsidian 829): once she's genuinely into you (smitten,
     // built up over several exchanges) in 18+ mode and you make the forward move,
     // she invites you to her room upstairs.
-    const invitedUpstairs = adult && tier === 3 && pm.affinity >= 5 && (pm._flirtEx || 0) >= 4;
+    // The invite requires the player's line to actually BE the forward move
+    // (872): an LLM-generated warm option ("My name's...") maps to tier 3 too,
+    // and used to trigger "Follow her upstairs" out of nowhere mid-question.
+    const madeForwardMove = /quieter|upstairs|room|somewhere|all night|take me|your place|kiss/i.test(playerLabel || '');
+    const invitedUpstairs = adult && tier === 3 && madeForwardMove && pm.affinity >= 5 && (pm._flirtEx || 0) >= 4;
     if (invitedUpstairs) pm._invitedUpstairs = true;
     // Speak the reply, then reveal the next step ONLY after her bubble shows
     // (Obsidian 848) - end / follow-upstairs / the next choices.
@@ -1484,7 +1536,7 @@ export class Game {
         this.ui.openFlirtDialog(pm, line, choices);
       }, 4000); // she finishes her reply before your next options show (121)
     };
-    roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 5200, onShown: reveal });
+    roaster.sayGated(this, pm.name || 'Rosalind', line, this._flirtVoice(), pm, { durationMs: 5200, onShown: reveal, priority: true });
     this._flirtOpenTimer = setTimeout(reveal, 5200); // safety net if onShown never fires
     return { line, affinity: pm.affinity, disliked: end, invitedUpstairs };
   }
@@ -1537,7 +1589,7 @@ export class Game {
     const line = adult
       ? 'Mmm, finally alone. Door\'s locked, hero — now get over here.'
       : 'Finally, a little privacy. Sit with me a while.';
-    roaster.sayGated(this, 'Rosalind', line, this._flirtVoice(), anchor, { durationMs: 4200 });
+    roaster.sayGated(this, 'Rosalind', line, this._flirtVoice(), anchor, { durationMs: 4200, priority: true });
     const bedC = (this.dungeonMeshes.bedPositions || []).find((bb) => bb.fancy);
     if (adult && bedC && npc) {
       clearTimeout(this._roomFadeTimer);
@@ -1556,7 +1608,7 @@ export class Game {
       });
       // 2) the kiss
       T(5200, () => {
-        roaster.sayGated(this, 'Rosalind', '*kisses you* C\'mere, you…', this._flirtVoice(), { x: bedC.x, z: bedC.z }, { durationMs: 2400 });
+        roaster.sayGated(this, 'Rosalind', '*kisses you* C\'mere, you…', this._flirtVoice(), { x: bedC.x, z: bedC.z }, { durationMs: 2400, priority: true });
         this.ui.floaters?.spawn({ x: bedC.x, y: 1.2, z: bedC.z }, '💋', 'crit');
       });
       // 3) lights out
@@ -1583,7 +1635,7 @@ export class Game {
     setTimeout(() => {
       ov.style.opacity = '0';
       const bp = this.dungeonMeshes?.rosalindBedPos;
-      if (bp) roaster.sayGated(this, 'Rosalind', this.settings.adult18 ? 'Mmm… you\'re trouble, you know that? Stay a while.' : 'That was nice. Stay a while?', this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000 });
+      if (bp) roaster.sayGated(this, 'Rosalind', this.settings.adult18 ? 'Mmm… you\'re trouble, you know that? Stay a while.' : 'That was nice. Stay a while?', this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000, priority: true });
     }, 4200);
     setTimeout(() => { if (ov) ov.style.pointerEvents = 'none'; }, 5600);
   }
@@ -5691,6 +5743,10 @@ export class Game {
       }
       if (!candidate) {
         for (const pm of this.dungeonMeshes.patronMeshes || []) {
+          // No re-interact prompt mid-conversation (878): while her turn is in
+          // flight (thinking pill up / choices pending) the pill would offer
+          // "Chat up Rosalind" AGAIN over the active conversation.
+          if (this._flirtActive === pm || this.ui._flirtPm === pm) continue;
           if (near(pm.x, pm.z, 1.8)) {
             candidate = pm.flirty
               ? { label: `Chat up ${pm.name || 'her'}`, icon: '💋', talk: true, action: () => this.flirtChat(pm) }
@@ -5777,6 +5833,14 @@ export class Game {
     // both SIT, Magda serves two visible mugs on the counter, then the chat
     // resumes warmer with CHANGED choices (pm._hadDrink). player.pos is
     // overridden per-frame (couch pin trick) so input can't fight the walk.
+    // Exhaustive outside-world sweep (864): async-loaded town props (bushes!)
+    // can land inside the tavern volume at ANY time, so keep culling for the
+    // whole stay instead of only during the first seconds after load.
+    if (this.inTavern && !this.inUpstairs && this._cullTavernOutside && performance.now() > (this._cullNextAt || 0)) {
+      this._cullNextAt = performance.now() + 2500;
+      this._cullTavernOutside();
+    }
+
     if (this._buyScene && this.inTavern && !this.inUpstairs) {
       const bs = this._buyScene, pm = bs.pm, p = this.player;
       if (!bs.seats) {
@@ -5790,7 +5854,15 @@ export class Game {
           }
         }
         if (!bs.seats && bar.length >= 2) bs.seats = [bar[0], bar[1]];
-        if (!bs.seats) { this._buyScene = null; this.flirtChat(pm); }
+        // Packed bar (879): no two free stools at all -> they stand together at
+        // the counter instead of the beat silently fizzling back into chat.
+        if (!bs.seats) {
+          const bk = this.dungeonMeshes.barkeepPos;
+          if (bk) {
+            bs.seats = [{ x: bk.x - 0.55, z: bk.z + 1.15, stand: true }, { x: bk.x + 0.55, z: bk.z + 1.15, stand: true }];
+            roaster.sayGated(this, pm.name || 'Rosalind', 'Packed tonight! Squeeze in at the counter with me, love.', this._flirtVoice(), pm, { durationMs: 3200, priority: true });
+          } else { this._buyScene = null; this.flirtChat(pm); }
+        }
       }
       if (bs.seats) {
         const [sMine, sHers] = bs.seats;
@@ -5806,18 +5878,41 @@ export class Game {
             const s = Math.min(pd, 2.6 * dt);
             bs.pWalk.x += pdx / pd * s; bs.pWalk.z += pdz / pd * s;
             p.aimAngle = Math.atan2(pdz, pdx); p.faceAimTimer = 0.2;
-          } else { bs.meSeated = true; this.seatedAt = sMine; this._seatCd = performance.now() + 1200; bs.pWalk = { x: sMine.x, z: sMine.z }; }
+            // A real WALK, not a glide (866): player.update already ran with no
+            // input this frame (setLocomotion(0)), so re-drive the rig at walk
+            // speed and play the same footstep loop normal movement uses.
+            p.anim?.setLocomotion(1, dt);
+            bs._stepT = (bs._stepT ?? 0) - dt;
+            if (bs._stepT <= 0) { bs._stepT = 0.34; audio.play('footstep', { volume: 0.4 }); }
+          } else {
+            bs.meSeated = true; bs.pWalk = { x: sMine.x, z: sMine.z };
+            // standing-at-the-counter fallback (879) skips the stool sit-pin
+            if (!sMine.stand) { this.seatedAt = sMine; this._seatCd = performance.now() + 1200; }
+          }
           p.pos.x = bs.pWalk.x; p.pos.z = bs.pWalk.z;
         }
         // Rosalind walks to hers, then perches on it
         if (!bs.herSeated) {
           const rdx = sHers.x - pm.mesh.position.x, rdz = sHers.z - pm.mesh.position.z, rd = Math.hypot(rdx, rdz) || 1;
-          if (rd > 0.25) { const s = Math.min(rd, 2.4 * dt); pm.mesh.position.x += rdx / rd * s; pm.mesh.position.z += rdz / rd * s; pm.x = pm.mesh.position.x; pm.z = pm.mesh.position.z; }
-          else {
+          if (rd > 0.25) {
+            const s = Math.min(rd, 2.4 * dt);
+            pm.mesh.position.x += rdx / rd * s; pm.mesh.position.z += rdz / rd * s;
+            // Feet ON the floor while she walks (866): if the chat started while
+            // she was still perched on a seat, her group kept the perch height
+            // and she floated to the bar mid-air. Ground her for the walk (the
+            // arrival branch re-perches at stool height); face the direction
+            // she's walking; and give her audible footsteps too.
+            pm.mesh.position.y = 0;
+            pm.mesh.rotation.y = Math.atan2(rdx, rdz);
+            bs._herStepT = (bs._herStepT ?? 0) - dt;
+            if (bs._herStepT <= 0) { bs._herStepT = 0.36; audio.play('footstep', { volume: 0.25 }); }
+            pm.x = pm.mesh.position.x; pm.z = pm.mesh.position.z;
+          } else {
             bs.herSeated = true;
-            pm.mesh.position.set(sHers.x, 0.46, sHers.z); // stool perch height (788)
+            // stool perch height (788) - or feet on the floor when standing (879)
+            pm.mesh.position.set(sHers.x, sHers.stand ? 0 : 0.46, sHers.z);
             pm.mesh.rotation.y = Math.PI; // face the counter like the other bar patrons
-            pm.x = sHers.x; pm.z = sHers.z; pm.seat = 'bar';
+            pm.x = sHers.x; pm.z = sHers.z; pm.seat = sHers.stand ? null : 'bar';
           }
         }
         // both seated -> Magda serves two visible mugs, then the chat resumes
@@ -5837,7 +5932,7 @@ export class Game {
               this.dungeonMeshes.group.add(mug);
             }
             audio.play('ui_click', { volume: 0.6 });
-            roaster.sayGated(this, 'Magda', 'Two honeyed ales, loves. On the counter.', { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, this.dungeonMeshes.barkeepPos, { durationMs: 3600 });
+            roaster.sayGated(this, 'Magda', 'Two honeyed ales, loves. On the counter.', { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, this.dungeonMeshes.barkeepPos, { durationMs: 3600, priority: true });
             pm.affinity = Math.min(8, (pm.affinity || 0) + 1); // a drink warms her up
             pm._hadDrink = true;                               // choices change (847)
             this.ui.floaters?.spawn(p.pos, '🍺 You buy Rosalind a drink', 'crit');
