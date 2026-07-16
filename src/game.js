@@ -1233,7 +1233,10 @@ export class Game {
     // Any conversation counts as "met" (828): once you've talked to her, she
     // never walks up to you again - you approach her from then on. Persisted.
     if (pm.flirty && !this._rosalindMet) { this._rosalindMet = true; this.requestSave(); }
-    this.state = 'flirt';
+    // The picker is an OVERLAY, not a modal state: the world keeps running and
+    // you can still move with WASD/touch while it's up (user request); walking
+    // away just closes it (see the distance check in updatePlaying).
+    this._flirtActive = pm;
     pm.talkUntil = performance.now() + 15000;
     const female = this.player.gender === 'female';
     // Re-engagements get their OWN varied bank (Obsidian 856: leaving and talking
@@ -1265,7 +1268,7 @@ export class Game {
     (async () => {
       this.ui.floaters?.showThinking(pm);
       const turn = await this._flirtLLMTurn(pm, null);
-      if (this.state !== 'flirt') return; // player walked off while she "thought"
+      if (this._flirtActive !== pm) return; // player walked off while she "thought"
       let opener;
       if (turn) { opener = turn.line; pm._llmOptions = turn.options; }
       else { pm._llmOptions = null; opener = cannedOpener(); }
@@ -1300,7 +1303,7 @@ export class Game {
     const reveal = () => {
       clearTimeout(this._flirtOpenTimer);
       this._flirtOpenTimer = setTimeout(() => {
-        if (this.state === 'flirt' && this.ui._flirtPm !== null) {
+        if (this._flirtActive === pm && this.ui._flirtPm !== null) {
           this.ui.openFlirtDialog(pm, line, this._currentChoices(pm, female));
         }
       }, Math.max(1400, DUR - 1200));
@@ -1372,7 +1375,7 @@ export class Game {
     const reveal = () => {
       clearTimeout(this._flirtOpenTimer);
       this._flirtOpenTimer = setTimeout(() => {
-        if (this.state !== 'flirt' || this.ui._flirtPm !== pm) return;
+        if (this._flirtActive !== pm || this.ui._flirtPm !== pm) return;
         if (end) { this.ui.closeFlirt(); return; }
         const choices = invitedUpstairs
           ? [{ tier: 3, label: '💋 Follow her upstairs', followUp: true }]
@@ -1389,7 +1392,6 @@ export class Game {
   // bar beat; updatePlaying walks you both over, buys the drink and resumes.
   buyRosalindDrink(pm) {
     this.ui.closeFlirt?.();
-    this.state = 'playing';
     this._buyScene = { pm, done: false };
   }
 
@@ -1465,7 +1467,7 @@ export class Game {
   // screen fades out, holds on a discreet caption, and fades back to a morning-
   // after beat. Deliberately NO on-screen sexual content.
   _fadeScene() {
-    if (this.state !== 'flirt' && !this.inUpstairs) return;
+    if (!this._flirtActive && !this.inUpstairs) return;
     let ov = document.getElementById('scene-fade');
     if (!ov) {
       ov = document.createElement('div');
@@ -4358,7 +4360,7 @@ export class Game {
 
     if (this.state === 'playing') {
       this.updatePlaying(dt);
-    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story', 'notices', 'chatlog', 'flirt'].includes(this.state)) {
+    } else if (['dead', 'victory', 'inventory', 'paused', 'shop', 'quest', 'skills', 'story', 'notices', 'chatlog'].includes(this.state)) {
       // world is frozen; still render + light flicker for life
       this.updateTorches(dt, true);
       // the vendor-facing camera ease keeps moving while the shop is open,
@@ -4381,7 +4383,7 @@ export class Game {
       if (this.state === 'shop' && this.input.wasPressed('Escape')) this.closeShop();
       if (this.state === 'quest' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyJ'))) this.toggleQuestLog();
       if (this.state === 'notices' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyF'))) { this.state = 'playing'; this.ui.hideAll(); }
-      if (this.state === 'flirt' && this.input.wasPressed('Escape')) this.ui.closeFlirt();
+      if (this._flirtActive && this.input.wasPressed('Escape')) this.ui.closeFlirt();
       if (this.state === 'skills' && (this.input.wasPressed('Escape') || this.input.wasPressed('KeyK'))) this.toggleSkills();
       if (this.state === 'story' && (this.input.wasPressed('Escape') || this.input.wasPressed('Space') || this.input.wasPressed('Enter'))) {
         this.state = 'playing';
@@ -5593,6 +5595,13 @@ export class Game {
     this.setInteractable(candidate);
     if (this.wanderer && this.inTown && !this.inTavern) this.wanderer.update(dt, this);
     if (this.inTown && !this.inTavern) this.updateVendors(dt);
+
+    // The reply overlay is NOT a modal (user request: keep moving with WASD /
+    // touch while it's up) - wandering off from Rosalind simply closes it.
+    if (this._flirtActive && this._flirtActive.mesh) {
+      const fa = this._flirtActive;
+      if (Math.hypot(this.player.pos.x - fa.x, this.player.pos.z - fa.z) > 5) this.ui.closeFlirt();
+    }
 
     // Solid NPCs (Obsidian 849): the hero can't walk THROUGH tavern folk - a
     // cheap circle push-out against each patron. Skipped while seated/lying or
