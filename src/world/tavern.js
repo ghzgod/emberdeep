@@ -827,13 +827,15 @@ export function buildTavernInterior() {
   // house sign inside the taproom.
   const signWallZ = (H * TILE - TILE) - 0.06; // just proud of the entry wall's inner face
   const signX = 4.5 * TILE;
-  const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.44, 0.06),
+  // Bigger board to carry the painted golem art (799): 1.9 x 1.19 keeps the
+  // 512x320 texture's aspect, mounted a touch higher so it clears heads.
+  const signBoard = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.19, 0.06),
     new THREE.MeshStandardMaterial({ map: makeTavernSignTexture(), roughness: 0.9 }));
-  signBoard.position.set(signX, 1.85, signWallZ);
+  signBoard.position.set(signX, 2.1, signWallZ);
   group.add(signBoard);
-  for (const bx of [-0.34, 0.34]) {
+  for (const bx of [-0.75, 0.75]) {
     const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.14), ironMat);
-    bracket.position.set(signX + bx, 1.85, signWallZ + 0.1);
+    bracket.position.set(signX + bx, 2.1, signWallZ + 0.1);
     group.add(bracket);
   }
 

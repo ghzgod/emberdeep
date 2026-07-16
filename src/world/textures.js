@@ -493,39 +493,82 @@ export function makeHearthStoneTexture() {
 // silhouette and "THE SLEEPING GOLEM" lettering, so the swinging sign actually
 // names the inn instead of being a blank board.
 export function makeTavernSignTexture() {
-  const w = 256, h = 160;
+  // REAL painted sign art (Obsidian 799): a proper slumbering stone golem -
+  // cracked granite block head resting on a folded arm, heavy shut brow, mossy
+  // seams, drifting Z z z - on a big weathered gilt-edged board (512x320; the
+  // board mesh in tavern.js is sized to match).
+  const w = 512, h = 320;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const x = c.getContext('2d');
-  // weathered board
-  x.fillStyle = '#5a3c22';
-  x.fillRect(0, 0, w, h);
-  for (let i = 0; i < 6; i++) {
-    x.fillStyle = `rgba(30,18,8,${0.1 + Math.random() * 0.12})`;
-    x.fillRect(0, (i / 6) * h, w, 2);
+  // weathered board with plank seams + grain
+  const bg = x.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#6a4527'); bg.addColorStop(0.5, '#59391f'); bg.addColorStop(1, '#4a2f19');
+  x.fillStyle = bg; x.fillRect(0, 0, w, h);
+  for (let i = 1; i < 4; i++) {
+    x.fillStyle = 'rgba(25,14,6,0.5)'; x.fillRect(0, (i / 4) * h, w, 3);
   }
-  // gilt border
-  x.strokeStyle = '#d8b04a';
-  x.lineWidth = 6;
-  x.strokeRect(8, 8, w - 16, h - 16);
-  // sleeping golem: a slumped stone head with closed eyes
-  x.fillStyle = '#c8a24a';
-  x.beginPath();
-  x.arc(w / 2, h * 0.42, 30, 0, Math.PI * 2);
-  x.fill();
-  x.strokeStyle = '#3a2a12';
-  x.lineWidth = 3;
-  x.beginPath(); x.moveTo(w / 2 - 16, h * 0.4); x.lineTo(w / 2 - 4, h * 0.4); x.stroke();
-  x.beginPath(); x.moveTo(w / 2 + 4, h * 0.4); x.lineTo(w / 2 + 16, h * 0.4); x.stroke();
-  // little "Z" of sleep
-  x.fillStyle = '#d8b04a';
-  x.font = 'bold 22px serif';
-  x.fillText('z', w / 2 + 30, h * 0.28);
-  // lettering
-  x.fillStyle = '#e8d08a';
-  x.font = 'bold 20px serif';
+  for (let i = 0; i < 60; i++) {
+    x.fillStyle = `rgba(30,18,8,${0.05 + Math.random() * 0.08})`;
+    x.fillRect(Math.random() * w, Math.random() * h, 20 + Math.random() * 60, 1.5);
+  }
+  // double gilt border with corner studs
+  x.strokeStyle = '#d8b04a'; x.lineWidth = 8; x.strokeRect(12, 12, w - 24, h - 24);
+  x.strokeStyle = '#8a6a2a'; x.lineWidth = 3; x.strokeRect(24, 24, w - 48, h - 48);
+  x.fillStyle = '#e8c86a';
+  for (const [sx, sy] of [[18, 18], [w - 18, 18], [18, h - 18], [w - 18, h - 18]]) {
+    x.beginPath(); x.arc(sx, sy, 6, 0, Math.PI * 2); x.fill();
+  }
+  // --- the sleeping golem ---
+  const gx = w / 2, gy = 128;
+  // folded arm he rests on (a rough stone slab)
+  x.fillStyle = '#8a8578';
+  x.beginPath(); x.roundRect(gx - 120, gy + 44, 240, 34, 16); x.fill();
+  x.strokeStyle = '#55514a'; x.lineWidth = 3; x.stroke();
+  // blocky granite head, slightly tilted in sleep
+  x.save(); x.translate(gx, gy); x.rotate(-0.08);
+  const head = x.createLinearGradient(0, -66, 0, 56);
+  head.addColorStop(0, '#a8a396'); head.addColorStop(1, '#7d786c');
+  x.fillStyle = head;
+  x.beginPath(); x.roundRect(-78, -66, 156, 122, 22); x.fill();
+  x.strokeStyle = '#4e4a42'; x.lineWidth = 4; x.stroke();
+  // heavy brow ridge
+  x.fillStyle = '#6e6a5f';
+  x.beginPath(); x.roundRect(-64, -34, 128, 22, 10); x.fill();
+  x.strokeStyle = '#4e4a42'; x.lineWidth = 3; x.stroke();
+  // shut eyes: relaxed downward arcs under the brow
+  x.strokeStyle = '#2e2a24'; x.lineWidth = 5; x.lineCap = 'round';
+  x.beginPath(); x.arc(-32, 2, 16, 0.15 * Math.PI, 0.85 * Math.PI); x.stroke();
+  x.beginPath(); x.arc(32, 2, 16, 0.15 * Math.PI, 0.85 * Math.PI); x.stroke();
+  // broad flat nose
+  x.fillStyle = '#8d887b';
+  x.beginPath(); x.roundRect(-12, 6, 24, 22, 8); x.fill();
+  x.strokeStyle = '#4e4a42'; x.lineWidth = 2.5; x.stroke();
+  // faint content sleeping mouth
+  x.strokeStyle = '#3a362e'; x.lineWidth = 4;
+  x.beginPath(); x.arc(0, 40, 20, 0.2 * Math.PI, 0.8 * Math.PI); x.stroke();
+  // stone cracks
+  x.strokeStyle = '#55514a'; x.lineWidth = 2.5;
+  x.beginPath(); x.moveTo(-70, -50); x.lineTo(-52, -34); x.lineTo(-58, -16); x.stroke();
+  x.beginPath(); x.moveTo(60, 20); x.lineTo(46, 34); x.lineTo(52, 48); x.stroke();
+  // mossy seams
+  x.fillStyle = 'rgba(96,128,64,0.75)';
+  x.beginPath(); x.ellipse(-60, -58, 14, 6, 0.5, 0, Math.PI * 2); x.fill();
+  x.beginPath(); x.ellipse(66, -30, 9, 5, -0.4, 0, Math.PI * 2); x.fill();
+  // dim rune on the forehead, its glow asleep too
+  x.strokeStyle = 'rgba(120,170,220,0.5)'; x.lineWidth = 3;
+  x.beginPath(); x.moveTo(-8, -58); x.lineTo(8, -58); x.lineTo(0, -44); x.closePath(); x.stroke();
+  x.restore();
+  // drifting Zzz
+  x.fillStyle = '#e8c86a'; x.textAlign = 'center';
+  x.font = 'bold 26px Georgia, serif'; x.fillText('z', gx + 96, gy - 44);
+  x.font = 'bold 36px Georgia, serif'; x.fillText('Z', gx + 122, gy - 72);
+  x.font = 'bold 48px Georgia, serif'; x.fillText('Z', gx + 156, gy - 102);
+  // lettering with a carved shadow
   x.textAlign = 'center';
-  x.fillText('THE SLEEPING GOLEM', w / 2, h - 22);
+  x.font = 'bold 42px Georgia, serif';
+  x.fillStyle = 'rgba(20,10,4,0.8)'; x.fillText('THE SLEEPING GOLEM', w / 2 + 2, h - 36 + 2);
+  x.fillStyle = '#eed794'; x.fillText('THE SLEEPING GOLEM', w / 2, h - 36);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
