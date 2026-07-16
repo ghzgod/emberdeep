@@ -565,6 +565,10 @@ export class Player {
         this.anim.holdWhirlPose();
       } else {
         this.anim.setLocomotion(speed01, dt, this.attackAnim > 0);
+        // Add the anim's idle bob ON TOP of the stepped-up ground height (898):
+        // setLocomotion no longer writes an absolute mesh y, so the hero stays
+        // ON a raised tile (tavern duckboard / dais) instead of clipping through.
+        this.mesh.position.y = this.pos.y + (this.anim.swayY || 0);
       }
     } else {
       // primitive fallback: weapon bob + basic leg/idle gait. While whirling,
