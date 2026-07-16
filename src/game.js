@@ -4133,7 +4133,13 @@ export class Game {
     mesh.position.set(opts.x, 0.14, opts.z);
     mesh.renderOrder = 3;
     this.scene.add(mesh);
-    this.zones.push({ ...opts, mesh, t: opts.duration, delay: opts.delay || 0, tickT: 0 });
+    // AoE locks its targets at CAST (Obsidian 774): whoever stands in the
+    // telegraph when it's placed is committed - the ML-juking bats used to
+    // scatter during the windup delay and "dodge" the mage's AoE entirely.
+    const locked = opts.friendly
+      ? this.enemies.filter((e) => !e.dead && Math.hypot(e.pos.x - opts.x, e.pos.z - opts.z) < opts.radius + e.radius)
+      : null;
+    this.zones.push({ ...opts, mesh, t: opts.duration, delay: opts.delay || 0, tickT: 0, _locked: locked });
   }
 
   placeTrap(opts) {
@@ -4992,6 +4998,18 @@ export class Game {
         const dmg = z.dps * z.tick;
         if (z.friendly) {
           this.aoeDamage(z.x, z.z, z.radius, dmg, { source: 'player', status: z.status });
+          // First tick also lands on cast-locked targets that fled the circle
+          // during the windup (774: AoE is undodgeable once you're caught in
+          // the telegraph). Only those OUTSIDE now - insiders were just hit.
+          if (z._locked) {
+            for (const e of z._locked) {
+              if (e.dead) continue;
+              if (Math.hypot(e.pos.x - z.x, e.pos.z - z.z) >= z.radius + e.radius) {
+                this.damageEnemy(e, dmg, { status: z.status });
+              }
+            }
+            z._locked = null;
+          }
         } else {
           this.aoeDamage(z.x, z.z, z.radius, dmg, {});
         }
