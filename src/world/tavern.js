@@ -933,6 +933,28 @@ export function buildTavernInterior() {
     // + bare legs so she reads as the alluring one (808) without a bespoke mesh.
     { tile: [8, 8], angle: 1.4, name: 'flirt', cls: 'mage', gender: 'female', skin: 'light', hairColor: 'auburn', hairStyle: 'long', faceShape: 'narrow', eyeColor: 'violet', npcName: 'Rosalind', given: 'Rosalind', mood: 'friendly', flirty: true, slutty: true },
   ];
+  // A living CROWD (Obsidian 781): five more generated patrons with varied
+  // shared-library looks fill the seat pools so the room reads busy. They
+  // prefer tables/standing (seatPref) so a pair of adjacent bar stools stays
+  // free for the buy-her-a-drink beat.
+  {
+    const CL = ['knight', 'mage', 'barbarian'];
+    const GEN = ['male', 'female'];
+    const SK = ['light', 'fair', 'tan', 'brown', 'deep'];
+    const HC = ['black', 'darkbrown', 'chestnut', 'auburn', 'blonde', 'platinum', 'grey'];
+    const HS = ['short', 'ponytail', 'bun', 'long'];
+    const FA = ['standard', 'narrow', 'round'];
+    const EY = ['brown', 'blue', 'green', 'amber', 'violet', 'grey'];
+    for (let i = 0; i < 5; i++) {
+      patronDefs.push({
+        tile: [6, 6], angle: (i * 1.7) % (Math.PI * 2), name: 'patron', seatPref: 'table',
+        cls: CL[i % 3], gender: GEN[i % 2], skin: SK[i % 5],
+        hairColor: HC[(i * 2) % 7], hairStyle: HS[i % 4],
+        faceShape: FA[(i + 1) % 3], eyeColor: EY[(i * 3) % 6],
+        npcName: 'Tavern Patron', mood: i % 3 === 0 ? 'rude' : 'friendly',
+      });
+    }
+  }
   // ---- seat picking (Obsidian 788): each patron's "AI" decides whether to
   // STAND, sit at a TABLE, or sit at the BAR, then claims a free slot of that
   // kind. The choice is a weighted stochastic decision (bar-leaning so the new
@@ -953,17 +975,19 @@ export function buildTavernInterior() {
     { ...tileToWorld(5, 7), yaw: 2.4, seat: 'stand' },
   ];
   const seatPools = { bar: barStoolSlots.slice(), table: tableSeatSlots, stand: standSlots };
-  const chooseSeat = () => {
+  const chooseSeat = (pref) => {
     const r = Math.random();
-    const order = r < 0.45 ? ['bar', 'table', 'stand']
-      : r < 0.78 ? ['table', 'bar', 'stand']
-        : ['stand', 'bar', 'table'];
+    const order = pref === 'table'
+      ? (r < 0.6 ? ['table', 'stand', 'bar'] : ['stand', 'table', 'bar'])
+      : r < 0.45 ? ['bar', 'table', 'stand']
+        : r < 0.78 ? ['table', 'bar', 'stand']
+          : ['stand', 'bar', 'table'];
     for (const kind of order) { if (seatPools[kind] && seatPools[kind].length) return seatPools[kind].shift(); }
     return { ...tileToWorld(8, 6), yaw: 0, seat: 'stand' };
   };
 
   for (const def of patronDefs) {
-    const slot = chooseSeat();
+    const slot = chooseSeat(def.seatPref);
     const px = slot.x, pz = slot.z;
     const patron = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.4, 4, 8),
