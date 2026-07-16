@@ -661,6 +661,7 @@ export class Game {
   teardownFloor() {
     this.safeZone = null;
     audio.stopFireCrackle(); // hearth loop is tavern-only (717); no-op elsewhere
+    if (this._tavernOutside) { this.scene.remove(this._tavernOutside); this._tavernOutside = null; } // 852 surround
     if (this.dungeonMeshes) {
       this.scene.remove(this.dungeonMeshes.group);
       this.dungeonMeshes.group.traverse((o) => {
@@ -701,6 +702,63 @@ export class Game {
     this.dungeon = generateTavernInterior();
     this.dungeonMeshes = buildTavernInterior();
     this.scene.add(this.dungeonMeshes.group);
+    // The REAL town outside the windows (Obsidian 852): Embervale is fully
+    // deterministic (fixed seed), so build the actual town meshes around the
+    // interior, aligned so the tavern's own plot centre sits at the interior's
+    // centre - looking through the cut windows shows the REAL village (the same
+    // houses/trees/lanes you walk outside), with true depth and parallax.
+    // Anything that would intrude INSIDE the room's footprint is culled per
+    // top-level child (bounding-box test); town-spanning ground/roads stay.
+    try {
+      const town = generateTown();
+      const outside = buildDungeonMeshes(town, themeForFloor(1));
+      const t = town.tavern; // 7x5-tile plot on the west side
+      const plotCx = (t.x + t.w / 2) * TILE, plotCz = (t.y + t.h / 2) * TILE;
+      // Sunk 0.35 below the interior: the town's own ground plane is at y=0,
+      // exactly the interior floor's top - coplanar, it z-fought THROUGH the
+      // wood (grass stripes inside the room). Sinking the whole outside world
+      // puts its ground + grass tufts safely under the room's floor slab, and
+      // through a window at eye level a 0.35 drop is imperceptible.
+      outside.group.position.set((16 * TILE) / 2 - plotCx, -0.35, (12 * TILE) / 2 - plotCz);
+      // Cull anything that would intrude into the room. Runs at load AND again
+      // shortly after, because the nature props (trees etc.) stream in from
+      // async GLB loads and land in the group later; instanced meshes (town
+      // floor/wall tiles) get their in-room INSTANCES zero-scaled instead.
+      const roomRect = new THREE.Box3(
+        new THREE.Vector3(-1.5, -5, -1.5),
+        new THREE.Vector3(16 * TILE + 1.5, 99, 12 * TILE + 1.5));
+      const cullOutside = () => {
+        const grp = this._tavernOutside;
+        if (!grp) return;
+        grp.updateMatrixWorld(true);
+        const _bb = new THREE.Box3(), _sz = new THREE.Vector3();
+        const _m = new THREE.Matrix4(), _zero = new THREE.Matrix4().makeScale(0, 0, 0);
+        for (const child of [...grp.children]) {
+          if (child.isLight) continue;
+          if (child.isInstancedMesh) {
+            let dirty = false;
+            for (let i = 0; i < child.count; i++) {
+              child.getMatrixAt(i, _m);
+              const wx = _m.elements[12] + grp.position.x, wz = _m.elements[14] + grp.position.z;
+              if (wx > roomRect.min.x && wx < roomRect.max.x && wz > roomRect.min.z && wz < roomRect.max.z) {
+                child.setMatrixAt(i, _zero); dirty = true;
+              }
+            }
+            if (dirty) child.instanceMatrix.needsUpdate = true;
+            continue;
+          }
+          _bb.setFromObject(child); _bb.getSize(_sz);
+          const groundLike = _sz.x > 40 || _sz.z > 40; // spans the town: ground/roads
+          if (!groundLike && _bb.intersectsBox(roomRect)) grp.remove(child);
+        }
+      };
+      // moonlit-dusk fill so the village reads through the panes at night
+      outside.group.add(new THREE.HemisphereLight(0x8fa0c8, 0x0c0c14, 0.4));
+      this.scene.add(outside.group);
+      this._tavernOutside = outside.group;
+      cullOutside();
+      for (const ms of [1500, 4000, 9000]) setTimeout(cullOutside, ms);
+    } catch { this._tavernOutside = null; /* windows fall back to their diorama */ }
     this.openedDoors = new Set();
     const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
     this.player.pos.set(spawn.x, 0, spawn.z);
