@@ -85,7 +85,11 @@ export class Game {
     // offset. Gated to gameplay so menus keep native scrolling.
     // Lower bound is small enough to push the camera right up to the hero's
     // face (full zoom-in) in any mode; upper bound keeps a sane pulled-back view.
-    const clampZoom = (z) => Math.min(1.5, Math.max(0.12, z));
+    // Inside the tavern/upstairs the max zoom-OUT is tighter (919): pulling the
+    // camera back far enough let you see the real town OVER the walls. Capping
+    // the pulled-back view keeps the walls occluding the outside (the windows
+    // still cut through to the real village). Open floors keep the wider 1.5.
+    const clampZoom = (z) => Math.min(this.inTavern ? 0.95 : 1.5, Math.max(0.12, z));
     window.addEventListener('wheel', (e) => {
       if (this.state !== 'playing') return;
       this.camZoom = clampZoom(this.camZoom * (1 + e.deltaY * 0.0011));
@@ -820,6 +824,7 @@ export class Game {
     const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
     this.player.pos.set(spawn.x, 0, spawn.z);
     this.setTownAtmosphere(true); // warm lamplit tavern (see setTownAtmosphere)
+    if (this.camZoom > 0.95) this.camZoom = 0.95; // don't enter already zoomed past the walls (919)
     const theme = themeForFloor(1);
     this.setupTorchLights({ ...theme, accent: 0xffb877 });
     this.ui.minimap.setDungeon(this.dungeon);
@@ -6106,11 +6111,13 @@ export class Game {
           }
         }
       }
-      if (!candidate && this.inUpstairs && this._lyingBed && !this._sleeping && this._sleepInvited) {
-        // Sleep the night away (875): advances the town clock to sunrise so
-        // stepping outside after shows morning. Moving still just gets you up.
-        // Only offered once Rosalind has invited you to stay (926) - it does not
-        // pop up on every random bed.
+      // Sleep the night away (875): advances the town clock to sunrise so
+      // stepping outside after shows morning. Gating (931): sleeping ALONE in a
+      // guest bed is always fine; but the SHARED bed with Rosalind (the _scene
+      // bed) only offers it once she's INVITED you to stay - not while the
+      // encounter is still playing out.
+      if (!candidate && this.inUpstairs && this._lyingBed && !this._sleeping
+        && (!this._lyingBed._scene || this._sleepInvited)) {
         candidate = { label: 'Sleep till morning', icon: '😴', action: () => this.sleepUntilMorning() };
       }
       // Sitting at a stool you're RIGHT ON TOP OF wins over Magda's talk prompt
