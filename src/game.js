@@ -792,7 +792,10 @@ export class Game {
       this.scene.add(outside.group);
       this._tavernOutside = outside.group;
       cullOutside();
-      for (const ms of [1500, 4000, 9000]) setTimeout(cullOutside, ms);
+      // nature props stream in from async GLB loads at unpredictable times -
+      // sweep repeatedly through the first ~15s so nothing (bushes!) pops into
+      // the room between passes.
+      for (const ms of [1000, 2000, 3500, 5000, 7000, 10000, 15000]) setTimeout(cullOutside, ms);
     } catch { this._tavernOutside = null; /* windows fall back to their diorama */ }
     this.openedDoors = new Set();
     const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
