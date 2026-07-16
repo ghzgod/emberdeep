@@ -1740,7 +1740,10 @@ export class Game {
         ? 'Tone: 18+ - the banter may be DARK, crazy or bawdy (grim war stories, black humor, filthy jokes, profanity fine) but above all genuinely FUNNY.'
         : 'Tone: clean but genuinely FUNNY - dry wit, absurd gripes, running jokes.';
       const sys = `Write ambient background banter for a fantasy tavern. Speakers: "magda" (no-nonsense barkeep), "drunk" (Bram, tipsy regular), "patron" (dry-witted regular), "rosalind" (playful flirt). ${tone}${memLine ? ` Shared memory to build on (weave a callback in when it fits): ${memLine}.` : ''}${playerLine} Reply ONLY JSON: {"turns":[{"who":"<magda|drunk|patron|rosalind>","text":"<one short spoken line, max 16 words, natural pronounceable words only - no Hmm/Mmm/Hmph/Pfft murmur sounds>"}],"learned":[{"who":"<speaker>","fact":"<optional: one SHORT new thing this exchange revealed about them>"}]} with EXACTLY 3 turns by different speakers. Do NOT reuse these earlier openers: ${used || '(none)'}`;
-      const out = await llm.chat([{ role: 'system', content: sys }, { role: 'user', content: 'Next exchange. Remember: top-level JSON key MUST be "turns".' }], { timeout: 8000, temperature: 1.1, maxTokens: 300 });
+      // cache:false - ambient banter MUST stay fresh each time (887); the used-
+      // openers list in the prompt already varies it, and we never want a
+      // cached repeat of a whole exchange.
+      const out = await llm.chat([{ role: 'system', content: sys }, { role: 'user', content: 'Next exchange. Remember: top-level JSON key MUST be "turns".' }], { timeout: 8000, temperature: 1.1, maxTokens: 300, cache: false });
       if (!out) return;
       const obj = JSON.parse(out.match(/\{[\s\S]*\}/)?.[0] || out.match(/\[[\s\S]*\]/)[0]);
       let rawTurns = Array.isArray(obj) ? obj : obj.turns;
