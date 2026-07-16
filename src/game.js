@@ -1294,12 +1294,17 @@ export class Game {
     const rude = pm.mood === 'rude';
     const bank = rude ? rudeLines : pm.drunk ? drunkLines : soberLines;
     const line = bank[Math.floor(Math.random() * bank.length)];
-    // A rude patron gets a flatter, colder delivery than the chatty regulars.
+    // Voice matches the patron's GENDER (909: a male-looking patron was getting
+    // a female voice - every non-drunk patron defaulted to af_sarah). A rude
+    // patron gets a flatter, colder delivery than the chatty regulars.
+    const male = pm.gender === 'male';
     const cast = pm.drunk
       ? { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82 }
-      : rude
-        ? { female: true, vi: 2, pitch: 0.92, rate: 1.05, kokoro: 'af_sarah', kSpeed: 1.05 }
-        : { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 };
+      : male
+        ? { female: false, vi: 5, pitch: rude ? 0.92 : 1.0, rate: rude ? 1.05 : 0.95, kokoro: 'am_adam', kSpeed: 0.95 }
+        : rude
+          ? { female: true, vi: 2, pitch: 0.92, rate: 1.05, kokoro: 'af_sarah', kSpeed: 1.05 }
+          : { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0 };
     pm.talkUntil = performance.now() + 7000; // stool-swivel toward the player only mid-conversation (735)
     // Bubble label = the patron's own NAME once they have one (other NPCs will
     // refer to them by it - 781/787), else a descriptive stand-in. Read live
@@ -6432,8 +6437,10 @@ export class Game {
         }
         const pm = (this.dungeonMeshes.patronMeshes || []).find((p) => !p.flirty && (who === 'drunk') === !!p.drunk);
         if (!pm) return null;
-        return who === 'drunk'
-          ? { name: 'Tipsy Regular', cast: { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82, lite: 'expr-voice-2-m' }, pos: pm }
+        if (who === 'drunk') return { name: 'Tipsy Regular', cast: { female: false, vi: 6, pitch: 1.05, rate: 0.8, kokoro: 'bm_daniel', kSpeed: 0.82, lite: 'expr-voice-2-m' }, pos: pm };
+        // voice follows the patron's GENDER (909)
+        return pm.gender === 'male'
+          ? { name: 'Tavern Patron', cast: { female: false, vi: 5, pitch: 1.0, rate: 0.95, kokoro: 'am_adam', kSpeed: 0.95, lite: 'expr-voice-4-m' }, pos: pm }
           : { name: 'Tavern Patron', cast: { female: true, vi: 3, pitch: 1.05, rate: 1.0, kokoro: 'af_sarah', kSpeed: 1.0, lite: 'expr-voice-3-f' }, pos: pm };
       };
       // visitor speaker (750): resolved from the rotating-visitor driver so a

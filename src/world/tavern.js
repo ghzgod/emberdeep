@@ -1026,7 +1026,7 @@ export function buildTavernInterior() {
     // pmEntry is created up-front so the driver below and patronChat
     // (game.js) share it: patronChat stamps pmEntry.talkUntil when the
     // player actually opens a conversation.
-    const pmEntry = { mesh: patron, x: px, z: pz, drunk: def.name === 'drunk', mood: def.mood || 'friendly', seat: slot.seat, name: def.given || null, flirty: !!def.flirty, affinity: 0, talkUntil: 0 };
+    const pmEntry = { mesh: patron, x: px, z: pz, drunk: def.name === 'drunk', gender: def.gender || 'female', mood: def.mood || 'friendly', seat: slot.seat, name: def.given || null, flirty: !!def.flirty, affinity: 0, talkUntil: 0 };
     const pnpc = buildNpcModel(def.cls, def.npcName, {
       gender: def.gender, skinTone: def.skin,
       hairColor: def.hairColor, hairStyle: def.hairStyle,
