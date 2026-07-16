@@ -443,6 +443,7 @@ export class Game {
     this.storySeen = data.storySeen || [];
     this.vendorMemory = data.vendorMemory || {};
     this._rosalindMet = !!data.rosalindMet; // persist "she's already approached you once" (828)
+    this._usedBanter = Array.isArray(data.usedBanter) ? data.usedBanter : [];
     this.clearedFloors = data.clearedFloors || {}; // absent on pre-feature saves
     this.destroyedWallsSession = {}; // session-only: never persisted, always fresh
     this.destructibleWallHits = {};
@@ -1590,6 +1591,38 @@ export class Game {
   // Ask the keyless LLM (Pollinations) for Rosalind's next line, in character
   // and gated to the current 18+ mode. Short timeout; returns null on any
   // slowness/failure so flirtSelect falls back to the canned bank (801).
+  // FRESH ambient banter from the free LLM (Obsidian 781-stretch): once the
+  // prewarmed canned exchanges have each played, ask for a new 3-turn exchange
+  // between the regulars - fire-and-forget, lands in the plan pool for the next
+  // cycle. Used opening lines are remembered (and persisted in the save) so the
+  // room never repeats itself across visits; the canned trees remain the
+  // offline fallback.
+  async _fetchFreshConvo() {
+    if (this._freshConvoBusy || !llm.ready) return;
+    this._freshConvoBusy = true;
+    try {
+      const used = (this._usedBanter || []).slice(-12).join(' | ');
+      const sys = `Write ambient background banter for a cozy fantasy tavern. Speakers: "magda" (no-nonsense barkeep), "drunk" (Bram, tipsy regular), "patron" (dry-witted regular), "rosalind" (playful flirt). Reply ONLY JSON: [{"who":"<magda|drunk|patron|rosalind>","text":"<one short spoken line, max 16 words, natural pronounceable words only - no Hmph/Pfft>"}] with EXACTLY 3 turns by different speakers - a light joke or gripe about tavern life. Do NOT reuse these earlier openers: ${used || '(none)'}`;
+      const out = await llm.chat([{ role: 'system', content: sys }, { role: 'user', content: 'Next exchange.' }], { timeout: 8000, temperature: 1.1, maxTokens: 220 });
+      if (!out) return;
+      const arr = JSON.parse(out.match(/\[[\s\S]*\]/)[0]);
+      // codestral drifts from the schema ("speaker"/"bram"/"line") - normalize
+      const WHO = { magda: 'magda', barkeep: 'magda', drunk: 'drunk', bram: 'drunk', patron: 'patron', regular: 'patron', rosalind: 'rosalind', ros: 'rosalind', flirt: 'rosalind' };
+      const turns = (Array.isArray(arr) ? arr : []).map((t) => {
+        if (!t) return null;
+        const who = WHO[String(t.who || t.speaker || t.name || '').toLowerCase().trim()];
+        const text = typeof t.text === 'string' ? t.text : (typeof t.line === 'string' ? t.line : null);
+        return who && text ? { who, text: String(text).slice(0, 140) } : null;
+      }).filter(Boolean).slice(0, 3);
+      if (turns.length >= 2) {
+        (this._tavernConvoPlans = this._tavernConvoPlans || []).push(turns);
+        this._usedBanter = [...(this._usedBanter || []), turns[0].text].slice(-30);
+        this.requestSave();
+      }
+    } catch { /* canned trees remain the fallback */ }
+    finally { this._freshConvoBusy = false; }
+  }
+
   // LLM-DRIVEN flirt turn (Obsidian 853): the free keyless LLM generates BOTH
   // Rosalind's spoken line AND the player's next reply options as JSON, from the
   // running conversation + her mood - so the dialogue and its branches are
@@ -4334,6 +4367,7 @@ export class Game {
       vendorMemory: this.vendorMemory,
       clearedFloors: this.clearedFloors, // { floor: true } full clears only
       rosalindMet: !!this._rosalindMet, // she only ever walks up to you ONCE (828)
+      usedBanter: (this._usedBanter || []).slice(-30), // the room never repeats itself (781)
     });
   }
 
@@ -6041,6 +6075,9 @@ export class Game {
           // alternate between the visit's PREWARMED exchanges (736) so every
           // ambient line is a cache hit - never a fresh mid-idle inference
           const plans = this._tavernConvoPlans;
+          // every canned plan has played once -> start topping the pool up with
+          // FRESH LLM-written exchanges (781); arrives in time for a later cycle
+          if ((this._tavernPlanIdx || 0) >= (plans?.length || 0)) this._fetchFreshConvo();
           this._tavernConvo = plans?.length
             ? plans[(this._tavernPlanIdx++) % plans.length]
             : roaster.composeTavernConvo();
