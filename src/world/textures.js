@@ -564,11 +564,15 @@ export function makeTavernSignTexture() {
   x.font = 'bold 26px Georgia, serif'; x.fillText('z', gx + 96, gy - 44);
   x.font = 'bold 36px Georgia, serif'; x.fillText('Z', gx + 122, gy - 72);
   x.font = 'bold 48px Georgia, serif'; x.fillText('Z', gx + 156, gy - 102);
-  // lettering with a carved shadow
+  // lettering with a carved shadow - sized to FIT inside the gilt border
+  // (877: at a fixed 42px the name ran past the frame and off the board)
   x.textAlign = 'center';
-  x.font = 'bold 42px Georgia, serif';
-  x.fillStyle = 'rgba(20,10,4,0.8)'; x.fillText('THE SLEEPING GOLEM', w / 2 + 2, h - 36 + 2);
-  x.fillStyle = '#eed794'; x.fillText('THE SLEEPING GOLEM', w / 2, h - 36);
+  const name = 'THE SLEEPING GOLEM';
+  let fs = 42;
+  x.font = `bold ${fs}px Georgia, serif`;
+  while (fs > 20 && x.measureText(name).width > w - 92) { fs -= 2; x.font = `bold ${fs}px Georgia, serif`; }
+  x.fillStyle = 'rgba(20,10,4,0.8)'; x.fillText(name, w / 2 + 2, h - 36 + 2);
+  x.fillStyle = '#eed794'; x.fillText(name, w / 2, h - 36);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
