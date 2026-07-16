@@ -178,6 +178,31 @@ export async function preloadHeroModels(onProgress) {
       for (const clip of gltf.animations) {
         clip.tracks = clip.tracks.filter((t) => !t.name.endsWith('.scale'));
       }
+      // Bare HANDS match the face (Obsidian 823 residue): on the bare-handed
+      // rigs the hand vertices sample class-specific atlas tiles that the skin
+      // tint never touches - a deep-skinned mage/barbarian rendered light
+      // hands under a dark face. Remap every vertex whose DOMINANT bone is a
+      // hand bone onto the flat face-skin tile (0,0), so hands always sample
+      // the exact same swatch as the face, tinted or not. Knights keep their
+      // gauntlets (their hand verts are armour, not skin).
+      if (classId === 'mage' || classId === 'barbarian') {
+        gltf.scene.traverse((o) => {
+          if (!o.isSkinnedMesh || !o.skeleton) return;
+          const uv = o.geometry.attributes.uv, si = o.geometry.attributes.skinIndex, sw = o.geometry.attributes.skinWeight;
+          if (!uv || !si || !sw) return;
+          const handIdx = new Set();
+          o.skeleton.bones.forEach((b, idx) => { if (/^hand\.?[lr]$/i.test(b.name)) handIdx.add(idx); });
+          if (!handIdx.size) return;
+          let changed = false;
+          for (let i = 0; i < uv.count; i++) {
+            let best = 0, bw = -1;
+            for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; best = si.getComponent(i, k); } }
+            if (!handIdx.has(best)) continue;
+            uv.setXY(i, 0.0625, 0.0625); changed = true; // centre of the face-skin tile
+          }
+          if (changed) uv.needsUpdate = true;
+        });
+      }
       loaded.set(classId, {
         scene: gltf.scene,
         animations: gltf.animations,
