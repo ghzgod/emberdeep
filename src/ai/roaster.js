@@ -525,10 +525,13 @@ export class Roaster {
     // talking. Only extends THIS line's caption (guarded on the gate) and only
     // if it's still the one showing.
     const onEnd = () => {
-      if (this._activeGate && this._activeGate !== gate) return; // a newer line owns the bubble
-      if (hasBubble) game.ui.floaters.showSpeech(anchor, speaker, line, 2000);
-      else game.ui.showSubtitle(speaker, line, 2000);
-      if (game) game._speechCaptionUntil = Math.max(game._speechCaptionUntil || 0, performance.now() + 2000);
+      // Linger ~3s past the audio (906/921): re-show THIS speaker's own bubble
+      // (keyed by anchor, so it never touches another NPC's caption). No longer
+      // gated on _activeGate - with per-anchor bubbles a newer line from a
+      // DIFFERENT speaker must not cancel this one's linger.
+      if (hasBubble) game.ui.floaters.showSpeech(anchor, speaker, line, 3000);
+      else game.ui.showSubtitle(speaker, line, 3000);
+      if (game) game._speechCaptionUntil = Math.max(game._speechCaptionUntil || 0, performance.now() + 3000);
     };
     this._activeGate = gate;
     this.speakAs(line, cast, anchor, { onStart: finish, onCancel: cancel, onEnd });
