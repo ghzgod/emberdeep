@@ -641,22 +641,27 @@ function addHairMesh(mesh, headMesh, style, hex) {
     // in tighter/shorter, and squash it laterally so it reads as a sheet of
     // hair falling from the crown down the nape - never silhouetting past the
     // shoulders or covering the back.
-    // A short BOB, not a back-length cape (image 136: even the narrowed drape
-    // still fell ~1.5 head-heights to the belt and read as a red SHIELD on her
-    // back). Stop it just below the jaw (~0.55 head-heights), keep every radius
-    // tight to the skull, and sweep only the back ~100 degrees. It now clearly
-    // sits ABOVE the shoulders and never covers the back.
+    // A short helmet-of-hair BOB that WRAPS the skull (images 136/140/141: the
+    // old partial back-panel lathe left OPEN EDGES that stuck up behind the head
+    // as a red fin, and swept too narrow so it read as a shield). Two fixes:
+    //   1) CLOSED CROWN: the profile starts at a near-zero radius at the top so
+    //      there is no protruding top rim to form a fin.
+    //   2) WRAP AROUND: LatheGeometry's phi=0 sits at +Z (the FACE), so sweeping
+    //      from 0.35PI to 1.65PI covers the whole BACK and both SIDES and leaves
+    //      only a ~125-degree gap at the face - the two open edges tuck against
+    //      the cheeks where they're hidden, instead of pointing out at the back.
+    // FrontSide (not DoubleSide) so the shell interior never shows through.
     const pts = [
-      [d * 0.40, -h * 0.02],  // tucked against the skull - no exposed rim
-      [d * 0.42, -h * 0.22],
-      [d * 0.36, -h * 0.42],
-      [d * 0.24, -h * 0.55],  // ends just below the jaw
-      [d * 0.08, -h * 0.62],
+      [d * 0.06, h * 0.06],   // near-closed at the crown - no top fin
+      [d * 0.34, -h * 0.10],
+      [d * 0.42, -h * 0.30],  // widest at the back of the skull
+      [d * 0.38, -h * 0.48],
+      [d * 0.26, -h * 0.60],  // curls in below the jaw
+      [d * 0.10, -h * 0.66],
     ].map(([r, y]) => new THREE.Vector2(r, y));
     const shell = new THREE.Mesh(
-      new THREE.LatheGeometry(pts, 14, Math.PI * 0.72, Math.PI * 0.56),
-      new THREE.MeshStandardMaterial({ color: hex, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide }));
-    shell.scale.x = 0.8; // slimmer than the skull side-to-side
+      new THREE.LatheGeometry(pts, 20, Math.PI * 0.35, Math.PI * 1.30),
+      new THREE.MeshStandardMaterial({ color: hex, roughness: 0.9, metalness: 0.0, side: THREE.FrontSide }));
     shell.position.set(cx, bb.max.y - h * 0.05, cz);
     shell.castShadow = false; shell.receiveShadow = false; shell.frustumCulled = false;
     group.add(shell);

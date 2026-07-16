@@ -6000,10 +6000,10 @@ export class Game {
           const s = Math.min(pd, 2.4 * dt);
           fs.pWalk.x += pdx / pd * s; fs.pWalk.z += pdz / pd * s;
           p.aimAngle = Math.atan2(pdz, pdx); p.faceAimTimer = 0.2;
-          p.anim?.setLocomotion(1, dt);
+          p.scriptedSpeed = p.moveSpeed || p.speed || 4; // legs walk (889)
           pMoving = true;
           fs.pStep -= dt; if (fs.pStep <= 0) { fs.pStep = 0.34; audio.play('footstep', { volume: 0.4 }); }
-        }
+        } else { p.scriptedSpeed = 0; }
         p.pos.x = fs.pWalk.x; p.pos.z = fs.pWalk.z;
         // Rosalind LEADS - she walks a touch faster to the far side
         let hMoving = false;
@@ -6021,6 +6021,7 @@ export class Game {
         }
         if (!pMoving && !hMoving) {
           fs.arrived = true;
+          p.scriptedSpeed = 0;
           if (npc) npc.mesh.rotation.y = Math.atan2(p.pos.x - npc.mesh.position.x, p.pos.z - npc.mesh.position.z);
           this._upstairsBeats(npc, fs.bedC);
           this._followScene = null;
@@ -6065,13 +6066,15 @@ export class Game {
             const s = Math.min(pd, 2.6 * dt);
             bs.pWalk.x += pdx / pd * s; bs.pWalk.z += pdz / pd * s;
             p.aimAngle = Math.atan2(pdz, pdx); p.faceAimTimer = 0.2;
-            // A real WALK, not a glide (866): player.update already ran with no
-            // input this frame (setLocomotion(0)), so re-drive the rig at walk
-            // speed and play the same footstep loop normal movement uses.
-            p.anim?.setLocomotion(1, dt);
+            // A real WALK, not a glide (866/889): player.update runs with no
+            // input (setLocomotion 0), so hand it a scriptedSpeed it animates
+            // from - a post-update setLocomotion here just gets overwritten next
+            // frame. Same footstep loop normal movement uses.
+            p.scriptedSpeed = p.moveSpeed || p.speed || 4;
             bs._stepT = (bs._stepT ?? 0) - dt;
             if (bs._stepT <= 0) { bs._stepT = 0.34; audio.play('footstep', { volume: 0.4 }); }
           } else {
+            p.scriptedSpeed = 0;
             bs.meSeated = true; bs.pWalk = { x: sMine.x, z: sMine.z };
             // standing-at-the-counter fallback (879) skips the stool sit-pin
             if (!sMine.stand) { this.seatedAt = sMine; this._seatCd = performance.now() + 1200; }
