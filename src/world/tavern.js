@@ -616,7 +616,16 @@ export function buildTavernInterior() {
             const dist = Math.hypot(dx, dz);
             if (dist < 0.05) {
               st.waitT -= dt;
-              if (st.waitT <= 0) { st.paceTarget = randPace(); st.waitT = 2 + Math.random() * 2; }
+              // 916: bartender BUSYWORK instead of just standing. For the last
+              // stretch of each idle pause she turns to the back-bar (north) to
+              // wipe/restock the shelves, with an occasional pour cue, then faces
+              // the customers again as she moves on - so she reads as working the
+              // bar rather than idling. Pure facing (no bone rig needed).
+              const restock = st.waitT < 1.4;
+              const targetYaw = restock ? Math.PI : 0; // PI = back-bar, 0 = room
+              keeper.rotation.y += wrapAngle(targetYaw - keeper.rotation.y) * Math.min(1, dt * 5);
+              if (restock && !st.pouredThisWait) { st.pouredThisWait = true; if (Math.random() < 0.4) audio.pour(); }
+              if (st.waitT <= 0) { st.paceTarget = randPace(); st.waitT = 2 + Math.random() * 2; st.pouredThisWait = false; }
             } else {
               const step = Math.min(dist, SPEED * dt);
               const ang = Math.atan2(dx, dz);
