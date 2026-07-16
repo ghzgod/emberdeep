@@ -1194,20 +1194,31 @@ body.touch-mode #interact-prompt { bottom: 252px; } /* clears the corner cluster
   background: linear-gradient(to top, rgba(4,2,8,0.6) 0%, rgba(4,2,8,0.28) 45%, rgba(4,2,8,0) 78%);
 }
 #flirt-dialog.hidden { display: none; }
+/* Compact reply picker (image 121 rework): no dead space - the old line area
+   collapses when empty (her words live in the speech bubble, not in here),
+   tighter padding, smaller parchment-styled reply chips, slim Leave. */
 #flirt-card {
   pointer-events: auto;
-  width: 100%; max-width: min(94vw, 560px); max-height: 62vh; overflow: auto;
-  padding: 12px 14px; text-align: center; color: var(--parchment);
+  width: 100%; max-width: min(94vw, 480px); max-height: 62vh; overflow: auto;
+  padding: 8px 10px 9px; text-align: center; color: var(--parchment);
   background: var(--panel-grad); border: 2px solid var(--panel-brown); outline: 1px solid #000;
   border-radius: 10px; box-shadow: var(--panel-shadows);
 }
-#flirt-head { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-bottom: 10px; border-bottom: 1px solid var(--title-divider); padding-bottom: 6px; }
-#flirt-head h2 { font-size: 16px; margin: 0; color: #ff9ac0; letter-spacing: 0.5px; text-shadow: 1px 1px 2px #000; }
-#flirt-mood { font-size: 12px; font-weight: 700; }
-#flirt-line { font-style: italic; font-size: 14px; line-height: 1.45; margin-bottom: 14px; min-height: 2.4em; }
+#flirt-head { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-bottom: 7px; border-bottom: 1px solid var(--title-divider); padding-bottom: 5px; }
+#flirt-head h2 { font-size: 15px; margin: 0; color: #ff9ac0; letter-spacing: 0.5px; text-shadow: 1px 1px 2px #000; }
+#flirt-mood { font-size: 11px; font-weight: 700; }
+#flirt-line { font-style: italic; font-size: 13px; line-height: 1.4; margin-bottom: 8px; }
+#flirt-line:empty { display: none; }
 /* Two answers left, two right (Obsidian 827) instead of a tall stack. */
-#flirt-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-#flirt-choices .flirt-choice { text-align: left; white-space: normal; }
+#flirt-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 7px; }
+#flirt-choices .flirt-choice {
+  text-align: left; white-space: normal;
+  font-size: 12.5px; line-height: 1.3; padding: 8px 10px;
+  border-width: 1px; border-radius: 8px;
+  background: linear-gradient(180deg, #2c2040, #211732);
+}
+#flirt-choices .flirt-choice:hover { background: linear-gradient(180deg, #3a2b52, #2a1f40); }
+#btn-flirt-leave { font-size: 12px; padding: 5px 16px; opacity: 0.85; }
 @media (max-width: 560px) { #flirt-choices { grid-template-columns: 1fr; } }
 .flirt-choice.flirt-tier0 { border-color: #5a6472; }
 .flirt-choice.flirt-tier2 { border-color: #b8637f; }

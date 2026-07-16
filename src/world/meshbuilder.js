@@ -40,10 +40,11 @@ export function buildNpcModel(classId, name, opts = {}) {
   mesh.userData.townNpc = true;
   mesh.scale.multiplyScalar(NPC_SCALE);
   // Townsfolk are CIVILIANS: hide the class rig's baked weapons/shields (the
-  // mage wand in Rosalind's hand, the knight sword, ...). Held props like the
-  // patrons' mugs are separate meshes added afterwards, so they're unaffected.
+  // mage wand in Rosalind's hand, the knight sword, ...) AND the adventurer
+  // cape (the user flagged Magda's - barkeeps don't wear capes). Held props
+  // like the patrons' mugs are separate meshes added afterwards, unaffected.
   mesh.traverse((o) => {
-    if (o.isMesh && /sword|mace|axe|bow|crossbow|wand|staff|hammer|dagger|blade|weapon|shield|spear/i.test(o.name || '')) o.visible = false;
+    if (o.isMesh && /sword|mace|axe|bow|crossbow|wand|staff|hammer|dagger|blade|weapon|shield|spear|cape/i.test(o.name || '')) o.visible = false;
   });
   // Find the rig's head bone once so we can nudge it toward the player. Every
   // KayKit adventurer rig names it "head" (verified against the GLBs), same as
