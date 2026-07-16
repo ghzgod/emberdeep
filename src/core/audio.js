@@ -975,6 +975,7 @@ export class AudioEngine {
       if (P.crackle && Math.random() < P.crackle) this._crackle();
       if (P.chirp && Math.random() < P.chirp) this._chirp();
       if (P.drip && Math.random() < P.drip) this._drip();
+      if (P.murmur && Math.random() < P.murmur) this._murmur();
     }, 340);
     this._amb = { profile, src, g, drone, timer };
   }
@@ -1011,6 +1012,29 @@ export class AudioEngine {
     }
   }
 
+  // One distant half-heard phrase in the room hubbub (781): a band-passed
+  // noise burst in the voice register with syllabic amplitude bumps. Fired
+  // often enough that phrases overlap into a low crowd murmur; peaks are tiny
+  // so real NPC speech always reads clearly OVER the chatter.
+  _murmur() {
+    const t = this.ctx.currentTime;
+    const dur = 0.5 + Math.random() * 0.9;
+    const src = this.ctx.createBufferSource(); src.buffer = this._noise(); src.loop = true;
+    const f = this.ctx.createBiquadFilter(); f.type = 'bandpass';
+    f.frequency.value = 220 + Math.random() * 480; // a different "voice" each phrase
+    f.Q.value = 6;
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t);
+    const syl = 3 + Math.floor(Math.random() * 5);
+    const peak = 0.012 + Math.random() * 0.014;
+    for (let i = 0; i < syl; i++) {
+      const ts = t + (i / syl) * dur;
+      g.gain.exponentialRampToValueAtTime(peak * (0.6 + Math.random() * 0.4), ts + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.002, ts + (dur / syl) * 0.9);
+    }
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.1);
+    src.connect(f); f.connect(g); g.connect(this.ambGain);
+    src.start(t, Math.random() * 2, dur + 0.2);
+  }
   _drip() { // a single cave water drop (wet acts only)
     const t = this.ctx.currentTime; const o = this.ctx.createOscillator(); o.type = 'sine';
     o.frequency.setValueAtTime(880, t); o.frequency.exponentialRampToValueAtTime(300, t + 0.12);
@@ -1023,7 +1047,7 @@ export class AudioEngine {
 // Per-area ambience recipes. Drips live ONLY in the wet-cave acts.
 const AMBIENCE = {
   town:          { freq: 480, bed: 0.05, chirp: 0.05 },                          // open square: wind + birds
-  tavern:        { freq: 700, bed: 0.045, crackle: 0.5 },                         // room tone + hearth crackle
+  tavern:        { freq: 700, bed: 0.045, crackle: 0.5, murmur: 0.55 },            // room tone + hearth + crowd murmur (781)
   'dungeon-wet': { freq: 300, bed: 0.05, drone: 62, droneGain: 0.05, drip: 0.05 }, // stone/moss caves
   'dungeon-dry': { freq: 260, bed: 0.045, drone: 55, droneGain: 0.06 },           // ember/cursed/abyss drone
 };
