@@ -242,6 +242,15 @@ export class Roaster {
     // Only one line is ever gated at a time (speaking is single-voice), so a
     // new line simply supersedes whatever gate was pending.
     this._activeGate = null;
+    // 907: single-slot deferred speech so a line NEVER plays over one that is
+    // actively speaking. _speaking is true from a line's audio start to its end;
+    // a line triggered during that window is parked in _pending (latest wins)
+    // and played when the current one ends. Safety timers guarantee it can never
+    // stall if an end callback is missed.
+    this._speaking = false;
+    this._pending = null;
+    this._pendingTimer = null;
+    this._speakSafety = null;
     if ('speechSynthesis' in window) {
       const load = () => { this.voices = speechSynthesis.getVoices(); };
       load();
@@ -467,13 +476,24 @@ export class Roaster {
   // A 1.5s safety-net timeout shows the caption regardless if no onStart ever
   // fires (headless/voiceless browsers, a failed generate(), etc.) so a line
   // is never silently lost.
-  sayGated(game, speaker, line, cast, anchor, { durationMs = 4200, show, onShown, priority = false } = {}) {
+  sayGated(game, speaker, line, cast, anchor, { durationMs = 4200, show, onShown, priority = false, _drained = false } = {}) {
     if (!this.enabled) return;
     // Direct-conversation lines outrank ambient chatter (878): an ambient
     // tavern line used to SUPERSEDE Rosalind's pending reply gate, so her
     // line was silently dropped. Now the non-priority newcomer is the one
     // that gets dropped while a priority gate is still pending.
     if (this._activeGate && this._activeGate.priority && !priority) return;
+    // 907: never speak OVER a line whose audio is still playing - park this one
+    // and let it speak when the current line ENDS (latest pending wins so the
+    // player's most recent choice is what gets voiced). A 6s safety force-plays
+    // if the current line never signals its end.
+    if (this._speaking && !_drained) {
+      clearTimeout(this._pendingTimer);
+      this._pending = { game, speaker, line, cast, anchor, opts: { durationMs, show, onShown, priority } };
+      if (anchor && game?.ui?.floaters) game.ui.floaters.showThinking(anchor); // she's about to reply
+      this._pendingTimer = setTimeout(() => this._drainPending(), 6000);
+      return;
+    }
     this._clearGate(); // otherwise a new line supersedes whatever was pending; no stacked ellipses
     const hasBubble = !!(anchor && game?.ui?.floaters);
     if (hasBubble) game.ui.floaters.showThinking(anchor);
@@ -498,6 +518,11 @@ export class Roaster {
       clearTimeout(gate.fallback);
       if (hasBubble) game.ui.floaters.hideThinking();
       doShow();
+      // 907: a line's audio has begun - block any newcomer until it ends. Safety
+      // resets _speaking if the end callback is missed (durationMs + buffer).
+      this._speaking = true;
+      clearTimeout(this._speakSafety);
+      this._speakSafety = setTimeout(() => { this._speaking = false; this._drainPending(); }, durationMs + 4000);
       if (this._activeGate === gate) this._activeGate = null;
       // Fires the instant her line actually SHOWS (thinking pill -> caption), so
       // callers can reveal reply choices only AFTER she's spoken (Obsidian 848).
@@ -508,6 +533,11 @@ export class Roaster {
       started = true;
       clearTimeout(gate.fallback);
       if (hasBubble) game.ui.floaters.hideThinking();
+      // 907: this line will never produce audio - it isn't blocking anyone; free
+      // the slot and let a parked line (if any) speak.
+      this._speaking = false;
+      clearTimeout(this._speakSafety);
+      this._drainPending();
       if (this._activeGate === gate) this._activeGate = null;
     };
     gate.cancel = cancel;
@@ -532,9 +562,25 @@ export class Roaster {
       if (hasBubble) game.ui.floaters.showSpeech(anchor, speaker, line, 3000);
       else game.ui.showSubtitle(speaker, line, 3000);
       if (game) game._speechCaptionUntil = Math.max(game._speechCaptionUntil || 0, performance.now() + 3000);
+      // 907: audio finished - free the slot and let any parked line speak now.
+      this._speaking = false;
+      clearTimeout(this._speakSafety);
+      this._drainPending();
     };
     this._activeGate = gate;
     this.speakAs(line, cast, anchor, { onStart: finish, onCancel: cancel, onEnd });
+  }
+
+  // 907: play the line parked while another was speaking. Latest pending wins;
+  // a short beat after the previous line so they don't butt right up together.
+  _drainPending() {
+    clearTimeout(this._pendingTimer); this._pendingTimer = null;
+    const p = this._pending;
+    if (!p) return;
+    this._pending = null;
+    setTimeout(() => {
+      this.sayGated(p.game, p.speaker, p.line, p.cast, p.anchor, { ...p.opts, _drained: true });
+    }, 180);
   }
 
   // Drop the pending ellipsis->caption gate (if any) WITHOUT ever showing the
