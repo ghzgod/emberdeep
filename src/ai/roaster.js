@@ -330,7 +330,7 @@ export class Roaster {
             voice: cast.lite, speed: cast.kSpeed || cast.rate || 1,
             volume: this.volume ?? 0.9, rate: 1, onStart: hooks.onStart,
           });
-          if (ok) return;
+          if (ok) { hooks.onEnd?.(); return; } // caption lingers past audio (906)
         } else liteVoice.load(); // warm it for the next line
         this._speakNeural(text, cast, anchor, hooks);
       }).catch(() => this._speakNeural(text, cast, anchor, hooks));
@@ -343,7 +343,7 @@ export class Roaster {
     import('./neuralVoice.js').then(async ({ neuralVoice }) => {
       if (neuralVoice.ready) {
         const ok = await neuralVoice.speak(text, { voice: cast.kokoro || 'af_heart', speed: cast.kSpeed || cast.rate || 1, anchor, rate: cast.rate || 1, onStart: hooks.onStart });
-        if (ok) return;
+        if (ok) { hooks.onEnd?.(); return; } // the await resolves at playback end -> caption lingers (906)
       }
       // Kokoro is the only voice. While it's still downloading we stay SILENT
       // but STILL SHOW THE CAPTION (Obsidian 838: onCancel here hid the line
@@ -378,6 +378,7 @@ export class Roaster {
       // caller's own timeout fallback (see sayGated) covers that so the line is
       // never lost.
       if (hooks.onStart) u.onstart = () => hooks.onStart();
+      if (hooks.onEnd) u.onend = () => hooks.onEnd(); // caption lingers past audio (906)
       speechSynthesis.speak(u);
     } catch { hooks.onCancel?.(); }
   }
@@ -519,8 +520,18 @@ export class Roaster {
     // so this timer only catches the no-callback corners (e.g. a queued
     // utterance whose onstart never fires on voiceless configs).
     gate.fallback = setTimeout(finish, 10000);
+    // Caption LINGERS ~2s past the audio (906): when playback actually ends, keep
+    // the bubble up for a beat more so it doesn't vanish the instant they stop
+    // talking. Only extends THIS line's caption (guarded on the gate) and only
+    // if it's still the one showing.
+    const onEnd = () => {
+      if (this._activeGate && this._activeGate !== gate) return; // a newer line owns the bubble
+      if (hasBubble) game.ui.floaters.showSpeech(anchor, speaker, line, 2000);
+      else game.ui.showSubtitle(speaker, line, 2000);
+      if (game) game._speechCaptionUntil = Math.max(game._speechCaptionUntil || 0, performance.now() + 2000);
+    };
     this._activeGate = gate;
-    this.speakAs(line, cast, anchor, { onStart: finish, onCancel: cancel });
+    this.speakAs(line, cast, anchor, { onStart: finish, onCancel: cancel, onEnd });
   }
 
   // Drop the pending ellipsis->caption gate (if any) WITHOUT ever showing the
