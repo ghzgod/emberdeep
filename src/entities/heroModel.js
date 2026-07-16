@@ -321,7 +321,7 @@ export const HAIR_TONES = [
   { id: 'black', label: 'Black', hex: 0x1b1712 },
   { id: 'darkbrown', label: 'Dark Brown', hex: 0x3b2a1a },
   { id: 'chestnut', label: 'Chestnut', hex: 0x6b3d22 },
-  { id: 'auburn', label: 'Auburn', hex: 0x8a3220 },
+  { id: 'auburn', label: 'Auburn', hex: 0x5f3320 }, // deeper reddish-BROWN (was 0x8a3220, a bright rust-red that read as a "red thing" on Rosalind under the crimson room light)
   { id: 'blonde', label: 'Blonde', hex: 0xd8b26a },
   { id: 'platinum', label: 'Platinum', hex: 0xe8e2d0 },
   { id: 'grey', label: 'Grey', hex: 0xb0aca4 },
