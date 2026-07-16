@@ -1359,7 +1359,18 @@ export class Game {
   // patrons use): af_nicole is Kokoro's soft/breathy timbre; a lower pitch and
   // slower cadence read as sexy rather than chirpy.
   _flirtVoice() { return { female: true, vi: 3, pitch: 0.96, rate: 0.9, kokoro: 'af_nicole', kSpeed: 0.9 }; }
-  _pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  // 922: never hand back the EXACT line just spoken. With the LLM rate-limited,
+  // the small canned banks would sometimes reroll her previous line verbatim
+  // ("she repeated a line she already said"). Track the last pick and reroll
+  // once so consecutive canned lines are always different.
+  _pick(arr) {
+    if (!arr || !arr.length) return '';
+    if (arr.length === 1) return arr[0];
+    let choice = arr[Math.floor(Math.random() * arr.length)];
+    if (choice === this._lastPickLine) choice = arr[(arr.indexOf(choice) + 1) % arr.length];
+    this._lastPickLine = choice;
+    return choice;
+  }
 
   // Stand the player up from a tavern stool (Obsidian 792). Bar seats step the
   // hero off into the room so they don't stand up inside the counter overhang.
@@ -1601,8 +1612,19 @@ export class Game {
     } else {
       // drinks in hand: companionable + flirtier, the toast beat first
       if (!pm._toasted) choices.push({ tier: 2, label: 'To us, then. *raises mug*', toast: true });
-      else choices.push({ tier: 2, label: 'Tell me something no one here knows about you.' });
-      choices.push({ tier: 2, label: 'Good ale, better company. *drinks*' });
+      // 922: ROTATE the mid-conversation lines by exchange count so the option
+      // set visibly PROGRESSES each turn instead of showing the same four
+      // forever when the LLM is down (user: "same options popped up, no
+      // progression"). A window of two off a larger pool, advanced by ex.
+      const pool = [
+        { tier: 2, label: 'Tell me something no one here knows about you.' },
+        { tier: 2, label: 'Good ale, better company. *drinks*' },
+        { tier: 2, label: 'What do you do when you\'re not charming strangers?' },
+        { tier: 1, label: 'This is the best part of my week, honestly.' },
+        { tier: 2, label: female ? 'You\'ve got the prettiest laugh in here.' : 'You\'re far too interesting for this place.' },
+        { tier: 3, label: 'Come here often? Because I\'d like to.' },
+      ];
+      choices.push(pool[ex % pool.length], pool[(ex + 3) % pool.length]);
       choices.push({ tier: 3, label: female ? 'I could sit here with you all night, gorgeous.' : 'I could sit here with you all night.' });
       choices.push({ tier: 0, label: 'It\'s getting late for me. *stands*' });
     }
