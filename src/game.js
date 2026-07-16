@@ -1406,12 +1406,20 @@ export class Game {
   // The player's current reply options: LLM-generated when available (853),
   // otherwise the canned contextual bank; the scripted buy-a-drink beat is
   // appended as an extra action either way (once, until she's had her drink).
+  // She is NOT easy (872): the upstairs payoff is earned only after a real
+  // build - genuinely smitten (aff>=6), several exchanges deep (>=6), AND she's
+  // had a drink with you. One shared gate so the LLM path and the canned path
+  // (and the flirtSelect invite) can never drift apart.
+  _upstairsEarned(pm) {
+    return this.settings.adult18 && (pm.affinity || 0) >= 6 && (pm._flirtEx || 0) >= 6 && !!pm._hadDrink;
+  }
+
   _currentChoices(pm, female) {
     const adult = this.settings.adult18;
     let list;
     if (pm._llmOptions && pm._llmOptions.length) {
       const tierOf = (w) => (w <= -1 ? 0 : w === 0 ? 1 : w === 1 ? 2 : 3);
-      const earned = adult && (pm.affinity || 0) >= 5 && (pm._flirtEx || 0) >= 4;
+      const earned = this._upstairsEarned(pm);
       list = pm._llmOptions.map((o) => ({ tier: tierOf(o.warmth), label: o.label, upstairs: !!o.upstairs && earned }));
     } else {
       list = this._flirtChoices(pm, female).filter((c) => !c.buyDrink);
@@ -1557,7 +1565,7 @@ export class Game {
     // (872): an LLM-generated warm option ("My name's...") maps to tier 3 too,
     // and used to trigger "Follow her upstairs" out of nowhere mid-question.
     const madeForwardMove = /quieter|upstairs|room|somewhere|all night|take me|your place|kiss/i.test(playerLabel || '');
-    const invitedUpstairs = adult && tier === 3 && madeForwardMove && pm.affinity >= 5 && (pm._flirtEx || 0) >= 4;
+    const invitedUpstairs = tier === 3 && madeForwardMove && this._upstairsEarned(pm);
     if (invitedUpstairs) pm._invitedUpstairs = true;
     // Speak the reply, then reveal the next step ONLY after her bubble shows
     // (Obsidian 848) - end / follow-upstairs / the next choices.
@@ -1847,15 +1855,15 @@ export class Game {
     }
     // tier 3 — forward. This is where 18+ unlocks the explicit heat: she gets
     // crude and openly sexual (password-gated adult mode - Obsidian 793). But
-    // she's NOT easy (807): the outright "come upstairs" payoff is EARNED - it
-    // only lands once she's smitten (a>=5) AND you've built up (>=4 exchanges);
-    // before that she's hungry but deflects and makes you work for it. (The
-    // upstairs room itself is 800.)
+    // she's NOT easy (872): the outright "come upstairs" payoff is EARNED - it
+    // only lands once she's smitten AND several exchanges deep AND you've shared
+    // a drink (the _upstairsEarned gate); before that she's hungry but deflects
+    // and makes you work for it. (The upstairs room itself is 800.)
     if (adult) {
-      const earned = a >= 5 && (pm._flirtEx || 0) >= 4;
+      const earned = this._upstairsEarned(pm);
       if (earned) return this._pick([
         female ? 'Fuck it — my room\'s upstairs, my bed\'s cold, and I want your mouth on me. Get up there, gorgeous.' : 'My room\'s upstairs. Get up there, get that armor off, and I\'ll ride you till you forget your own damn name.',
-        'Mmm, finally. Hands on my hips, mouth on my neck, and don\'t you dare be gentle. Follow me up.',
+        'Finally. Hands on my hips, mouth on my neck, and don\'t you dare be gentle. Follow me up.',
         female ? 'I\'ve been picturing you naked and under me all night. Come upstairs and let me have you.' : 'I\'m soaked just looking at you, hero. Take me upstairs and fuck me properly.',
       ]);
       if (a >= 3) return this._pick([
