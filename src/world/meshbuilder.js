@@ -217,6 +217,11 @@ const WORLD_MODEL_FILES = {
   barrel: 'models/world/barrel.glb',
   crate: 'models/world/crate.glb',
   stall: 'models/world/stall.glb',
+  // Quaternius Medieval Village MegaKit (CC0, Obsidian 832) - vendored props,
+  // see public/models/megakit/LICENSE.txt. Textures downscaled to 512px.
+  mkWagon: 'models/megakit/Prop_Wagon.gltf',
+  mkCrate: 'models/megakit/Prop_Crate.gltf',
+  mkFence: 'models/megakit/Prop_WoodenFence_Single.gltf',
   // inn.glb retired (Obsidian 715): the tavern is the procedural shell now.
 };
 
@@ -1608,7 +1613,8 @@ export function buildDungeonMeshes(dungeon, theme, floor = 1) {
       const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.5, 10), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 }));
       barrel.position.set(1.55, 0.25, 0.5);
       stall.add(crate, barrel);
-      swapInModel(stall, crate, ['crate'], ([tpl]) => {
+      swapInModel(stall, crate, ['mkCrate', 'crate'], ([mk, old]) => {
+        const tpl = mk || old; // MegaKit crate preferred (832), old CC0 crate as fallback
         if (!tpl) return null;
         const node = buildModelMesh(tpl, 0.44);
         node.position.set(-1.55, 0, 0.5);
@@ -2122,6 +2128,15 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     cart.rotation.y = dungeon.cart.r;
     cart.position.set(w.x, 0, w.z);
     group.add(cart);
+    // The MegaKit wagon replaces the box-cart once it loads (Obsidian 832):
+    // same spot/rotation, collision-free decor either way.
+    swapInModel(group, cart, ['mkWagon'], ([tpl]) => {
+      if (!tpl) return null;
+      const node = buildModelMesh(tpl, 1.5);
+      node.position.set(w.x, 0, w.z);
+      node.rotation.y = dungeon.cart.r;
+      return node;
+    });
   }
 
   // hedges: rounded shrub clusters, not slabs

@@ -1,0 +1,3 @@
+Medieval Village MegaKit by Quaternius (quaternius.itch.io/medieval-village-megakit)
+License: CC0 1.0 Universal (per the itch.io asset page)
+Vendored: Prop_Wagon, Prop_Crate, Prop_WoodenFence_Single + T_WoodTrim textures (downscaled to 512px)
