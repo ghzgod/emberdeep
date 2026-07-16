@@ -47,7 +47,12 @@ const W = 16, H = 12;
 // Bar row moved y1 -> y2 (Obsidian 720): against the wall row the service
 // aisle between counter and back-bar shelves was ~0.36 units - nobody fits;
 // one row south gives Magda a real ~2.3-unit aisle to work and walk.
-const BAR_TILES = [[3, 2], [4, 2], [5, 2], [6, 2], [7, 2], [8, 2], [9, 2], [10, 2]];
+// Aligned to the counter MESH footprint (898): the counter spans world x 8-22
+// (barX 15 ± barW/2 = 7*TILE/2), i.e. tiles x=4..10. The old list included tile
+// x=3 (world 6-8), which had NO counter over it - an INVISIBLE WALL on the left
+// exactly where the user tried to walk around to the back. Dropping it (and
+// widening the mesh to 7*TILE) makes collision match what's drawn.
+const BAR_TILES = [[4, 2], [5, 2], [6, 2], [7, 2], [8, 2], [9, 2], [10, 2]];
 // x=8 sits directly on the spawn(8,9)->exit(8,10)->bar walking lane, so the
 // two right-side tables are mirrored to x=12 (16-wide room, center 7.5) —
 // clear of the entrance lane, symmetric with the x=3 tables on the other side.
@@ -68,8 +73,16 @@ export function generateTavernInterior() {
   // block them so the hero can't walk through the steps, leaving (14,10) as the
   // approach/interact tile at the base.
   for (const [x, y] of [[14, 7], [14, 8], [14, 9]]) grid[y][x] = WALL;
+  // Per-tile floor HEIGHTS (898): the back-bar duckboard is a real 0.24-tall
+  // platform, but the tavern never returned a heights grid so game.heightAt()
+  // fell back to 0 everywhere and the hero CLIPPED THROUGH it. Row y=1 (the
+  // service aisle behind the counter, where the duckboard mesh sits, world x
+  // 7.2-22.8 = tiles 3..11) is raised so the player eases UP onto it - the same
+  // step-up mechanism dungeons/town use, matching Magda's own 0.24 stand height.
+  const heights = Array.from({ length: H }, () => new Array(W).fill(0));
+  for (let x = 3; x <= 11; x++) heights[1][x] = 0.24;
   return {
-    grid, size: Math.max(W, H), rooms: [],
+    grid, heights, size: Math.max(W, H), rooms: [],
     spawn: { x: 8, y: 9 },
     stairsUp: { x: 14, y: 10 }, // interact tile at the stair base -> upstairs (800)
     // TODO 703: collision here is tile-granularity (isWalkable() in game.js
@@ -326,7 +339,7 @@ export function buildTavernInterior() {
   const barCenter = tileToWorld(6.5, 2);
   const barX = barCenter.x + TILE / 2;
   const barZ = barCenter.z;
-  const barW = 6 * TILE;
+  const barW = 7 * TILE; // widened 6->7 tiles so the mesh covers the full BAR_TILES collision footprint (898)
   // recessed base: shifted 0.18 toward the wall, shallower depth 0.9 -> its
   // customer face sits back at barZ+0.27, well inside the counter's front edge.
   const bar = new THREE.Mesh(new THREE.BoxGeometry(barW, 1.05, 0.9), boardMat);
