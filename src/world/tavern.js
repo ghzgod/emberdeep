@@ -79,8 +79,12 @@ export function generateTavernInterior() {
   // service aisle behind the counter, where the duckboard mesh sits, world x
   // 7.2-22.8 = tiles 3..11) is raised so the player eases UP onto it - the same
   // step-up mechanism dungeons/town use, matching Magda's own 0.24 stand height.
+  // 942: the raised tiles must match the VISIBLE duckboard footprint exactly -
+  // the board mesh spans world x 6.2..21.8 (see buildTavernInterior), so tiles
+  // 3..10 sit under it but tile 11 (x 22..24) did NOT, leaving an invisible
+  // raised cell east of the board the hero stood on with nothing under his feet.
   const heights = Array.from({ length: H }, () => new Array(W).fill(0));
-  for (let x = 3; x <= 11; x++) heights[1][x] = 0.24;
+  for (let x = 3; x <= 10; x++) heights[1][x] = 0.24;
   return {
     grid, heights, size: Math.max(W, H), rooms: [],
     spawn: { x: 8, y: 9 },

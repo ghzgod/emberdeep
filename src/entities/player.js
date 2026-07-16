@@ -517,7 +517,15 @@ export class Player {
     // rises rather than popping. ~10/s exponential ease reaches a new step
     // height in a few frames without ever overshooting.
     const groundY = game.heightAt ? game.heightAt(this.pos.x, this.pos.z) : 0;
-    this.pos.y += (groundY - this.pos.y) * Math.min(1, 10 * dt);
+    // 942: a small platform step (e.g. the 0.24 duckboard behind the bar) must
+    // read as a CLEAN step at the tile edge, not a gradual "invisible ramp". The
+    // old 10/s ease lagged the height behind the hero's position, so walking off
+    // the platform felt like descending an unseen slope past its edge. Snap
+    // small deltas instantly; only ease genuinely large elevation changes
+    // (dungeon dais / sunken patches) so those still rise smoothly.
+    const dyStep = groundY - this.pos.y;
+    if (Math.abs(dyStep) < 0.35) this.pos.y = groundY;
+    else this.pos.y += dyStep * Math.min(1, 10 * dt);
 
     // mesh sync + facing. The body follows MOVEMENT direction whenever the hero
     // is walking (the loved feel); aiming only steers the body when the hero is
