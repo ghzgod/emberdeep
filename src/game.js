@@ -2054,6 +2054,28 @@ export class Game {
     setTimeout(() => { if (this.inUpstairs) this._bedroomChoiceMenu(npc, bedC); }, 4600);
   }
 
+  // 929b: after the encounter she likes you MORE - bump her affinity, remember
+  // it happened, and pick a warmer/cooler morning-after line by how into you she
+  // is (so it isn't the same "you're trouble" every single time). Returns the
+  // line to speak; addresses you by name if she's learned it.
+  _afterglow() {
+    const pm = this._flirtActive || (this.dungeonMeshes?.patronMeshes || []).find((p) => p.flirty);
+    const adult = this.settings.adult18;
+    if (pm) {
+      pm.affinity = Math.min(8, (pm.affinity || 0) + 2);
+      pm._sleptWith = true;
+      const mem = this._npcMemory();
+      if (!mem.rosalind.some((f) => /spent the night/.test(f))) { mem.rosalind = [...mem.rosalind, 'we spent the night together'].slice(-8); }
+      this.requestSave?.();
+    }
+    const aff = pm?.affinity ?? 6;
+    const warm = adult
+      ? ['Mmm… you\'re trouble, you know that? Stay a while.', 'Gods. Come back to bed - I\'m not nearly done with you.', 'That was worth every drink. Don\'t you dare leave yet.', 'Well. THAT was a morning. Come here, you.']
+      : ['That was lovely. Stay a while?', 'Mmm. Come here, stay a bit longer.', 'I could get used to waking up to you. Stay.'];
+    const cool = ['Well. That happened. *stretches*', 'Not bad, stranger. Not bad at all.', '*yawns* Morning. There\'s water by the bed.'];
+    return this._useName(pm || {}, aff >= 5 ? this._pick(warm) : this._pick(cool));
+  }
+
   // A tasteful fade-to-black for the implied 18+ upstairs encounter (851): the
   // screen fades out, holds on a discreet caption, and fades back to a morning-
   // after beat. Deliberately NO on-screen sexual content.
@@ -2083,7 +2105,7 @@ export class Game {
     setTimeout(() => {
       ov.style.opacity = '0';
       const bp = this.dungeonMeshes?.rosalindBedPos;
-      if (bp) roaster.sayGated(this, 'Rosalind', 'That was nice. Stay a while?', this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000, priority: true });
+      if (bp) roaster.sayGated(this, 'Rosalind', this._afterglow(), this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000, priority: true });
     }, 4200);
     setTimeout(() => { if (ov) ov.style.pointerEvents = 'none'; }, 5600);
   }
@@ -2166,7 +2188,7 @@ export class Game {
       T(BR_LEN + 400, () => {
         ov.style.opacity = '0';
         const bp = this.dungeonMeshes?.rosalindBedPos;
-        if (bp) roaster.sayGated(this, 'Rosalind', 'Mmm… you\'re trouble, you know that? Stay a while.', this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000, priority: true });
+        if (bp) roaster.sayGated(this, 'Rosalind', this._afterglow(), this._flirtVoice(), { x: bp.x - 0.7, z: bp.z }, { durationMs: 4000, priority: true });
         this._sleepInvited = true; // she asked you to stay -> the Sleep option unlocks (926)
         setTimeout(() => { if (ov) ov.style.pointerEvents = 'none'; }, 1400);
         this._stopFadeAudio();
