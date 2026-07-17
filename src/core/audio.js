@@ -550,15 +550,23 @@ export class AudioEngine {
       if (handle.dead || !this.ctx || this.ctx.state !== 'running') return;
       const pt = this.ctx.currentTime;
       const n = this.ctx.createBufferSource(); n.buffer = this._noise();
+      // 970: a fire crackle is a BROADBAND wood SNAP, not a narrow ringing tone -
+      // the old Q=6 bandpass at 1.1-3.3kHz rang like tonal water drips. A wide
+      // band (low Q) centred lower, through a lowpass, gives a dry woody pop;
+      // a very sharp attack + fast decay reads as a snap, not a drip.
       const bp = this.ctx.createBiquadFilter();
-      bp.type = 'bandpass'; bp.frequency.value = 1100 + Math.random() * 2200; bp.Q.value = 6;
+      bp.type = 'bandpass'; bp.frequency.value = 500 + Math.random() * 1200; bp.Q.value = 0.9 + Math.random() * 0.6;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.value = 2600; lp.Q.value = 0.4;
       const pg = this.ctx.createGain();
       pg.gain.setValueAtTime(0.0001, pt);
-      pg.gain.exponentialRampToValueAtTime(0.25 + Math.random() * 0.3, pt + 0.006);
-      pg.gain.exponentialRampToValueAtTime(0.0001, pt + 0.05 + Math.random() * 0.06);
-      n.connect(bp); bp.connect(pg); pg.connect(level);
-      n.start(pt, Math.random() * 2); n.stop(pt + 0.15);
-      handle.popT = setTimeout(pop, 60 + Math.random() * 420);
+      pg.gain.exponentialRampToValueAtTime(0.3 + Math.random() * 0.35, pt + 0.002); // sharp snap attack
+      pg.gain.exponentialRampToValueAtTime(0.0001, pt + 0.025 + Math.random() * 0.05); // quick dry decay
+      n.connect(bp); bp.connect(lp); lp.connect(pg); pg.connect(level);
+      n.start(pt, Math.random() * 2); n.stop(pt + 0.12);
+      // clustered, irregular timing - fire crackles in bursts, not a steady drip
+      const next = Math.random() < 0.35 ? 20 + Math.random() * 80 : 120 + Math.random() * 520;
+      handle.popT = setTimeout(pop, next);
     };
     handle.popT = setTimeout(pop, 200);
     this._fire = handle;
