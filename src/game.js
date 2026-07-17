@@ -1544,7 +1544,10 @@ export class Game {
     const now = performance.now();
     return (this.dungeonMeshes?.patronMeshes || []).some((pm) =>
       Math.hypot(pm.x - s.x, pm.z - s.z) < 0.7 ||
-      ((pm._rejectedUntil || 0) > now && Math.hypot(pm.x - s.x, pm.z - s.z) < 1.9));
+      // 960: a brush-off blocks ONLY the exact seat you were rebuffed from, not
+      // every seat within 1.9 (which blocked the WHOLE table - "I can't even sit
+      // there again"). You can still take the OTHER seat and greet its patron.
+      ((pm._rejectedUntil || 0) > now && pm._rejectedSeat === s));
   }
 
   // 908a: greet the folk at the table you just joined. A non-flirty patron
@@ -1566,6 +1569,7 @@ export class Game {
           : this._pick(['This seat\'s taken. Move along.', 'I\'d rather drink alone, thanks.', 'Not in the mood for company. Off you go.']);
         roaster.sayGated(this, pm.name || 'Surly Patron', line, this._noiseVoice(), pm, { priority: true });
         pm._rejectedUntil = performance.now() + 10 * 60 * 1000; // 908a: 10-min cold shoulder
+        pm._rejectedSeat = seat; // 960: block only THIS seat, not the whole table
         setTimeout(() => { if (this.seatedAt === seat) this._standFromSeat(); }, 1700);
       } else {
         roaster.sayGated(this, pm.name || 'Tavern Patron', this._pick(['Pull up a stool, friend. Plenty of ale to go round.', 'Well met! Sit, sit.', 'Ha - company at last. Welcome.']), this._noiseVoice(), pm, { priority: true });
@@ -6897,14 +6901,33 @@ export class Game {
     if (candidate && this.inTavern && !this.inUpstairs && /Talk to|Chat|Nudge|^Sit /.test(candidate.label)) {
       const opts = [], seen = new Set();
       const add = (o) => { if (o && !seen.has(o.label)) { seen.add(o.label); opts.push(o); } };
-      add(candidate);
       const talkBlocked = this.npcSpeechActive();
-      for (const pm of this.dungeonMeshes.patronMeshes || []) {
-        if (this._flirtActive === pm || this.ui._flirtPm === pm || talkBlocked || pm._away) continue;
-        if (Math.hypot(pm.x - this.player.pos.x, pm.z - this.player.pos.z) > 2.2) continue;
-        add(pm.flirty
-          ? { label: `Chat up ${pm.name || 'her'}`, icon: '💋', talk: true, action: () => this.flirtChat(pm) }
-          : { label: pm.drunk ? 'Nudge the drunk' : (pm.name ? `Talk to ${pm.name}` : 'Chat with the patron'), icon: '💬', talk: true, action: () => this.patronChat(pm) });
+      const px = this.player.pos.x, pz = this.player.pos.z;
+      // 960: build the patron options deduped by IDENTITY, not by label. Two
+      // anonymous patrons both read "Chat with the patron", and the label-dedup
+      // silently dropped the second ("it didn't show me the other patron"). Give
+      // same-label anonymous patrons a distinct side hint so BOTH appear. Reach
+      // widened 2.2 -> 3.0 so the seat-mate across the table is included. NOTE:
+      // the raw trigger `candidate` is intentionally NOT pre-added here - it's a
+      // patron/Magda/Sit option that this rebuild reproduces, so pre-adding it
+      // would duplicate one patron under two labels.
+      const nearPatrons = (this.dungeonMeshes.patronMeshes || []).filter((pm) =>
+        !(this._flirtActive === pm || this.ui._flirtPm === pm || talkBlocked || pm._away)
+        && Math.hypot(pm.x - px, pm.z - pz) <= 3.0);
+      const anonTotal = nearPatrons.filter((pm) => !pm.flirty && !pm.name && !pm.drunk).length;
+      let anonN = 0;
+      for (const pm of nearPatrons) {
+        let label = pm.flirty ? `Chat up ${pm.name || 'her'}`
+          : pm.drunk ? 'Nudge the drunk'
+            : pm.name ? `Talk to ${pm.name}` : 'Chat with the patron';
+        if (!pm.flirty && !pm.name && !pm.drunk && anonTotal > 1) {
+          const side = pm.x < px - 0.4 ? ' on your left' : pm.x > px + 0.4 ? ' on your right' : ` (${++anonN})`;
+          label = `Chat with the patron${side}`;
+        }
+        add({ label, icon: pm.flirty ? '💋' : '💬', talk: true, action: pm.flirty ? () => this.flirtChat(pm) : () => this.patronChat(pm) });
+      }
+      if (!talkBlocked && this._tavernVendorNpc && Math.hypot(this._tavernVendorNpc.x - px, this._tavernVendorNpc.z - pz) <= 2.2) {
+        add({ label: `Talk to ${this._tavernVendorNpc.name}`, icon: '💬', talk: true, action: () => this._talkTavernVendor() });
       }
       if (!talkBlocked && this.dungeonMeshes.barkeepPos && Math.hypot(this.dungeonMeshes.barkeepPos.x - this.player.pos.x, this.dungeonMeshes.barkeepPos.z - this.player.pos.z) < 3.8) {
         add({ label: 'Talk to Magda', icon: '🍺', talk: true, action: () => this.barkeepChat() });
