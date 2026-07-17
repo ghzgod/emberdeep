@@ -2054,6 +2054,41 @@ export class Game {
     setTimeout(() => { if (this.inUpstairs) this._bedroomChoiceMenu(npc, bedC); }, 4600);
   }
 
+  // 936: the physical toast - raise both served mugs off the counter to meet
+  // between the two drinkers, clink (sound + spark) at the apex, then settle
+  // them back. Also leans both characters toward each other so the hand-raise
+  // reads even without full arm-bone posing. Runs only after the drinks are
+  // actually served (called from the buy-a-drink sequence).
+  _clinkMugs(mugs, sMine, sHers, pm) {
+    if (!mugs || mugs.length < 2) return;
+    const midX = (sMine.x + sHers.x) / 2, midZ = (sMine.z + sHers.z) / 2 - 0.62;
+    const rest = mugs.map((m) => m.position.clone());
+    const clinkY = 1.52, DUR = 1500, start = performance.now();
+    const heroMesh = this.player?.mesh, herMesh = pm?.mesh;
+    const heroBaseRot = heroMesh ? heroMesh.rotation.z : 0, herBaseRot = herMesh ? herMesh.rotation.z : 0;
+    let clinked = false;
+    const tick = () => {
+      if (!this.inTavern || this.inUpstairs) { mugs.forEach((m, i) => m.position.copy(rest[i])); return; }
+      const t = Math.min(1, (performance.now() - start) / DUR);
+      const e = t < 0.5 ? t / 0.5 : (1 - t) / 0.5; // 0 -> 1 -> 0 triangle
+      mugs.forEach((m, i) => {
+        const tx = midX + (i === 0 ? -0.11 : 0.11);
+        m.position.set(rest[i].x + (tx - rest[i].x) * e, rest[i].y + (clinkY - rest[i].y) * e, rest[i].z + (midZ - rest[i].z) * e);
+      });
+      // a small lean toward each other as they raise the mugs
+      if (heroMesh) heroMesh.rotation.z = heroBaseRot + 0.12 * e;
+      if (herMesh) herMesh.rotation.z = herBaseRot - 0.12 * e;
+      if (!clinked && e >= 0.98) {
+        clinked = true;
+        audio.play('ui_click', { volume: 0.7 });
+        this.ui.floaters?.spawn({ x: midX, y: clinkY + 0.2, z: midZ }, '🍺 Clink!', 'crit');
+      }
+      if (t < 1) requestAnimationFrame(tick);
+      else { mugs.forEach((m, i) => m.position.copy(rest[i])); if (heroMesh) heroMesh.rotation.z = heroBaseRot; if (herMesh) herMesh.rotation.z = herBaseRot; }
+    };
+    requestAnimationFrame(tick);
+  }
+
   // 929b: after the encounter she likes you MORE - bump her affinity, remember
   // it happened, and pick a warmer/cooler morning-after line by how into you she
   // is (so it isn't the same "you're trouble" every single time). Returns the
@@ -6772,30 +6807,43 @@ export class Game {
             pm.x = sHers.x; pm.z = sHers.z; pm.seat = sHers.stand ? null : 'bar';
           }
         }
-        // both seated -> Magda serves two visible mugs, then the chat resumes
+        // both seated -> the REALISTIC service sequence (936): Magda asks, pours
+        // (audible), serves the mugs, THEN you clink - no skipped steps, and the
+        // clink only happens once the drinks are actually on the counter.
         if (bs.meSeated && bs.herSeated && !bs.served) {
           bs.served = true;
+          const mgVoice = { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 };
+          const bk = this.dungeonMeshes.barkeepPos;
           if (this.dungeonMeshes.talkGate) {
-            this.dungeonMeshes.talkGate.magdaUntil = performance.now() + 5000;
-            this.dungeonMeshes.talkGate.magdaLook = { x: sMine.x, z: sMine.z, until: performance.now() + 5000 };
+            this.dungeonMeshes.talkGate.magdaUntil = performance.now() + 9000;
+            this.dungeonMeshes.talkGate.magdaLook = { x: sMine.x, z: sMine.z, until: performance.now() + 9000 };
           }
-          setTimeout(() => {
-            if (!this.inTavern || this.inUpstairs) return;
+          const T = (ms, fn) => setTimeout(() => { if (this.inTavern && !this.inUpstairs) fn(); }, ms);
+          // 1) she comes over and takes the order
+          T(500, () => roaster.sayGated(this, 'Magda', 'What\'ll it be, you two?', mgVoice, bk, { durationMs: 2600, priority: true }));
+          // 2) she makes the drinks - audible pours you can watch
+          T(2900, () => audio.pour());
+          T(3500, () => audio.pour());
+          // 3) the drinks land on the counter
+          T(4300, () => {
             const mugGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.13, 8);
             const mugMat = new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.4, roughness: 0.5 });
+            bs.mugs = [];
             for (const s of [sMine, sHers]) {
               const mug = new THREE.Mesh(mugGeo, mugMat);
               mug.position.set(s.x, 1.18, s.z - 0.62); // on the counter in front of the stool
-              this.dungeonMeshes.group.add(mug);
+              this.dungeonMeshes.group.add(mug); bs.mugs.push(mug);
             }
-            audio.pour(); // audible pour as she serves (902)
-            roaster.sayGated(this, 'Magda', 'Two honeyed ales, loves. On the counter.', { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, this.dungeonMeshes.barkeepPos, { durationMs: 3600, priority: true });
+            roaster.sayGated(this, 'Magda', 'Two honeyed ales, loves.', mgVoice, bk, { durationMs: 3000, priority: true });
             pm.affinity = Math.min(8, (pm.affinity || 0) + 1); // a drink warms her up
             pm._hadDrink = true;                               // choices change (847)
             this._npcWitness('bought Rosalind a drink at the bar');
             this.ui.floaters?.spawn(p.pos, '🍺 You buy Rosalind a drink', 'crit');
-          }, 900);
-          setTimeout(() => { this._buyScene = null; if (this.inTavern && !this.inUpstairs) this.flirtChat(pm); }, 5200);
+          });
+          // 4) NOW you clink - the mugs are raised to meet and toast (only after serving)
+          T(5700, () => { if (bs.mugs) this._clinkMugs(bs.mugs, sMine, sHers, pm); });
+          // resume the conversation after the toast
+          T(8200, () => { this._buyScene = null; if (this.inTavern && !this.inUpstairs) this.flirtChat(pm); });
         }
       }
     }
