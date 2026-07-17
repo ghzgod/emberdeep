@@ -7305,6 +7305,31 @@ export class Game {
                 }
               }
             }
+            // Speaker mis-attribution guard (Obsidian 956): an LLM turn can
+            // credit a line to the very person it ADDRESSES - e.g. "Magda, if
+            // your bar's got more secrets..." tagged who:'magda', so Magda's
+            // own bubble/voice said a line meant FOR her. If the text opens by
+            // naming the assigned speaker (their display first-name, followed
+            // by a comma/space), the real speaker is somebody else: reassign
+            // to another participant in this exchange (the one physically
+            // nearest that addressee reads most naturally).
+            {
+              const self = speakerOfAny(turn.who);
+              const lead = String(turn.text || '').match(/^\s*([A-Za-z]+)\s*[,!:-]/);
+              const leadName = lead ? lead[1].toLowerCase() : null;
+              const selfName = self ? self.name.split(' ')[0].toLowerCase() : null;
+              if (leadName && selfName && leadName === selfName) {
+                const cand = [...new Set(this._tavernConvo.map((t) => t.who))]
+                  .filter((w) => w !== turn.who)
+                  .map((w) => ({ w, s: speakerOfAny(w) }))
+                  .filter((o) => o.s && o.s.name.split(' ')[0].toLowerCase() !== leadName);
+                if (cand.length) {
+                  cand.sort((a, b) => Math.hypot(a.s.pos.x - self.pos.x, a.s.pos.z - self.pos.z)
+                    - Math.hypot(b.s.pos.x - self.pos.x, b.s.pos.z - self.pos.z));
+                  turn.who = cand[0].w;
+                }
+              }
+            }
             const spk = speakerOfAny(turn.who);
             if (spk) {
               roaster.sayGated(this, spk.name, turn.text, spk.cast, spk.pos, { durationMs: 3400 });
