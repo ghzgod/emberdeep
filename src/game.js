@@ -1561,7 +1561,7 @@ export class Game {
       if (this.seatedAt !== seat) return; // already stood up
       if (reject) {
         const line = this.settings.adult18
-          ? this._pick(['Did I say you could sit? Fuck off.', 'This seat\'s taken. Piss off.', 'Not in the mood for company. Away with you.'])
+          ? this._pick(['Did I say you could sit next to me? Fuck off.', 'This seat\'s taken. Piss off.', 'Not in the mood for company. Away with you.'])
           : this._pick(['This seat\'s taken. Move along.', 'I\'d rather drink alone, thanks.', 'Not in the mood for company. Off you go.']);
         roaster.sayGated(this, pm.name || 'Surly Patron', line, this._noiseVoice(), pm, { priority: true });
         pm._rejectedUntil = performance.now() + 10 * 60 * 1000; // 908a: 10-min cold shoulder
