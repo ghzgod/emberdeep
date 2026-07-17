@@ -1110,7 +1110,10 @@ export class Game {
     } else if (this._vendorAwayT <= 0) {
       this._vendorAwayT = 60 + Math.random() * 60; // re-roll every 1-2 min
       if (Math.random() < 0.22) {
-        const v = vendors[Math.floor(Math.random() * vendors.length)];
+        // 900c: the wizard (Zoltan) turns up at the tavern MORE often than the
+        // booth vendors - weight the away-pick toward him.
+        const wiz = vendors.find((x) => /zoltan|wizard|mysterious/i.test(x.name || ''));
+        const v = (wiz && Math.random() < 0.5) ? wiz : vendors[Math.floor(Math.random() * vendors.length)];
         if (v?.keeper && v.name && this.activeVendor !== v) {
           v.keeper.visible = false;
           this._vendorAway = { name: v.name, returnAt: performance.now() + (90 + Math.random() * 90) * 1000 };
