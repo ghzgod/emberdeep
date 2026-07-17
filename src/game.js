@@ -956,10 +956,20 @@ export class Game {
     this.inTown = true;
     this.inTavern = true;
     this.inUpstairs = true;
+    // 968/969: decide occupancy BEFORE the build so the occupied guest room's
+    // door can be built shut + its doorway sealed. ~45% of visits a guest room
+    // (U_ROOMS 0-2, never Rosalind's 3) holds a couple - in 18+ their muffled
+    // goings-on carry through the door, in PG mode it's a tender/mundane chat;
+    // either way you only hear it up close (939 proximity gate). Never occupied
+    // on the with-Rosalind follow visit.
+    let occIdx;
+    if (!opts.withRosalind && Math.random() < 0.45) occIdx = Math.floor(Math.random() * 3);
+    const upOpts = { ...opts, occupiedRoom: occIdx };
     // 968: `withRosalind` (set by the follow scene) unlocks her room; a solo
     // visit leaves it shut + sealed.
-    this.dungeon = generateTavernUpstairs(opts);
-    this.dungeonMeshes = buildTavernUpstairsInterior(opts);
+    this.dungeon = generateTavernUpstairs(upOpts);
+    this.dungeonMeshes = buildTavernUpstairsInterior(upOpts);
+    this._occIdx = occIdx;
     this.scene.add(this.dungeonMeshes.group);
     this.openedDoors = new Set();
     const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
@@ -975,14 +985,13 @@ export class Game {
     this._tavernConvoPlans = [];
     this._tavernPlanIdx = 0;
     this.stairsCooldown = 1.5;
-    // 939 (18+ only): sometimes a GUEST ROOM is occupied - a couple who've paired
-    // off behind a shut door. If you pass it you hear muffled goings-on through
-    // the wood. Pick a non-fancy bed (not Rosalind's) at random, ~45% of visits.
+    // 939/968/969: anchor the eavesdrop point at the pre-chosen occupied room's
+    // bed (its door is built shut + its doorway sealed above). bedPositions are
+    // pushed in U_ROOMS order, so index maps straight across.
     this._occupiedRoom = null; this._occupiedNextAt = 0;
-    if (this.settings.adult18) {
-      const guestBeds = (this.dungeonMeshes.bedPositions || []).filter((b) => !b.fancy);
-      if (guestBeds.length && Math.random() < 0.45) {
-        const b = guestBeds[Math.floor(Math.random() * guestBeds.length)];
+    if (this._occIdx != null) {
+      const b = (this.dungeonMeshes.bedPositions || [])[this._occIdx];
+      if (b) {
         this._occupiedRoom = { x: b.x, z: b.standZ != null ? b.standZ : b.z };
         this._occupiedNextAt = performance.now() + 3000;
       }
@@ -995,18 +1004,30 @@ export class Game {
   // '(muffled, through the door)' caption. No on-screen content.
   _tickOccupiedRoom(dt) {
     const r = this._occupiedRoom;
-    if (!r || !this.inUpstairs || !this.settings.adult18) return;
+    if (!r || !this.inUpstairs) return;
+    // 968(g): EAVESDROP only up close - the muffled sound carries ~3.2u through
+    // the shut door, no further ("standing outside the door lets you eavesdrop").
     if (Math.hypot(this.player.pos.x - r.x, this.player.pos.z - r.z) > 3.2) return;
     if (performance.now() < this._occupiedNextAt) return;
     this._occupiedNextAt = performance.now() + 7000 + Math.random() * 6000;
     if (this.npcSpeechActive()) return;
-    const line = this._pick([
-      '*muffled through the door* …mmm, don\'t stop…',
-      '*a low laugh, then a moan through the wall*',
-      '*muffled* …gods, right there…',
-      '*rhythmic thumping and a stifled gasp from inside*',
-      '*muffled* …shhh, they\'ll hear us…',
-    ]);
+    // 969: content mirrors the tavern's own gate - crude only in 18+ mode, an
+    // innocuous tender/mundane exchange otherwise (no profanity, PG).
+    const line = this.settings.adult18
+      ? this._pick([
+        '*muffled through the door* …mmm, don\'t stop…',
+        '*a low laugh, then a moan through the wall*',
+        '*muffled* …gods, right there…',
+        '*rhythmic thumping and a stifled gasp from inside*',
+        '*muffled* …shhh, they\'ll hear us…',
+      ])
+      : this._pick([
+        '*muffled through the door* …and then he tripped clean into the well! *two people laughing*',
+        '*a soft murmur, then a contented sigh from inside*',
+        '*muffled* …no, you keep the blanket, love, I\'m warm enough…',
+        '*quiet talking and a gentle laugh through the wood*',
+        '*muffled* …g\'night, then. …g\'night, you.',
+      ]);
     roaster.sayGated(this, '(from the room)', line, { female: true, vi: 3, pitch: 0.9, rate: 0.9, kokoro: 'af_sarah', kSpeed: 0.9 }, { x: r.x, z: r.z }, { durationMs: 3600, priority: true });
   }
 

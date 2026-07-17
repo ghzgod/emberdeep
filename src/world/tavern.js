@@ -1711,6 +1711,10 @@ export function generateTavernUpstairs(opts = {}) {
   // NOT with her, so her locked shut door actually keeps you out - collision is
   // grid-based, so blocking the tile is what makes the closed door solid.
   if (!opts.withRosalind) { const rr = U_ROOMS.find((r) => r.name === 'rosalind'); if (rr) grid[rr.doorRow][rr.doorX] = WALL; }
+  // 968: an occupied guest room is likewise sealed - you eavesdrop from the hall.
+  if (opts.occupiedRoom != null && U_ROOMS[opts.occupiedRoom]) {
+    const or = U_ROOMS[opts.occupiedRoom]; grid[or.doorRow][or.doorX] = WALL;
+  }
   // central partition splitting the west/east rooms
   for (const py of [1, 2, 3, 8, 9, 10]) for (const px of U_PART_COLS) grid[py][px] = WALL;
   // down-stairwell tile: collision-blocked (hero can't walk into the shaft) but
@@ -1873,7 +1877,8 @@ export function buildTavernUpstairsInterior(opts = {}) {
   // pointing at the door - never floating mid-room facing away (the user's gripe).
   let rosalindBedPos = null;
   const bedPositions = []; // for the lie-down interaction (842b)
-  for (const r of U_ROOMS) {
+  for (let ri = 0; ri < U_ROOMS.length; ri++) {
+    const r = U_ROOMS[ri];
     const fancy = r.name === 'rosalind';
     const north = r.czW < 12;                        // outer wall is north (else south)
     const bedX = r.cxW - 2.6;                         // set to one side, clear of the door lane
@@ -1898,7 +1903,9 @@ export function buildTavernUpstairsInterior(opts = {}) {
     // her room without her, so that door should be shut". Empty guest rooms
     // stay open so you can wander in and sleep.
     const dw = tileToWorld(r.doorX, r.doorRow);
-    const shut = fancy && !opts.withRosalind;
+    // 968: shut for Rosalind's locked room (no withRosalind) OR an OCCUPIED
+    // guest room (a couple's inside - eavesdrop from the hall, don't barge in).
+    const shut = (fancy && !opts.withRosalind) || ri === opts.occupiedRoom;
     group.add(makeUpstairsDoor(dw.x, dw.z, darkWood, plankMat, north, shut));
     // corded hanging lantern above the room
     makeHangingLantern(r.cxW, r.czW, group, darkWood);
