@@ -432,8 +432,45 @@ export class Roaster {
       [['rosalind', ["Magda, love, the fire's low and so am I.", "Another honeyed ale before I wilt, Magda."]],
        ['magda', ["Coming, coming. Hold your garters.", "Patience, petal. The keg's not going anywhere."]],
        ['patron', ["She'll wilt into someone's lap, more like.", "The lady wilts nightly, regular as the moon."]]],
+      // 954: a much larger bank so the room doesn't loop the same six exchanges.
+      [['patron', ["Harvest fair's coming. My turnips are the size of my head.", "Fair's near. I've a marrow that'd frighten a troll."]],
+       ['drunk', ["I judged the marrows once. *hic* Ate the winner.", "One year I WAS the marrow. Long night."]],
+       ['magda', ["You judged nothing but the bottom of a cup, Bram.", "The only thing you've ever weighed is your tab."]]],
+      [['drunk', ["My cousin swears the mine's haunted now.", "They say lights move in the old mine shafts."]],
+       ['patron', ["Everything's haunted after your cousin's had a few.", "That's not ghosts, that's the miners' lanterns."]],
+       ['magda', ["Haunted or not, their coin spends the same here.", "Ghosts don't drink. More's the pity for business."]]],
+      [['magda', ["Rain's coming - my knee never lies.", "Sky's the colour of old pewter. Storm by dusk."]],
+       ['patron', ["Then I'll take the long way home. Round the ale.", "Best wait it out here, then. Another round?"]],
+       ['drunk', ["I love a storm! ...indoors. With a mug.", "Rain reminds me of soup. Everything reminds me of soup."]]],
+      [['patron', ["Price of iron's gone mad. Torvald's fuming.", "Heard the smith's charging double for nails now."]],
+       ['drunk', ["Nails? I built a whole shed with hope and spit.", "Who needs nails. I lash mine with regret."]],
+       ['magda', ["That shed fell on a goat, Bram. We remember.", "Your 'shed' is a rumour and a pile of splinters."]]],
+      [['drunk', ["A bard passed through singing of a red comet.", "Some minstrel said the stars are rearranging."]],
+       ['rosalind', ["A comet? How romantic. Someone hold my drink.", "Stars rearranging - like my plans every evening."]],
+       ['patron', ["It's an omen, mark me. Always is.", "Last comet, my hens stopped laying for a month."]]],
+      [['patron', ["The bridge toll went up again. Daylight robbery.", "They're taxing the river now, I swear it."]],
+       ['magda', ["Take the ford. Costs nothing but wet boots.", "Everyone taxes something. I tax the thirsty."]],
+       ['drunk', ["I swam it once. Owe a fish an apology.", "The river and I have history. Cold history."]]],
+      [['rosalind', ["Someone left flowers on my windowsill. No note.", "A secret admirer, or a very confused bee."]],
+       ['drunk', ["Wasn't me! ...should it have been me?", "Flowers? I gave a girl a turnip once. It went poorly."]],
+       ['magda', ["Whoever it is, tell them to settle their tab first.", "Romance is fine. Cash is finer."]]],
+      [['magda', ["Wolves came down from the ridge in the night.", "Sheep's spooked - something's prowling the north field."]],
+       ['patron', ["I'll walk the ladies home, then. For safety.", "Best keep the shutters barred a few nights."]],
+       ['drunk', ["I'd fight a wolf. I've got the beard for it.", "A wolf looked at me once. We both left."]]],
+      [['patron', ["New family moved into the old mill house.", "Saw lanterns in the mill - someone's fixing it up."]],
+       ['magda', ["Good. That place has been dark too long.", "Send them my way. First round's on the house."]],
+       ['rosalind', ["Any of them handsome? For the town's morale.", "I'll go welcome them. Purely neighbourly, of course."]]],
+      [['drunk', ["I've a system for the dice down at the market.", "Zoltan's stall is a scam and I love it dearly."]],
+       ['patron', ["Your 'system' cost you a boot last week.", "The only thing you win at dice is regret."]],
+       ['magda', ["Gamble in here and you'll owe me the table.", "Keep the dice outside. This is a drinking house."]]],
     ];
-    const convo = C[Math.floor(Math.random() * C.length)];
+    // 954: don't replay the exchange you just heard - cycle through a shuffled
+    // order so the room feels like it has a memory instead of six lines on loop.
+    if (!this._convoOrder || !this._convoOrder.length) {
+      this._convoOrder = C.map((_, i) => i).sort(() => Math.random() - 0.5);
+    }
+    const idx = this._convoOrder.shift();
+    const convo = C[idx];
     return convo.map(([who, variants]) => ({ who, text: variants[Math.floor(Math.random() * variants.length)] }));
   }
 
