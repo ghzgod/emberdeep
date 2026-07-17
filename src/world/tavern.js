@@ -295,11 +295,21 @@ export function buildTavernInterior() {
   {
     const EXT = 70;                       // reach far past anything the camera can see
     const roofMat = new THREE.MeshBasicMaterial({ color: 0x1a1109, side: THREE.DoubleSide, fog: true });
-    const roofY = wallH - 0.02;           // flush with the wall tops, no gap
+    // 974: the soffit used to be a THIN horizontal cap flush at wall height. A
+    // flat plane can't hide a TALL object that pokes up THROUGH it - trees just
+    // outside the wall rose above wallH and their crowns showed over/through the
+    // "black" (user: "trees clipping through the black" by the exit). Make each
+    // exterior panel a TALL solid box rising from the wall top far into the sky,
+    // so the whole volume above the walls (outside the room) is sealed black and
+    // no exterior geometry above wallH can ever be seen. Windows sit BELOW wallH,
+    // so their outward sightlines still pass under the box to the real town.
+    const TALL = 80;
+    const roofY = wallH - 0.1;             // bottom overlaps the wall top slightly (no seam)
+    const boxCY = roofY + TALL / 2;        // centre so the bottom sits at ~wallH
     const rw = W * TILE, rh = H * TILE;    // interior footprint (32 x 24)
     const strip = (w, d, cx, cz) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.2, d), roofMat);
-      m.position.set(cx, roofY, cz); m.name = 'TavernSoffit'; group.add(m);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, TALL, d), roofMat);
+      m.position.set(cx, boxCY, cz); m.name = 'TavernSoffit'; group.add(m);
     };
     strip(rw + 2 * EXT, EXT, rw / 2, -EXT / 2);            // north of the room
     strip(rw + 2 * EXT, EXT, rw / 2, rh + EXT / 2);        // south of the room
