@@ -2021,8 +2021,13 @@ export class Game {
       }
     } else if (sc.phase === 'climb') {
       // both climb NORTH up the steps, rising in Y; Rosalind leads a step ahead.
+      // 963: hug the WALL (east, +x) side, NOT the banister. The rail is on the
+      // OPEN west (-x) side (railX = -(stepW/2+0.06) ~= world 29.3); climbing at
+      // stairX-0.5 put the hero's west shoulder into those posts ("clips through
+      // the banister"). stairX+0.5 keeps him flush against the east wall with the
+      // whole flight between him and the rail.
       const pw = sc.pWalk;
-      const pDone = stepTo(pw, sc.stairX - 0.5, sc.topZ, 1.7);
+      const pDone = stepTo(pw, sc.stairX + 0.5, sc.topZ, 1.7);
       p.pos.x = pw.x; p.pos.z = pw.z; p.pos.y = this._stairYAt(pw.z, sc);
       p.aimAngle = -Math.PI / 2; // face up/north
       p.faceAimTimer = 0.2; // 941: pin facing to aimAngle (input is scene-locked)
