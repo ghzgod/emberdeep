@@ -1963,6 +1963,7 @@ export function buildTavernUpstairsInterior(opts = {}) {
   // pointing at the door - never floating mid-room facing away (the user's gripe).
   let rosalindBedPos = null;
   const bedPositions = []; // for the lie-down interaction (842b)
+  const doorLeaves = []; // 968(d): open-leaf collision segments (hero can't clip through)
   for (let ri = 0; ri < U_ROOMS.length; ri++) {
     const r = U_ROOMS[ri];
     const fancy = r.name === 'rosalind';
@@ -1993,6 +1994,14 @@ export function buildTavernUpstairsInterior(opts = {}) {
     // guest room (a couple's inside - eavesdrop from the hall, don't barge in).
     const shut = (fancy && !opts.withRosalind) || ri === opts.occupiedRoom;
     group.add(makeUpstairsDoor(dw.x, dw.z, darkWood, plankMat, north, shut));
+    // 968(d): record the OPEN leaf as a world-space segment (hinge -> free end,
+    // matching makeUpstairsDoor's geometry) so game.js can push the hero out of
+    // it - you shouldn't be able to walk THROUGH an open door. Shut leaves are
+    // already sealed by the grid, so they need no segment.
+    if (!shut) {
+      const th = north ? 1.36 : -1.36;
+      doorLeaves.push({ hx: dw.x - 0.92, hz: dw.z + 0.02, ex: dw.x - 0.92 + 1.7 * Math.cos(th), ez: dw.z + 0.02 - 1.7 * Math.sin(th) });
+    }
     // corded hanging lantern above the room
     makeHangingLantern(r.cxW, r.czW, group, darkWood);
     if (fancy) {
@@ -2065,6 +2074,8 @@ export function buildTavernUpstairsInterior(opts = {}) {
     stairsDownPos: { x: down.x, z: HZ0 - 1.0 }, // north lip of the stairwell (solid floor)
     bedPositions,
     rosalindBedPos,
+    doorLeaves, // 968(d): open-door leaf segments for the hero push-out
+
     // guard-friendly empties so the shared tavern per-frame code no-ops up here
     doorMeshes: new Map(), chestMeshes: [], stairsMesh: null,
     vendorMeshes: [], portalMesh: null, returnPortalMesh: null,

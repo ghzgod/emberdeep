@@ -6146,6 +6146,19 @@ export class Game {
     this.updateUpstairsCamera(dt, p);
     this._tickRosalindIdle(dt);
     this._tickOccupiedRoom(dt);
+    // 968(d): the hero can't walk THROUGH an open bedroom door leaf. Soft push
+    // out of each open leaf's swung segment (hinge -> free end), the same gentle
+    // circle push the ground-floor patrons use, but against a line. Skipped
+    // during scripted scenes (the follow-to-room walk owns the hero then).
+    if (this.inUpstairs && !this._sceneLock && this.dungeonMeshes.doorLeaves) {
+      const p = this.player, R = 0.34;
+      for (const d of this.dungeonMeshes.doorLeaves) {
+        const vx = d.ex - d.hx, vz = d.ez - d.hz, len2 = vx * vx + vz * vz || 1;
+        const t = Math.max(0, Math.min(1, ((p.pos.x - d.hx) * vx + (p.pos.z - d.hz) * vz) / len2));
+        const dx = p.pos.x - (d.hx + vx * t), dz = p.pos.z - (d.hz + vz * t), dist = Math.hypot(dx, dz);
+        if (dist < R && dist > 1e-4) { const push = R - dist; p.pos.x += dx / dist * push; p.pos.z += dz / dist * push; }
+      }
+    }
     this.updateCameraFollow(dt);
 
     // player light follows. In town it rides at torso height so walking up to
