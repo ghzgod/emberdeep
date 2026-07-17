@@ -971,6 +971,39 @@ export class Game {
     this._tavernConvoPlans = [];
     this._tavernPlanIdx = 0;
     this.stairsCooldown = 1.5;
+    // 939 (18+ only): sometimes a GUEST ROOM is occupied - a couple who've paired
+    // off behind a shut door. If you pass it you hear muffled goings-on through
+    // the wood. Pick a non-fancy bed (not Rosalind's) at random, ~45% of visits.
+    this._occupiedRoom = null; this._occupiedNextAt = 0;
+    if (this.settings.adult18) {
+      const guestBeds = (this.dungeonMeshes.bedPositions || []).filter((b) => !b.fancy);
+      if (guestBeds.length && Math.random() < 0.45) {
+        const b = guestBeds[Math.floor(Math.random() * guestBeds.length)];
+        this._occupiedRoom = { x: b.x, z: b.standZ != null ? b.standZ : b.z };
+        this._occupiedNextAt = performance.now() + 3000;
+      }
+    }
+  }
+
+  // 939: while upstairs in 18+ mode, if you're near an occupied guest room, a
+  // muffled couple can be heard through the door every so often. Driven from the
+  // upstairs tick; lines are canned + crude (18+), voiced low + shown as a
+  // '(muffled, through the door)' caption. No on-screen content.
+  _tickOccupiedRoom(dt) {
+    const r = this._occupiedRoom;
+    if (!r || !this.inUpstairs || !this.settings.adult18) return;
+    if (Math.hypot(this.player.pos.x - r.x, this.player.pos.z - r.z) > 3.2) return;
+    if (performance.now() < this._occupiedNextAt) return;
+    this._occupiedNextAt = performance.now() + 7000 + Math.random() * 6000;
+    if (this.npcSpeechActive()) return;
+    const line = this._pick([
+      '*muffled through the door* …mmm, don\'t stop…',
+      '*a low laugh, then a moan through the wall*',
+      '*muffled* …gods, right there…',
+      '*rhythmic thumping and a stifled gasp from inside*',
+      '*muffled* …shhh, they\'ll hear us…',
+    ]);
+    roaster.sayGated(this, '(from the room)', line, { female: true, vi: 3, pitch: 0.9, rate: 0.9, kokoro: 'af_sarah', kSpeed: 0.9 }, { x: r.x, z: r.z }, { durationMs: 3600, priority: true });
   }
 
   // ---------------- town ----------------
@@ -5749,6 +5782,7 @@ export class Game {
     this.updateCorridorYaw(dt, p);
     this.updateUpstairsCamera(dt, p);
     this._tickRosalindIdle(dt);
+    this._tickOccupiedRoom(dt);
     this.updateCameraFollow(dt);
 
     // player light follows. In town it rides at torso height so walking up to
