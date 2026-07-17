@@ -7304,10 +7304,17 @@ export class Game {
                   this._npcRel = this._npcRel || {};
                   const pairKey = [turn.who, caller].sort().join('|');
                   this._npcRel[pairKey] = (this._npcRel[pairKey] || 0) - 1;
-                  const hostile = this._npcRel[pairKey] <= -3;
-                  const callout = hostile
+                  // 961(a): pet-names ("love", "dear") only between NPCs who've
+                  // actually WARMED to each other (rel >= 2, earned by pleasant
+                  // banter over time) - strangers just get a plain callout, so
+                  // "You said that already, love" no longer reads as odd between
+                  // people who barely know one another.
+                  const rel = this._npcRel[pairKey];
+                  const callout = rel <= -3
                     ? this._pick(['Stars above, not this AGAIN.', 'Say it a third time and I\'m moving tables.', 'Someone drown him in his own mug, please.'])
-                    : this._pick(['You said that already, love.', 'Aye, you\'ve told us. Twice now.', 'We heard you the first time, dear.']);
+                    : rel >= 2
+                      ? this._pick(['You said that already, love.', 'Aye, you\'ve told us, dear. Twice now.', 'We heard you the first time, pet.'])
+                      : this._pick(['You said that already.', 'Aye, you\'ve told us. Twice now.', 'We heard you the first time.']);
                   this._tavernConvo.splice(this._convoIdx, 0, { who: caller, text: callout, _callout: true });
                 }
               }
@@ -7339,6 +7346,18 @@ export class Game {
             }
             const spk = speakerOfAny(turn.who);
             if (spk) {
+              // 961(b): relationships WARM over pleasant banter. A normal (non-
+              // callout) turn nudges up the bond between this speaker and the
+              // other people in the exchange - so regulars who chat happily
+              // drift toward pet-names, while repeat-callouts (above) sour them.
+              if (!turn._callout) {
+                this._npcRel = this._npcRel || {};
+                for (const w of new Set(this._tavernConvo.map((t) => t.who))) {
+                  if (w === turn.who) continue;
+                  const pk = [turn.who, w].sort().join('|');
+                  this._npcRel[pk] = Math.min(5, (this._npcRel[pk] || 0) + 0.12);
+                }
+              }
               roaster.sayGated(this, spk.name, turn.text, spk.cast, spk.pos, { durationMs: 3400 });
               // Everyone in the exchange looks at whoever is talking, and
               // the speaker looks back at the nearest other participant
