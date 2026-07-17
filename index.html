@@ -416,18 +416,16 @@
         <label>NPC Speech <input type="range" id="set-speech" min="0" max="100" value="90"><span id="set-speech-val"></span></label>
         <button id="btn-auto-level" class="menu-btn small" type="button">Auto-Balance Audio</button>
         <label>Graphics Quality
-          <span class="cselect" id="cs-set-quality">
-            <select id="set-quality" class="cselect-native">
-              <option value="low">Low - fewer torch lights (best FPS)</option>
-              <option value="medium" selected>Medium - balanced</option>
-              <option value="high">High - most torch lights (best looks)</option>
+          <span class="segslider" id="seg-set-quality">
+            <select id="set-quality" class="seg-native">
+              <option value="low" data-short="Low">Low - fewer torch lights (best FPS)</option>
+              <option value="medium" selected data-short="Medium">Medium - balanced</option>
+              <option value="high" data-short="High">High - most torch lights (best looks)</option>
             </select>
-            <button type="button" class="cselect-trigger"><span class="cselect-label"></span><span class="cselect-arrow">▾</span></button>
-            <div class="cselect-list hidden"></div>
           </span>
         </label>
         <label>Screen Shake <span class="toggle"><input type="checkbox" id="set-shake" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
-        <label class="desktop-only-row">Ability Hotkey Hints <span class="toggle"><input type="checkbox" id="set-hotkeys" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
+        <label class="desktop-only-row">Hotkey Hints <span class="toggle"><input type="checkbox" id="set-hotkeys" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <label class="desktop-only-row">Mouse Attack (desktop) <span class="toggle"><input type="checkbox" id="set-mouse-attack" checked><span class="toggle-track"><span class="toggle-knob"></span></span></span></label>
         <!-- ONE toggle for the heavy on-device extras (882): the old In-Game AI /
              Natural Voices pair both drove the same batterySaver state, which
@@ -439,14 +437,12 @@
         <div id="voice-engine-bar" class="hidden"><div id="voice-engine-fill"></div></div>
         <button id="btn-voice-retry" class="menu-btn small hidden" type="button">↻ Retry neural voices</button>
         <label>Voice Chat (multiplayer)
-          <span class="cselect" id="cs-set-voice">
-            <select id="set-voice" class="cselect-native">
-              <option value="off">Off</option>
-              <option value="ptt" selected>Push-to-talk (hold V or the mic button)</option>
-              <option value="auto">Voice activated</option>
+          <span class="segslider" id="seg-set-voice">
+            <select id="set-voice" class="seg-native">
+              <option value="off" data-short="Off">Off</option>
+              <option value="ptt" selected data-short="Push-to-talk">Push-to-talk (hold V or the mic button)</option>
+              <option value="auto" data-short="Voice activated">Voice activated</option>
             </select>
-            <button type="button" class="cselect-trigger"><span class="cselect-label"></span><span class="cselect-arrow">▾</span></button>
-            <div class="cselect-list hidden"></div>
           </span>
         </label>
         <label id="voice-thresh-row" class="hidden">Voice Trigger Level
