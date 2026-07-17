@@ -728,7 +728,7 @@ export class Game {
     this.inTavern = true;
     this.inUpstairs = false;
     if (this._lyingBed) { this._lyingBed = null; if (this.player?.mesh) this.player.mesh.rotation.x = 0; }
-    this._followScene = null; // coming back down cancels any in-flight walk (873)
+    this._followScene = null; this._stairScene = null; // cancel any in-flight walk/climb (873/923)
     this._sceneLock = false;  // re-arm the stuck-failsafe off the scripted floor (874)
     this._stopFadeAudio?.();  // stop the lights-out audio if the player bails mid-scene (881)
     if (resume) {
@@ -882,7 +882,7 @@ export class Game {
     this.inTown = true;
     this.inTavern = false;
     this.inUpstairs = false;
-    this._followScene = null; this._sceneLock = false; // off the scripted floor (873/874)
+    this._followScene = null; this._stairScene = null; this._sceneLock = false; // off the scripted floor (873/874/923)
     this._stopFadeAudio?.(); // stop lights-out audio when leaving to town (881)
     const theme = themeForFloor(1);
     this.dungeon = generateTown();
@@ -1661,13 +1661,96 @@ export class Game {
     this.ui.closeFlirt?.();
     this._npcWitness('went upstairs with Rosalind'); // the whole room saw it (884)
     this._sceneLock = true; // suppress the stuck-failsafe for the WHOLE scripted scene (874)
-    audio.play('door_open');
+    // A REAL climb, not a teleport (923/928): on the ground floor you both walk
+    // to the staircase and climb it on foot (camera swings to a side view so you
+    // watch the ascent), and only at the TOP do we transition to the upstairs
+    // scene and walk the hall to her room. _updateStairScene drives it.
+    const pm = this._flirtActive || (this.dungeonMeshes.patronMeshes || []).find((p) => p.flirty);
+    // Ground-floor staircase (see buildTavernInterior): base (30.4, 20.6),
+    // rising NORTH (-z), 9 steps of run 0.44 / rise 0.32 to a top at z~16.6.
+    this._stairScene = {
+      pm, phase: 'toStairs',
+      approach: { x: 29.9, z: 21.6 },  // stand at the foot, on the open (west) side
+      baseZ: 20.6, topZ: 16.6, stairX: 30.4, run: 0.44, rise: 0.32, steps: 9,
+      pStep: 0, hStep: 0,
+    };
+    if (pm) roaster.sayGated(this, 'Rosalind', 'Come on, hero — upstairs with me. *takes your hand*', this._flirtVoice(), pm, { durationMs: 3600, priority: true });
+  }
+
+  // Y of the stair surface at a given z along the flight (0 at/below the base,
+  // rising to the top). Used to lift the climbers as they ascend (923).
+  _stairYAt(z, sc) {
+    const i = Math.max(0, Math.min(sc.steps, (sc.baseZ - z) / sc.run));
+    return i * sc.rise + sc.rise * 0.5;
+  }
+
+  // Ground-floor half of the follow-upstairs scene (923/928): walk to the stair
+  // foot, then climb the steps (rising Y) with a perpendicular side camera; at
+  // the top, transition to the upstairs floor and hand off to the hall walk.
+  _updateStairScene(dt) {
+    const sc = this._stairScene;
+    if (!sc || !this.inTavern || this.inUpstairs) return;
+    const p = this.player, pm = sc.pm;
+    const stepTo = (obj, tx, tz, speed) => {
+      const dx = tx - obj.x, dz = tz - obj.z, d = Math.hypot(dx, dz) || 1;
+      if (d < 0.12) return true;
+      const s = Math.min(d, speed * dt);
+      obj.x += dx / d * s; obj.z += dz / d * s;
+      return false;
+    };
+    if (sc.phase === 'toStairs') {
+      // both walk to the foot of the stairs, animated + footsteps
+      const pw = sc.pWalk || (sc.pWalk = { x: p.pos.x, z: p.pos.z });
+      const pDone = stepTo(pw, sc.approach.x - 0.7, sc.approach.z, 2.6);
+      p.pos.x = pw.x; p.pos.z = pw.z; p.pos.y = 0;
+      p.aimAngle = Math.atan2(sc.approach.z - pw.z, sc.approach.x - pw.x);
+      p.scriptedSpeed = pDone ? 0 : (p.moveSpeed || 4);
+      if (!pDone) this._npcFootstep(pw.x, pw.z, dt, '_stairPStep');
+      let hDone = true;
+      if (pm && pm.mesh) {
+        hDone = stepTo(pm.mesh.position, sc.approach.x, sc.approach.z, 2.7);
+        pm.mesh.position.y = 0; pm.x = pm.mesh.position.x; pm.z = pm.mesh.position.z;
+        if (!hDone) { pm.mesh.rotation.y = Math.atan2(sc.approach.x - pm.x, sc.approach.z - pm.z); this._npcFootstep(pm.x, pm.z, dt, '_stairHStep'); }
+      }
+      if (pDone && hDone) {
+        sc.phase = 'climb';
+        // Perpendicular SIDE camera on the staircase (928): the flight runs N-S,
+        // so look across it from the open west side. Hold it (manual-yaw latch).
+        this.camYaw = -Math.PI / 2; this._yawManualT = 999; this.camZoom = 0.6;
+      }
+    } else if (sc.phase === 'climb') {
+      // both climb NORTH up the steps, rising in Y; Rosalind leads a step ahead.
+      const pw = sc.pWalk;
+      const pDone = stepTo(pw, sc.stairX - 0.5, sc.topZ, 1.7);
+      p.pos.x = pw.x; p.pos.z = pw.z; p.pos.y = this._stairYAt(pw.z, sc);
+      p.aimAngle = -Math.PI / 2; // face up/north
+      p.scriptedSpeed = pDone ? 0 : (p.moveSpeed || 4);
+      if (!pDone) this._npcFootstep(pw.x, pw.z, dt, '_stairPStep');
+      if (pm && pm.mesh) {
+        const hz = Math.max(sc.topZ, pw.z - 0.9); // a step ahead of the player
+        stepTo(pm.mesh.position, sc.stairX + 0.3, hz, 1.9);
+        pm.mesh.position.y = this._stairYAt(pm.mesh.position.z, sc);
+        pm.mesh.rotation.y = Math.PI; // facing north/up
+        pm.x = pm.mesh.position.x; pm.z = pm.mesh.position.z;
+        if (!pDone) this._npcFootstep(pm.x, pm.z, dt, '_stairHStep');
+      }
+      if (pDone) {
+        // reached the top of the flight -> transition to the upstairs scene.
+        this._stairScene = null;
+        p.scriptedSpeed = 0;
+        audio.play('door_open');
+        this._enterRosalindRoomUpstairs();
+      }
+    }
+  }
+
+  // Upstairs half of the follow scene (873): transition up, build Rosalind at the
+  // hall spawn, and hand off to _followScene which walks you both to her room.
+  _enterRosalindRoomUpstairs() {
     this.loadTavernUpstairs();
+    this._sceneLock = true;
+    this.camZoom = 0.85; this._yawManualT = 0; // release the stair camera latch
     const bp = this.dungeonMeshes.rosalindBedPos || { x: 21.4, z: 20.5 };
-    // Build Rosalind and drop her NEXT TO the player at the top of the stairs
-    // (the hall spawn) - then she LEADS you down the hall to her room on foot
-    // (873: it used to teleport you straight to the bed with her missing). The
-    // _followScene tick walks you both there with footsteps + walk animation.
     const npc = buildNpcModel('mage', 'Rosalind', {
       gender: 'female', skinTone: 'light', hairColor: 'auburn', hairStyle: 'long', faceShape: 'narrow', eyeColor: 'violet',
     });
@@ -1682,9 +1765,8 @@ export class Game {
       });
       this.dungeonMeshes.group.add(npc.mesh);
     }
-    roaster.sayGated(this, 'Rosalind', 'This way, hero — my room\'s just down the hall. *takes your hand*', this._flirtVoice(), { x: p.pos.x, z: p.pos.z }, { durationMs: 3600, priority: true });
+    roaster.sayGated(this, 'Rosalind', 'This way, hero — my room\'s just down the hall.', this._flirtVoice(), { x: p.pos.x, z: p.pos.z }, { durationMs: 3600, priority: true });
     const bedC = (this.dungeonMeshes.bedPositions || []).find((bb) => bb.fancy) || { x: bp.x, z: bp.z, headAngle: 0, standZ: bp.z };
-    // walk targets: she leads to the far side of the bed, you stop on the near side
     this._followScene = {
       npc, bedC,
       herTarget: { x: bp.x - 0.7, z: bp.z },
@@ -6142,6 +6224,10 @@ export class Game {
       this._cullNextAt = performance.now() + 2500;
       this._cullTavernOutside();
     }
+
+    // Ground-floor stair-climb half of the follow scene (923/928): walk to the
+    // stairs + climb them before the upstairs transition.
+    if (this._stairScene) this._updateStairScene(dt);
 
     // Follow-upstairs walk (873): once upstairs, Rosalind LEADS the hero down
     // the hall to her room on foot (walk anim + footsteps for both), then the
