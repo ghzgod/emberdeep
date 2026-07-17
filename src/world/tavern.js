@@ -1700,13 +1700,17 @@ function upstairsBedTiles() {
   return tiles;
 }
 
-export function generateTavernUpstairs() {
+export function generateTavernUpstairs(opts = {}) {
   const grid = Array.from({ length: H }, (_, y) =>
     new Array(W).fill(0).map((_, x) =>
       (x === 0 || y === 0 || x === W - 1 || y === H - 1) ? WALL : FLOOR));
   // walls separating the rooms (north y1-3, south y8-10) from the central
   // hallway (y5-6), with a doorway gap per room
   for (let x = 1; x < W - 1; x++) if (!U_DOOR_COLS.has(x)) { grid[4][x] = WALL; grid[7][x] = WALL; }
+  // 968: seal Rosalind's doorway (SE room, door col 11 / row 7) when you're
+  // NOT with her, so her locked shut door actually keeps you out - collision is
+  // grid-based, so blocking the tile is what makes the closed door solid.
+  if (!opts.withRosalind) { const rr = U_ROOMS.find((r) => r.name === 'rosalind'); if (rr) grid[rr.doorRow][rr.doorX] = WALL; }
   // central partition splitting the west/east rooms
   for (const py of [1, 2, 3, 8, 9, 10]) for (const px of U_PART_COLS) grid[py][px] = WALL;
   // down-stairwell tile: collision-blocked (hero can't walk into the shaft) but
@@ -1725,7 +1729,7 @@ export function generateTavernUpstairs() {
 
 // a real doorway: two jambs + lintel with an open plank leaf hinged at one side
 // (Obsidian 831). Sits in an east-west wall, the leaf swung into the hallway.
-function makeUpstairsDoor(cx, cz, darkWood, plankMat, north) {
+function makeUpstairsDoor(cx, cz, darkWood, plankMat, north, shut = false) {
   const g = new THREE.Group();
   const doorH = 2.2;
   for (const jx of [-1.0, 1.0]) {
@@ -1747,7 +1751,9 @@ function makeUpstairsDoor(cx, cz, darkWood, plankMat, north) {
   // at +z; a +z swing (-1.05) goes into the room for SOUTH rooms and into the
   // hall for NORTH rooms, so flip the sign for north. Swung wide (~78 deg) so
   // the leaf tucks alongside the room wall, clear of both the doorway and hall.
-  hinge.rotation.y = north ? 1.36 : -1.36;
+  // 968: a SHUT door (occupied / Rosalind's locked room) sits flat across the
+  // opening (rotation 0) instead of swung open.
+  hinge.rotation.y = shut ? 0 : (north ? 1.36 : -1.36);
   g.add(hinge);
   g.position.set(cx, 0, cz);
   return g;
@@ -1813,7 +1819,7 @@ function makeUpstairsBed(x, z, plankMat, darkWood, fancy) {
   return grp;
 }
 
-export function buildTavernUpstairsInterior() {
+export function buildTavernUpstairsInterior(opts = {}) {
   const group = new THREE.Group();
   const woodTex = makeWoodTexture();
   const plankTex = makePlankTexture();
@@ -1887,9 +1893,13 @@ export function buildTavernUpstairsInterior() {
     // chest against the inner side wall
     const chest = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.6, 0.6), darkWood);
     chest.position.set(r.cxW + 3.4, 0.3, bedZ); group.add(chest);
-    // real door seated in the wall opening
+    // real door seated in the wall opening. 968: Rosalind's room is LOCKED
+    // (shut) unless you arrived WITH her (the follow scene) - "I cannot go in
+    // her room without her, so that door should be shut". Empty guest rooms
+    // stay open so you can wander in and sleep.
     const dw = tileToWorld(r.doorX, r.doorRow);
-    group.add(makeUpstairsDoor(dw.x, dw.z, darkWood, plankMat, north));
+    const shut = fancy && !opts.withRosalind;
+    group.add(makeUpstairsDoor(dw.x, dw.z, darkWood, plankMat, north, shut));
     // corded hanging lantern above the room
     makeHangingLantern(r.cxW, r.czW, group, darkWood);
     if (fancy) {
