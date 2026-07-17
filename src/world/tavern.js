@@ -275,6 +275,31 @@ export function buildTavernInterior() {
   mkWindow(6.5 * TILE, (H * TILE - TILE) - 0.04, Math.PI);
   mkWindow(10 * TILE, (H * TILE - TILE) - 0.04, Math.PI);
 
+  // 940: OCCLUDING SOFFIT. The real town is built AROUND the interior (see
+  // loadTavern's _tavernOutside) so windows peek at genuine 3D outside - but
+  // zooming the top-down camera out let you see the whole town OVER the 3.3-high
+  // walls, breaking the "you're indoors" feel. Cap the EXTERIOR (everything
+  // outside the room footprint) with a flat opaque roof flush at wall height:
+  // sightlines that clear the wall-top now hit this dark plane instead of the
+  // town, while window sightlines (below WIN_YT=2.24, well under the soffit)
+  // still pass under it to the real outside. Coloured like the tavern's own
+  // background/fog (0x1a1109) and unlit so it just reads as dark void past the
+  // walls - the sealed-box look the player asked to get back.
+  {
+    const EXT = 70;                       // reach far past anything the camera can see
+    const roofMat = new THREE.MeshBasicMaterial({ color: 0x1a1109, side: THREE.DoubleSide, fog: true });
+    const roofY = wallH - 0.02;           // flush with the wall tops, no gap
+    const rw = W * TILE, rh = H * TILE;    // interior footprint (32 x 24)
+    const strip = (w, d, cx, cz) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.2, d), roofMat);
+      m.position.set(cx, roofY, cz); m.name = 'TavernSoffit'; group.add(m);
+    };
+    strip(rw + 2 * EXT, EXT, rw / 2, -EXT / 2);            // north of the room
+    strip(rw + 2 * EXT, EXT, rw / 2, rh + EXT / 2);        // south of the room
+    strip(EXT, rh, -EXT / 2, rh / 2);                      // west of the room
+    strip(EXT, rh, rw + EXT / 2, rh / 2);                  // east of the room
+  }
+
   // ---- exit door: a real timber frame + a leaf propped open against the
   // inner wall at the south gap (matches the exterior KayKit arch style),
   // so "stepping outside" reads as leaving through an actual doorway rather
