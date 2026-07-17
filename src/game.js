@@ -1420,6 +1420,41 @@ export class Game {
     this._playerShadow(false); // restore the ground shadow now that they're standing (920)
   }
 
+  // 908a: a seat is BLOCKED if a patron is already on it OR a patron who told
+  // you to shove off is still within their 10-minute cold shoulder next to it.
+  _seatTaken(s) {
+    const now = performance.now();
+    return (this.dungeonMeshes?.patronMeshes || []).some((pm) =>
+      Math.hypot(pm.x - s.x, pm.z - s.z) < 0.7 ||
+      ((pm._rejectedUntil || 0) > now && Math.hypot(pm.x - s.x, pm.z - s.z) < 1.9));
+  }
+
+  // 908a: greet the folk at the table you just joined. A non-flirty patron
+  // answers - warmly (pull up a stool) or, sometimes, curtly tells you to get
+  // lost, which bounces you off the seat and blocks re-sitting beside them for
+  // ~10 minutes. Rosalind (flirty) is courted through the flirt flow, not this.
+  _greetSeatMates(seat) {
+    const mates = (this.dungeonMeshes?.patronMeshes || []).filter((pm) =>
+      !pm.flirty && Math.hypot(pm.x - seat.x, pm.z - seat.z) < 2.2);
+    if (!mates.length) return;
+    const pm = mates[Math.floor(Math.random() * mates.length)];
+    this.ui.floaters?.spawn({ x: this.player.pos.x, y: 1.5, z: this.player.pos.z }, '👋 Hello', 'crit');
+    const reject = pm.mood === 'rude' || Math.random() < 0.3;
+    setTimeout(() => {
+      if (this.seatedAt !== seat) return; // already stood up
+      if (reject) {
+        const line = this.settings.adult18
+          ? this._pick(['Did I say you could sit? Fuck off.', 'This seat\'s taken. Piss off.', 'Not in the mood for company. Away with you.'])
+          : this._pick(['This seat\'s taken. Move along.', 'I\'d rather drink alone, thanks.', 'Not in the mood for company. Off you go.']);
+        roaster.sayGated(this, pm.name || 'Surly Patron', line, this._noiseVoice(), pm, { priority: true });
+        pm._rejectedUntil = performance.now() + 10 * 60 * 1000; // 908a: 10-min cold shoulder
+        setTimeout(() => { if (this.seatedAt === seat) this._standFromSeat(); }, 1700);
+      } else {
+        roaster.sayGated(this, pm.name || 'Tavern Patron', this._pick(['Pull up a stool, friend. Plenty of ale to go round.', 'Well met! Sit, sit.', 'Ha - company at last. Welcome.']), this._noiseVoice(), pm, { priority: true });
+      }
+    }, 700);
+  }
+
   // Hide/restore the player's blob ground shadow (920): a SEATED character
   // (bar stool / couch) is perched off the floor, so a shadow directly under
   // them on the ground reads as detached and wrong - hide it while seated.
@@ -6357,7 +6392,7 @@ export class Game {
         let best = null, bestD = 1.15;
         for (const s of this.dungeonMeshes.seats) {
           const d = Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z);
-          if (d < bestD && !(this.dungeonMeshes.patronMeshes || []).some((pm) => Math.hypot(pm.x - s.x, pm.z - s.z) < 0.7)) { best = s; bestD = d; }
+          if (d < bestD && !this._seatTaken(s)) { best = s; bestD = d; }
         }
         if (best) candidate = {
           label: best.kind === 'bar' ? 'Sit at the bar' : 'Sit down', icon: '🪑', action: () => {
@@ -6415,7 +6450,7 @@ export class Game {
         let best = null, bestD = 1.4;
         for (const s of this.dungeonMeshes.seats) {
           const d = Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z);
-          if (d < bestD && !(this.dungeonMeshes.patronMeshes || []).some((pm) => Math.hypot(pm.x - s.x, pm.z - s.z) < 0.7)) { best = s; bestD = d; }
+          if (d < bestD && !this._seatTaken(s)) { best = s; bestD = d; }
         }
         if (best) candidate = {
           label: best.kind === 'bar' ? 'Sit at the bar' : 'Sit down', icon: '🪑', action: () => {
@@ -6466,7 +6501,7 @@ export class Game {
         let best = null, bestD = 1.4;
         for (const s of this.dungeonMeshes.seats) {
           const d = Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z);
-          if (d < bestD && !(this.dungeonMeshes.patronMeshes || []).some((pm) => Math.hypot(pm.x - s.x, pm.z - s.z) < 0.7)) { best = s; bestD = d; }
+          if (d < bestD && !this._seatTaken(s)) { best = s; bestD = d; }
         }
         if (best) add({ label: best.kind === 'bar' ? 'Sit at the bar' : 'Sit down', icon: '🪑', action: () => {
           if (performance.now() < (this._seatCd || 0)) return;
@@ -6743,6 +6778,12 @@ export class Game {
     // or table, perch at seat height. DELIBERATE movement stands back up, but
     // only past the sit cooldown and above a real threshold - tiny residual
     // input / joystick drift must not eject the player (Obsidian 805).
+    // 908a: greet whoever you just sat down beside - once per sit, on the
+    // rising edge of being seated.
+    if (this.inTavern && this.seatedAt && this._prevSeated !== this.seatedAt) {
+      this._greetSeatMates(this.seatedAt);
+    }
+    this._prevSeated = this.seatedAt || null;
     if (this.inTavern && this.seatedAt) {
       const s = this.seatedAt;
       const p = this.player;
