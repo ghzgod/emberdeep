@@ -1103,20 +1103,38 @@ export class AudioEngine {
     f.setValueAtTime(760, t + 0.34);
     f.linearRampToValueAtTime(760, t + 0.72);
     f.linearRampToValueAtTime(500, t + 1.05);
-    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 950; bp.Q.value = 3.5;
+    // 966: the old single narrow bandpass on a bare sawtooth read as a harsh
+    // buzz. A real crow is a VOWELY, slightly breathy squawk. Two parallel
+    // formant bands (a vowel pair) + a lowpass to tame the buzzy top + a touch
+    // of noise breath make it organic instead of a synth rasp.
+    const f1 = this.ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 780; f1.Q.value = 4;
+    const f2 = this.ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 1250; f2.Q.value = 5;
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400; lp.Q.value = 0.5;
+    const f2g = this.ctx.createGain(); f2g.gain.value = 0.6;
+    // breath: quiet noise gated with the syllables for an airy squawk
+    const breath = this.ctx.createBufferSource(); breath.buffer = this._noise(); breath.loop = true;
+    const bhp = this.ctx.createBiquadFilter(); bhp.type = 'highpass'; bhp.frequency.value = 1400;
+    const bg = this.ctx.createGain(); bg.gain.value = 0.0001;
+    breath.connect(bhp); bhp.connect(bg);
     const g = this.ctx.createGain();
-    // 4 syllable amplitude bumps
     g.gain.setValueAtTime(0.0001, t);
+    // 4 syllable amplitude bumps
     const bumps = [[0.02, 0.14], [0.18, 0.10], [0.36, 0.16], [0.56, 0.16]];
     for (const [start, len] of bumps) {
       g.gain.setValueAtTime(0.0001, t + start);
-      g.gain.exponentialRampToValueAtTime(0.14, t + start + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.13, t + start + 0.03);
       g.gain.exponentialRampToValueAtTime(0.02, t + start + len);
+      bg.gain.setValueAtTime(0.0001, t + start);
+      bg.gain.exponentialRampToValueAtTime(0.03, t + start + 0.02);
+      bg.gain.exponentialRampToValueAtTime(0.0001, t + start + len * 0.7);
     }
-    g.gain.setValueAtTime(0.09, t + 0.72);
+    g.gain.setValueAtTime(0.085, t + 0.72);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 1.15);
-    osc.connect(bp); bp.connect(g); g.connect(this.sfxGain);
-    osc.start(t); vib.start(t); osc.stop(t + 1.2); vib.stop(t + 1.2);
+    osc.connect(f1); osc.connect(f2); f2.connect(f2g);
+    f1.connect(lp); f2g.connect(lp);
+    lp.connect(g); bg.connect(g); g.connect(this.sfxGain);
+    osc.start(t); vib.start(t); breath.start(t, Math.random());
+    osc.stop(t + 1.2); vib.stop(t + 1.2); breath.stop(t + 1.2);
   }
 
   // Pouring a drink (Obsidian 902): filtered noise whose bandpass pitch RISES
