@@ -732,7 +732,7 @@ export class Game {
     this.inTavern = true;
     this.inUpstairs = false;
     if (this._lyingBed) { this._lyingBed = null; if (this.player?.mesh) this.player.mesh.rotation.x = 0; }
-    this._followScene = null; this._stairScene = null; // cancel any in-flight walk/climb (873/923)
+    this._followScene = null; this._stairScene = null; this._downStairScene = null; // cancel any in-flight walk/climb (873/923/928)
     this._sceneLock = false;  // re-arm the stuck-failsafe off the scripted floor (874)
     this._stopFadeAudio?.();  // stop the lights-out audio if the player bails mid-scene (881)
     if (resume) {
@@ -887,7 +887,7 @@ export class Game {
     this.inTown = true;
     this.inTavern = false;
     this.inUpstairs = false;
-    this._followScene = null; this._stairScene = null; this._sceneLock = false; // off the scripted floor (873/874/923)
+    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._sceneLock = false; // off the scripted floor (873/874/923/928)
     this._stopFadeAudio?.(); // stop lights-out audio when leaving to town (881)
     const theme = themeForFloor(1);
     this.dungeon = generateTown();
@@ -1784,6 +1784,40 @@ export class Game {
       baseZ: 20.6, topZ: 16.6, stairX: 30.4, run: 0.44, rise: 0.32, steps: 9,
       pWalk: { x: this.player.pos.x, z: this.player.pos.z },
     };
+  }
+
+  // 'Head downstairs' button (928): walk the player DOWN the upstairs stairwell
+  // on foot (side camera, descending Y) and transition to the tavern at the
+  // bottom - no teleport. The well descends SOUTH (+z) 7 steps from the lip.
+  headDownstairsWalk() {
+    if (this._downStairScene) return;
+    const sd = this.dungeonMeshes.stairsDownPos;
+    if (!sd) { audio.play('door_open'); this.loadTavern(); return; }
+    this._sceneLock = true;
+    this.camYaw = -Math.PI / 2; this._yawManualT = 999; this.camZoom = 0.6;
+    const hz0 = sd.z + 1.0; // north lip -> hole north edge (see buildTavernUpstairsInterior)
+    this._downStairScene = {
+      x: sd.x, topZ: hz0 + 0.25, bottomZ: hz0 + 0.25 + 7 * 0.34, run: 0.34, rise: 0.3, steps: 7,
+      pWalk: { x: this.player.pos.x, z: this.player.pos.z },
+    };
+  }
+
+  _updateDownStairScene(dt) {
+    const sc = this._downStairScene;
+    if (!sc || !this.inUpstairs) return;
+    const p = this.player, pw = sc.pWalk;
+    const dx = sc.x - pw.x, dz = sc.bottomZ - pw.z, d = Math.hypot(dx, dz) || 1;
+    const done = d < 0.14;
+    if (!done) { const s = Math.min(d, 1.6 * dt); pw.x += dx / d * s; pw.z += dz / d * s; this._npcFootstep(pw.x, pw.z, dt, '_downStep'); }
+    p.pos.x = pw.x; p.pos.z = pw.z;
+    const i = Math.max(0, Math.min(sc.steps, (pw.z - sc.topZ) / sc.run));
+    p.pos.y = -i * sc.rise; // descend as they step down
+    p.aimAngle = Math.PI / 2; // face south/down
+    p.scriptedSpeed = done ? 0 : (p.moveSpeed || 4);
+    if (done) {
+      this._downStairScene = null; p.scriptedSpeed = 0; p.pos.y = 0; this._sceneLock = false;
+      audio.play('door_open'); this.loadTavern();
+    }
   }
 
   // Upstairs half of the follow scene (873): transition up, build Rosalind at the
@@ -6116,7 +6150,7 @@ export class Game {
       }
       if (!candidate && this.inUpstairs && this.dungeonMeshes.stairsDownPos && this.stairsCooldown <= 0
         && near(this.dungeonMeshes.stairsDownPos.x, this.dungeonMeshes.stairsDownPos.z, 2.0)) {
-        candidate = { label: 'Head downstairs', icon: '🪜', action: () => { this.stairsCooldown = 1.5; audio.play('door_open'); this.loadTavern(); } };
+        candidate = { label: 'Head downstairs', icon: '🪜', action: () => { this.stairsCooldown = 1.5; this.headDownstairsWalk(); } };
       }
       // Lie down in a bed (Obsidian 842b): near any upstairs bed, offer to rest;
       // once lying the prompt is "Get up" (any movement also gets you up).
@@ -6272,6 +6306,7 @@ export class Game {
     // Ground-floor stair-climb half of the follow scene (923/928): walk to the
     // stairs + climb them before the upstairs transition.
     if (this._stairScene) this._updateStairScene(dt);
+    if (this._downStairScene) this._updateDownStairScene(dt); // walk DOWN (928)
 
     // Follow-upstairs walk (873): once upstairs, Rosalind LEADS the hero down
     // the hall to her room on foot (walk anim + footsteps for both), then the
