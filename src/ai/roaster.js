@@ -538,9 +538,16 @@ export class Roaster {
     // when we have a world anchor; the fixed bottom bar is the fallback for
     // anchorless lines (system notices, the co-op roast floater overrides via
     // `show`).
+    // 959: the caption must stay up for the WHOLE audio, then hold 2-3s and
+    // fade - it used to expire after the fixed durationMs GUESS (often shorter
+    // than the actual voice line), so the bubble vanished mid-sentence and the
+    // onEnd handler re-popped it: flicker. Show it with a generous window (it's
+    // superseded the instant onEnd fires with the real 2.6s linger below); the
+    // 14s cap only matters if an end callback is somehow missed.
+    const showMs = Math.max(durationMs, 14000);
     const doShow = show || (() => {
-      if (hasBubble) game.ui.floaters.showSpeech(anchor, speaker, line, durationMs);
-      else game.ui.showSubtitle(speaker, line, durationMs);
+      if (hasBubble) game.ui.floaters.showSpeech(anchor, speaker, line, showMs);
+      else game.ui.showSubtitle(speaker, line, showMs);
     });
     // Mark a caption as "speech active" for its whole visible window (Obsidian
     // 838): npcSpeechActive is otherwise audio-only, so on silent/loading configs
