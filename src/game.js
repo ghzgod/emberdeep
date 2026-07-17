@@ -1367,7 +1367,24 @@ export class Game {
     const s = this.seatedAt;
     this.seatedAt = null;
     this._seatCd = performance.now() + 600; // block an immediate re-sit (805)
-    if (s && s.kind === 'bar') this.player.pos.z = s.z + 0.7;
+    // 917b: dismount onto a WALKABLE tile right beside the chair. A seated hero
+    // is pinned on a stool tile that is itself SOLID furniture; clearing
+    // seatedAt there left him standing on a non-walkable cell, so the stuck-
+    // failsafe yanked him to a random clear tile with the 'Pulled you free'
+    // toast - reading as a launch across the room. Only bar seats used to get a
+    // step-off; now every seat kind finds its nearest clear spot.
+    const p = this.player;
+    if (s) {
+      // bar stools face the counter (north), so step out toward the open room
+      // (+z) first; otherwise fan out around the seat for the first clear tile.
+      const prefer = s.kind === 'bar' ? [[0, 0.8]] : [];
+      const rings = [...prefer, [0, 0.9], [0.9, 0], [-0.9, 0], [0, -0.9], [0.9, 0.9], [-0.9, 0.9], [0.9, -0.9], [-0.9, -0.9]];
+      for (const [dx, dz] of rings) {
+        if (this.isWalkable(s.x + dx, s.z + dz, 0.3)) { p.pos.x = s.x + dx; p.pos.z = s.z + dz; break; }
+      }
+    }
+    p.pos.y = 0;
+    this._stuckT = -0.5; // grace so the failsafe never fires on the dismount frame
     this._playerShadow(false); // restore the ground shadow now that they're standing (920)
   }
 
