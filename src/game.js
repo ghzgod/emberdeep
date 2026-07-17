@@ -2129,18 +2129,62 @@ export class Game {
     p.faceAimTimer = 0.2; // 941: pin facing down the stairs (input is scene-locked)
     p.scriptedSpeed = done ? 0 : (p.moveSpeed || 4);
     if (done) {
-      this._downStairScene = null; p.scriptedSpeed = 0; p.pos.y = 0; this._sceneLock = false;
+      this._downStairScene = null; p.scriptedSpeed = 0; p.pos.y = 0;
       audio.play('door_open');
       this._quickFade(true); // hide the interior swap (like the up-climb)
       this.loadTavern();
-      // 965: arrive at the walkable spot right at the FOOT of the up-stairs flight
-      // (not teleported to the tavern front door) - continues the walk-down. The
-      // stair tiles themselves are solid, so land on the clear floor just in front.
-      p.pos.set(29, 0, 21);
-      p.visualAngle = Math.PI / 2; // face into the room, off the stairs
-      this._stuckT = -0.6; // grace so the failsafe never ejects on the landing frame
-      this.camZoom = 0.85; this._yawManualT = 0;
+      // 972: don't POP IN at the stair foot (965 landed you there instantly).
+      // Arrive at the TOP of the first-floor up-staircase and WALK DOWN it,
+      // animated, mirroring the up-climb - the scene releases you on the floor.
+      this._startFirstFloorDescent();
       this._quickFade(false);
+    }
+  }
+
+  // 972: place the hero at the top of the first-floor flight and drive them down
+  // it on foot (side camera, descending Y), then release onto the tavern floor.
+  // The up-stairs flight rises NORTH from baseZ 20.6 to topZ 16.6 at x 30.4;
+  // we descend SOUTH back down, hugging the east wall (963) away from the rail.
+  _startFirstFloorDescent() {
+    const sc = {
+      phase: 'down', stairX: 30.4, baseZ: 20.6, topZ: 16.6,
+      run: 0.44, rise: 0.32, steps: 9,
+      pWalk: { x: 30.9, z: 16.6 }, foot: { x: 29, z: 21 },
+    };
+    this._descendScene = sc;
+    this._sceneLock = true;
+    const p = this.player;
+    p.pos.set(sc.pWalk.x, this._stairYAt(sc.topZ, sc), sc.pWalk.z);
+    p.visualAngle = Math.PI / 2; // face south, down the flight
+    this.camYaw = -Math.PI / 2; this._yawManualT = 999; this.camZoom = 0.6;
+  }
+
+  _updateDescendScene(dt) {
+    const sc = this._descendScene;
+    if (!sc || !this.inTavern || this.inUpstairs) return;
+    const p = this.player, pw = sc.pWalk;
+    if (sc.phase === 'down') {
+      // walk SOUTH down the treads, dropping in Y, flush to the east wall
+      const dz = sc.baseZ - pw.z, d = Math.abs(dz);
+      if (d > 0.06) { pw.z += Math.min(d, 1.8 * dt) * Math.sign(dz); this._npcFootstep(pw.x, pw.z, dt, '_descStep'); }
+      p.pos.x = pw.x; p.pos.z = pw.z; p.pos.y = this._stairYAt(pw.z, sc);
+      p.aimAngle = Math.PI / 2; p.faceAimTimer = 0.2;
+      p.scriptedSpeed = p.moveSpeed || 4;
+      if (d <= 0.06) { sc.phase = 'toFloor'; p.pos.y = 0; }
+    } else {
+      // off the bottom step: cross the last bit of floor to the clear foot spot
+      const dx = sc.foot.x - pw.x, dz = sc.foot.z - pw.z, d = Math.hypot(dx, dz) || 1;
+      const done = d < 0.14;
+      if (!done) { const s = Math.min(d, 2.2 * dt); pw.x += dx / d * s; pw.z += dz / d * s; this._npcFootstep(pw.x, pw.z, dt, '_descStep'); }
+      p.pos.x = pw.x; p.pos.z = pw.z; p.pos.y = 0;
+      p.aimAngle = Math.atan2(dz, dx); p.faceAimTimer = 0.2;
+      p.scriptedSpeed = done ? 0 : (p.moveSpeed || 4);
+      if (done) {
+        this._descendScene = null; p.scriptedSpeed = 0; p.pos.y = 0;
+        p.pos.set(sc.foot.x, 0, sc.foot.z);
+        p.visualAngle = Math.PI / 2; // face into the room, off the stairs
+        this._stuckT = -0.6; this.camZoom = 0.85; this._yawManualT = 0; this._sceneLock = false;
+      }
     }
   }
 
@@ -7005,6 +7049,7 @@ export class Game {
     // stairs + climb them before the upstairs transition.
     if (this._stairScene) this._updateStairScene(dt);
     if (this._downStairScene) this._updateDownStairScene(dt); // walk DOWN (928)
+    if (this._descendScene) this._updateDescendScene(dt); // 972: walk down the FIRST-FLOOR flight after arriving
 
     // Follow-upstairs walk (873): once upstairs, Rosalind LEADS the hero down
     // the hall to her room on foot (walk anim + footsteps for both), then the
