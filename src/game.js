@@ -6722,7 +6722,16 @@ export class Game {
           const pdx = sMine.x - bs.pWalk.x, pdz = sMine.z - bs.pWalk.z, pd = Math.hypot(pdx, pdz) || 1;
           if (pd > 0.12) {
             const s = Math.min(pd, 2.6 * dt);
-            bs.pWalk.x += pdx / pd * s; bs.pWalk.z += pdz / pd * s;
+            // 904: don't cut straight THROUGH the counter/tables - move only on
+            // the axes that stay walkable (slide around obstacles). If fully
+            // blocked for a beat, a stuck timer snaps to the stool so the scripted
+            // buy-a-drink never stalls.
+            const nx = bs.pWalk.x + pdx / pd * s, nz = bs.pWalk.z + pdz / pd * s;
+            let moved = false;
+            if (this.isWalkable(nx, bs.pWalk.z, 0.3)) { bs.pWalk.x = nx; moved = true; }
+            if (this.isWalkable(bs.pWalk.x, nz, 0.3)) { bs.pWalk.z = nz; moved = true; }
+            bs._stuckT = moved ? 0 : (bs._stuckT || 0) + dt;
+            if (bs._stuckT > 1.5) { bs.pWalk.x = sMine.x; bs.pWalk.z = sMine.z; }
             p.aimAngle = Math.atan2(pdz, pdx); p.faceAimTimer = 0.2;
             // A real WALK, not a glide (866/889): player.update runs with no
             // input (setLocomotion 0), so hand it a scriptedSpeed it animates
