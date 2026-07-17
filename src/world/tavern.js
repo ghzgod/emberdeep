@@ -673,7 +673,32 @@ export function buildTavernInterior() {
               const targetYaw = restock ? Math.PI : 0; // PI = back-bar, 0 = room
               keeper.rotation.y += wrapAngle(targetYaw - keeper.rotation.y) * Math.min(1, dt * 5);
               if (restock && !st.pouredThisWait) { st.pouredThisWait = true; if (Math.random() < 0.4) audio.pour(); }
-              if (st.waitT <= 0) { st.paceTarget = randPace(); st.waitT = 2 + Math.random() * 2; st.pouredThisWait = false; }
+              // 971: make the restock VISIBLE - she takes a bottle OFF the shelf,
+              // tilts it to pour, and sets it back ("I wanna actually see those
+              // things"). A small prop tracks her hand; created on demand, removed
+              // the moment she's done / turns back, and it dies with the group on
+              // teardown so nothing leaks.
+              const dropBottle = () => { if (st.restockBottle) { group.remove(st.restockBottle); st.restockBottle.traverse((o) => o.geometry?.dispose?.()); st.restockBottle = null; } };
+              if (restock) {
+                if (!st.restockBottle) {
+                  const bot = new THREE.Group();
+                  const glass = new THREE.MeshStandardMaterial({ color: 0x3a1420, roughness: 0.3, metalness: 0.1 });
+                  bot.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.22, 8), glass));
+                  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.028, 0.1, 6), glass); neck.position.y = 0.16; bot.add(neck);
+                  group.add(bot); st.restockBottle = bot;
+                }
+                const p = Math.min(1, (1.4 - Math.max(0, st.waitT)) / 1.4); // 0..1 across the pause
+                const shelf = { x: keeper.position.x, y: 1.72, z: 2.18 };            // on the bottom board
+                const hand = { x: keeper.position.x, y: 1.15, z: keeper.position.z - 0.45 }; // at her chest, facing the shelf
+                let k, tilt = 0;
+                if (p < 0.35) k = p / 0.35;                                          // lift off the shelf
+                else if (p < 0.7) { k = 1; tilt = Math.sin((p - 0.35) / 0.35 * Math.PI) * 1.1; } // tilt to pour
+                else k = 1 - (p - 0.7) / 0.3;                                         // set it back
+                const b = st.restockBottle;
+                b.position.set(shelf.x + (hand.x - shelf.x) * k, shelf.y + (hand.y - shelf.y) * k, shelf.z + (hand.z - shelf.z) * k);
+                b.rotation.z = tilt;
+              } else dropBottle();
+              if (st.waitT <= 0) { st.paceTarget = randPace(); st.waitT = 2 + Math.random() * 2; st.pouredThisWait = false; dropBottle(); }
             } else {
               const step = Math.min(dist, SPEED * dt);
               const ang = Math.atan2(dx, dz);
