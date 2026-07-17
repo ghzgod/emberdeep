@@ -746,7 +746,7 @@ export class Game {
     this.inTavern = true;
     this.inUpstairs = false;
     if (this._lyingBed) { this._lyingBed = null; if (this.player?.mesh) this.player.mesh.rotation.x = 0; }
-    this._followScene = null; this._stairScene = null; this._downStairScene = null; // cancel any in-flight walk/climb (873/923/928)
+    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._roomRosalind = null; this._rosalindInBed = false; // cancel any in-flight walk/climb (873/923/928)
     this._sceneLock = false;  // re-arm the stuck-failsafe off the scripted floor (874)
     this._stopFadeAudio?.();  // stop the lights-out audio if the player bails mid-scene (881)
     if (resume) {
@@ -924,7 +924,7 @@ export class Game {
     this.inTown = true;
     this.inTavern = false;
     this.inUpstairs = false;
-    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._sceneLock = false; // off the scripted floor (873/874/923/928)
+    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._roomRosalind = null; this._rosalindInBed = false; this._sceneLock = false; // off the scripted floor (873/874/923/928)
     this._stopFadeAudio?.(); // stop lights-out audio when leaving to town (881)
     const theme = themeForFloor(1);
     this.dungeon = generateTown();
@@ -2014,6 +2014,54 @@ export class Game {
     npc.mesh.position.set(bedC.x - 0.34, 0.58, bedC.z - 0.85);
     npc.mesh.traverse((o) => { if (o.name === 'BlobShadow') o.visible = false; });
     this._lyingBed = { x: bedC.x + 0.34, z: bedC.z, headAngle: bedC.headAngle, standZ: bedC.standZ, _scene: true };
+    // 927: remember she's in bed so the idle-timer can have her get up later
+    this._roomRosalind = npc; this._roomRosalindBedC = bedC; this._rosalindInBed = true; this._roomIdleT = 0;
+  }
+
+  // 927: Rosalind doesn't lie in bed forever - after the player idles long
+  // enough she gets up, stands beside the bed, and potters about her room.
+  _rosalindGetsUp() {
+    const npc = this._roomRosalind, bedC = this._roomRosalindBedC;
+    this._rosalindInBed = false;
+    if (!npc || !npc.mesh || !this.inUpstairs) return;
+    npc.mesh.rotation.order = 'YXZ';
+    npc.mesh.rotation.set(0, Math.PI, 0); // upright again, facing the room
+    npc.mesh.position.set(bedC.x + 1.0, 0, bedC.z + 1.2); // stand beside the bed
+    npc.mesh.traverse((o) => { if (o.name === 'BlobShadow') o.visible = true; });
+    npc.x = npc.mesh.position.x; npc.z = npc.mesh.position.z;
+    roaster.sayGated(this, 'Rosalind', this._pick(['Mmm, I should get up… you can stay, though.', 'Can\'t lie abed all day. Don\'t you move, love.', 'Up I get. Someone\'s got to keep this place honest.']), this._flirtVoice(), { x: npc.mesh.position.x, z: npc.mesh.position.z }, { durationMs: 3600, priority: true });
+    // give her a small potter target so she paces her room a little
+    this._roomRosalindWander = { x: bedC.x - 1.4, z: bedC.z + 1.4, t: 0 };
+  }
+
+  // 927: per-frame upstairs tick - count how long she's lain abed and get her up
+  // after a while; once up, let her gently potter around her room. Cleared when
+  // you leave the floor.
+  _tickRosalindIdle(dt) {
+    if (!this.inUpstairs || !this._roomRosalind) { return; }
+    if (this._rosalindInBed) {
+      // don't count down while the choice menu / a scene is mid-play
+      if (document.getElementById('choice-menu') && !document.getElementById('choice-menu').classList.contains('hidden')) return;
+      if (this._sceneLock || this._sleeping || this._fadeAudio) return;
+      this._roomIdleT = (this._roomIdleT || 0) + dt;
+      if (this._roomIdleT > 50) this._rosalindGetsUp(); // ~50s abed -> she rises
+      return;
+    }
+    // she's up: amble slowly toward a potter target, pick a new one on arrival
+    const npc = this._roomRosalind, w = this._roomRosalindWander;
+    if (!npc.mesh || !w) return;
+    const dx = w.x - npc.mesh.position.x, dz = w.z - npc.mesh.position.z, d = Math.hypot(dx, dz) || 1;
+    if (d > 0.1) {
+      const s = Math.min(d, 0.7 * dt);
+      npc.mesh.position.x += dx / d * s; npc.mesh.position.z += dz / d * s; npc.mesh.position.y = 0;
+      npc.mesh.rotation.set(0, Math.atan2(dx, dz), 0);
+      npc.x = npc.mesh.position.x; npc.z = npc.mesh.position.z;
+      if (npc.tick) npc.tick(dt, 0.7);
+    } else {
+      if (npc.tick) npc.tick(dt, 0);
+      w.t = (w.t || 0) + dt;
+      if (w.t > 3) { w.t = 0; const bc = this._roomRosalindBedC; w.x = bc.x + (Math.sin(npc.mesh.position.z) > 0 ? 1.2 : -1.4); w.z = bc.z + (npc.mesh.position.x > bc.x ? -1.3 : 1.4); }
+    }
   }
 
   _bedSex(npc, bedC) {
@@ -5558,6 +5606,7 @@ export class Game {
     // the quarter-turn that runs the hallway vertically on screen
     this.updateCorridorYaw(dt, p);
     this.updateUpstairsCamera(dt, p);
+    this._tickRosalindIdle(dt);
     this.updateCameraFollow(dt);
 
     // player light follows. In town it rides at torso height so walking up to
