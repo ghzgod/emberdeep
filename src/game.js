@@ -4389,6 +4389,42 @@ export class Game {
     return dNew < Math.hypot(curX - bp.x, curZ - bp.z); // only block moving closer
   }
 
+  // 949: a reusable clipping diagnostic. Walks the hero + every NPC and reports
+  // any whose world geometry sinks below the local floor (feet/hair/prop through
+  // the floor) or, with a ceiling arg, pokes above it - so clips can be found
+  // systematically instead of one screenshot at a time. Call game.clipReport().
+  clipReport({ epsilon = 0.12, ceiling = null } = {}) {
+    const out = [];
+    const worldYExtent = (obj) => {
+      let minY = Infinity, maxY = -Infinity;
+      obj.updateWorldMatrix(true, true);
+      obj.traverse((o) => {
+        if (!o.isMesh || !o.geometry || o.visible === false) return;
+        if (/BlobShadow/i.test(o.name || '')) return; // the ground decal is meant to sit flat on the floor
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        const bb = o.geometry.boundingBox, e = o.matrixWorld.elements;
+        for (const X of [bb.min.x, bb.max.x]) for (const Y of [bb.min.y, bb.max.y]) for (const Z of [bb.min.z, bb.max.z]) {
+          const wy = e[1] * X + e[5] * Y + e[9] * Z + e[13];
+          if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+        }
+      });
+      return { minY, maxY };
+    };
+    const subjects = [];
+    if (this.player?.mesh) subjects.push({ mesh: this.player.mesh, label: 'hero', x: this.player.pos.x, z: this.player.pos.z });
+    for (const pm of (this.dungeonMeshes?.patronMeshes || [])) if (pm.mesh) subjects.push({ mesh: pm.mesh, label: pm.name || 'patron', x: pm.x, z: pm.z });
+    if (this._roomRosalind?.mesh) subjects.push({ mesh: this._roomRosalind.mesh, label: 'Rosalind(room)', x: this._roomRosalind.x, z: this._roomRosalind.z });
+    for (const s of subjects) {
+      const { minY, maxY } = worldYExtent(s.mesh);
+      if (!isFinite(minY)) continue;
+      const floor = this.heightAt ? this.heightAt(s.x, s.z) : 0;
+      const below = floor - minY;
+      if (below > epsilon) out.push({ label: s.label, kind: 'below-floor', depth: +below.toFixed(2), minY: +minY.toFixed(2), floor: +floor.toFixed(2) });
+      if (ceiling != null && maxY > ceiling + epsilon) out.push({ label: s.label, kind: 'above-ceiling', over: +(maxY - ceiling).toFixed(2), maxY: +maxY.toFixed(2), ceiling });
+    }
+    return out.sort((a, b) => (b.depth || b.over || 0) - (a.depth || a.over || 0));
+  }
+
   isWalkable(x, z, radius = 0.3) {
     for (const [dx, dz] of [[-radius, -radius], [radius, -radius], [-radius, radius], [radius, radius]]) {
       const t = this.tileAt(x + dx, z + dz);
