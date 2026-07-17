@@ -1917,13 +1917,15 @@ export function buildTavernUpstairsInterior() {
   wellFloor.position.set(down.x, wellBottomY - 0.06, (HZ0 + HZ1) / 2 + 0.3); group.add(wellFloor);
   const wellGlow = new THREE.PointLight(0xffb877, 8, 7, 1.8);
   wellGlow.position.set(down.x, wellBottomY + 0.9, (HZ0 + HZ1) / 2 + 0.2); group.add(wellGlow);
-  // railing along the north lip (open side, where you stand to descend)
+  // Newel posts FLANK the descent opening (Obsidian 964): the old horizontal
+  // hand-rail ran straight across the north lip at waist height - right where
+  // you step in to go down - so it read as a "wooden bar blocking the stairs".
+  // Dropped the cross-rail; the two corner posts sit outside the 1.7-wide
+  // treads (x = down.x ± 0.95) and frame the opening without obstructing it.
   for (const px of [-0.95, 0.95]) {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 8), darkWood);
     post.position.set(down.x + px, 0.45, HZ0 - 0.06); group.add(post);
   }
-  const lipRail = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.0, 8), darkWood);
-  lipRail.rotation.z = Math.PI / 2; lipRail.position.set(down.x, 0.9, HZ0 - 0.06); group.add(lipRail);
 
   // torch anchors for the shared light pool (room centres + hallway).
   const torchPositions = [
