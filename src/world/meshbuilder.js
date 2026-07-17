@@ -2470,25 +2470,40 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     swapInModel(tavern, shell, ['mkWallStraight', 'mkWallGrid', 'mkRoof'], ([wallT, gridT, roofT]) => {
       if (!wallT || !roofT) return null;
       const kit = new THREE.Group();
-      const wallAt = (tpl, x, z, ry) => {
-        const m = buildModelMesh(tpl, 3.12);
-        m.position.set(x, 0, z); m.rotation.y = ry;
+      const STORY = 3.12;
+      const wallAt = (tpl, x, z, ry, y = 0) => {
+        const m = buildModelMesh(tpl, STORY);
+        m.position.set(x, y, z); m.rotation.y = ry;
         kit.add(m);
       };
       const halfW = W / 2, halfD = D / 2;
-      for (let i = 0; i < 7; i++) {
-        const x = -6 + i * 2;
-        wallAt(i % 2 ? (gridT || wallT) : wallT, x, halfD - 0.2, 0);        // front (south)
-        wallAt(i % 2 ? wallT : (gridT || wallT), x, -halfD + 0.2, Math.PI); // back (north)
+      // 947: the interior is TWO storeys (ground tavern + upstairs rooms), so the
+      // exterior is now two storeys too - a second ring of wall pieces stacked on
+      // the first, with a timber belt course between them and the roof raised a
+      // full storey. (The interior footprint is deliberately larger than the
+      // plot - 'bigger on the inside' - so we match the STOREY COUNT + read, not
+      // the exact tile footprint, which would dwarf the rest of the town.)
+      for (const y of [0, STORY]) {
+        for (let i = 0; i < 7; i++) {
+          const x = -6 + i * 2;
+          wallAt(i % 2 ? (gridT || wallT) : wallT, x, halfD - 0.2, 0, y);        // front (south)
+          wallAt(i % 2 ? wallT : (gridT || wallT), x, -halfD + 0.2, Math.PI, y); // back (north)
+        }
+        for (let i = 0; i < 5; i++) {
+          const z = -4 + i * 2;
+          wallAt(wallT, -halfW + 0.2, z, Math.PI / 2, y);   // west
+          wallAt(wallT, halfW - 0.2, z, -Math.PI / 2, y);   // east
+        }
       }
-      for (let i = 0; i < 5; i++) {
-        const z = -4 + i * 2;
-        wallAt(wallT, -halfW + 0.2, z, Math.PI / 2);   // west
-        wallAt(wallT, halfW - 0.2, z, -Math.PI / 2);   // east
+      // timber belt course marking the floor line between the two storeys
+      const beltMat = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.9 });
+      for (const [bw, bd, bx, bz] of [[W + 0.2, 0.2, 0, halfD - 0.1], [W + 0.2, 0.2, 0, -halfD + 0.1], [0.2, D + 0.2, -halfW + 0.1, 0], [0.2, D + 0.2, halfW - 0.1, 0]]) {
+        const belt = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.18, bd), beltMat);
+        belt.position.set(bx, STORY, bz); kit.add(belt);
       }
       const roof = buildModelMesh(roofT, 6.78);
       roof.rotation.y = Math.PI / 2; // long axis along X (the 14-unit side)
-      roof.position.set(0, 2.7, 0);  // eaves overlap the wall tops slightly
+      roof.position.set(0, 2.7 + STORY, 0);  // raised a full storey; eaves overlap the 2nd-floor wall tops
       kit.add(roof);
       // 947-b: the round-tile roof piece has OPEN gable ends - you could see
       // straight THROUGH the building into the interior (user image 154). Cap
@@ -2497,7 +2512,7 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // ridge, so the gables read as a closed wall the way the front/back do.
       roof.updateMatrixWorld(true);
       const rbb = new THREE.Box3().setFromObject(roof);
-      const ridgeY = rbb.max.y, eaveY = Math.min(rbb.min.y + 0.15, 3.0);
+      const ridgeY = rbb.max.y, eaveY = rbb.min.y + 0.15; // roof's real eave (2nd-floor wall top)
       const zHalf = (rbb.max.z - rbb.min.z) / 2 - 0.05;
       const gShape = new THREE.Shape();
       gShape.moveTo(-zHalf, eaveY); gShape.lineTo(zHalf, eaveY); gShape.lineTo(0, ridgeY); gShape.closePath();
