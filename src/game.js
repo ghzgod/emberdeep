@@ -323,6 +323,20 @@ export class Game {
     window.addEventListener('pointerdown', unlock, { once: true, capture: true });
     window.addEventListener('keydown', unlock, { once: true, capture: true });
 
+    // 932: tapping/clicking anywhere that ISN'T the interact prompt dismisses it
+    // (moving the hero, tapping the ground) rather than leaving a sticky
+    // "Sleep till morning"/"Lie down"/etc. pill that feels like it's forcing the
+    // action. Capture phase so it runs before the world-move handler's
+    // stopPropagation. The prompt reappears if you walk away and come back, or
+    // approach a DIFFERENT interactable (see the _interactDismissed check in the
+    // candidate poll).
+    window.addEventListener('pointerdown', (e) => {
+      if (this.state !== 'playing' || !this.interactable) return;
+      if (e.target && e.target.closest && e.target.closest('#interact-prompt')) return;
+      this._interactDismissed = this.interactable.label;
+      this.setInteractable(null);
+    }, { capture: true });
+
     this.ui.setLoadingProgress(0.05, 'Waking heroes…');
     const { preloadHeroModels } = await import('./entities/heroModel.js');
     await preloadHeroModels((f) => this.ui.setLoadingProgress(0.05 + f * 0.35, 'Waking heroes…'));
@@ -6262,6 +6276,13 @@ export class Game {
     // next poll after the speech finishes brings it straight back. Portals,
     // stairs and doors are unaffected.
     if (candidate?.talk && this.npcSpeechActive()) candidate = null;
+
+    // 932: if the player tapped away to dismiss this exact prompt, keep it
+    // hidden WHILE they're still in range of the same thing. Walking away (no
+    // candidate) or approaching a DIFFERENT interactable clears the dismissal
+    // so the prompt naturally comes back.
+    if (candidate && candidate.label === this._interactDismissed) candidate = null;
+    else if (!candidate || candidate.label !== this._interactDismissed) this._interactDismissed = null;
 
     this.setInteractable(candidate);
     if (this.wanderer && this.inTown && !this.inTavern) this.wanderer.update(dt, this);
