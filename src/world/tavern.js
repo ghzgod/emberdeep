@@ -602,6 +602,13 @@ export function buildTavernInterior() {
           return;
         }
         const now = performance.now();
+        // 943: Magda must not walk THROUGH the hero. Grab the player's position
+        // (if near) and refuse any step that would close inside her body radius;
+        // in the pace lane she instead turns and paces the OTHER way, so a
+        // player standing behind the bar makes her go around rather than clip.
+        const BODY = 0.78;
+        const heroBlock = nearestHero(keeper, 6);
+        const wouldHit = (nx, nz) => heroBlock && Math.hypot(nx - heroBlock.x, nz - heroBlock.z) < BODY;
         if (st.mode === 'bar') {
           if (now >= st.nextVisitAt) { st.mode = 'toTable'; st.wp = 0; st.nextVisitAt = Infinity; }
           else {
@@ -613,9 +620,16 @@ export function buildTavernInterior() {
             } else {
               const step = Math.min(dist, SPEED * dt);
               const ang = Math.atan2(dx, dz);
-              keeper.position.x += Math.sin(ang) * step;
-              keeper.position.z += Math.cos(ang) * step;
-              keeper.rotation.y = ang;
+              const nx = keeper.position.x + Math.sin(ang) * step;
+              const nz = keeper.position.z + Math.cos(ang) * step;
+              if (wouldHit(nx, nz)) {
+                // player is blocking this way — pace to the FAR end instead (go
+                // around the other direction), and pause a beat before setting off
+                st.paceTarget = { x: Math.abs(paceLeftX - heroBlock.x) > Math.abs(paceRightX - heroBlock.x) ? paceLeftX : paceRightX, z: barZ };
+                st.waitT = 0.4;
+              } else {
+                keeper.position.x = nx; keeper.position.z = nz; keeper.rotation.y = ang;
+              }
             }
             keeper.position.y = 0.24;
           }
@@ -651,11 +665,15 @@ export function buildTavernInterior() {
           } else {
             const step = Math.min(dist, SPEED * dt);
             const ang = Math.atan2(dx, dz);
-            keeper.position.x += Math.sin(ang) * step;
-            keeper.position.z += Math.cos(ang) * step;
-            keeper.rotation.y = ang;
-            // ease across the small duckboard-height step rather than popping
-            keeper.position.y += (target.y - keeper.position.y) * Math.min(1, dt * 2);
+            const nx = keeper.position.x + Math.sin(ang) * step;
+            const nz = keeper.position.z + Math.cos(ang) * step;
+            // 943: hold at the waypoint rather than clip through the hero; she
+            // resumes the moment the player steps out of her path.
+            if (!wouldHit(nx, nz)) {
+              keeper.position.x = nx; keeper.position.z = nz; keeper.rotation.y = ang;
+              // ease across the small duckboard-height step rather than popping
+              keeper.position.y += (target.y - keeper.position.y) * Math.min(1, dt * 2);
+            }
           }
         } else if (st.mode === 'atTable') {
           const faceYaw = Math.atan2(visitTable.x - keeper.position.x, visitTable.z - keeper.position.z);

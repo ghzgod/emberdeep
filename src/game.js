@@ -4069,6 +4069,20 @@ export class Game {
     return h[ty]?.[tx] ?? 0;
   }
 
+  // 943: soft circular collision against a MOVING NPC (Magda behind the bar) so
+  // the player can't clip straight through her. Blocks only steps that push
+  // INTO her body radius - moves that keep or increase the distance are always
+  // allowed, so the player can never get trapped inside her if they overlap.
+  moverBlocks(nx, nz, curX, curZ) {
+    if (!this.inTavern) return false;
+    const bp = this.dungeonMeshes?.barkeepPos;
+    if (!bp) return false;
+    const R = 0.62; // Magda's body radius
+    const dNew = Math.hypot(nx - bp.x, nz - bp.z);
+    if (dNew >= R) return false;
+    return dNew < Math.hypot(curX - bp.x, curZ - bp.z); // only block moving closer
+  }
+
   isWalkable(x, z, radius = 0.3) {
     for (const [dx, dz] of [[-radius, -radius], [radius, -radius], [-radius, radius], [radius, radius]]) {
       const t = this.tileAt(x + dx, z + dz);
