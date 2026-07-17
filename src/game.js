@@ -1899,6 +1899,13 @@ export class Game {
         pm.x = pm.mesh.position.x; pm.z = pm.mesh.position.z;
         if (!pDone) this._npcFootstep(pm.x, pm.z, dt, '_stairHStep');
       }
+      // 948: near the top of the climb the hero rises to the 2nd-floor height
+      // (~3.0) so his head/hair pokes above the ceiling-less tavern walls (3.3)
+      // for a beat before the scene swaps - which read as "hair clipping through
+      // the floor at the top of the stairs". Fade to black over that last
+      // stretch so the poke + the interior swap are hidden; the upstairs load
+      // fades back in.
+      if (!sc._fading && p.pos.y > 1.6) { sc._fading = true; this._quickFade(true); }
       if (pDone) {
         // reached the top of the flight -> transition upstairs.
         const solo = sc.solo;
@@ -1912,8 +1919,24 @@ export class Game {
         } else {
           this._enterRosalindRoomUpstairs();
         }
+        this._quickFade(false); // fade back in on the upstairs floor
       }
     }
+  }
+
+  // 948: a fast black fade used to hide the top-of-stairs transition (the hero
+  // momentarily pokes above the ceiling-less tavern walls as he reaches the
+  // 2nd-floor height). toBlack=true fades to black; false fades back to clear.
+  _quickFade(toBlack) {
+    let ov = document.getElementById('stair-fade');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'stair-fade';
+      ov.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;z-index:9997;transition:opacity 0.3s ease;pointer-events:none;';
+      document.body.appendChild(ov);
+    }
+    if (toBlack) { ov.style.opacity = '1'; }
+    else { ov.style.opacity = '1'; requestAnimationFrame(() => requestAnimationFrame(() => { ov.style.opacity = '0'; })); }
   }
 
   // Plain 'Head upstairs' button (928): walk the player UP the flight on foot
