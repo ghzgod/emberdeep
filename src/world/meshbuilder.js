@@ -2377,10 +2377,12 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       mkWindow(frontWin1X, frontZ + 0.01, 0);
       mkWindow(frontWin2X, frontZ + 0.01, 0);
       const sideZ = sideSpan * 0.45;
-      // halfW is now the procedural shell's EXACT wall plane (the inn.glb
-      // bbox guesswork is retired, Obsidian 715), so side windows sit flush
-      // ON the wall - a hair proud of it so they can't z-fight the plaster.
-      const sideInset = halfW + 0.01;
+      // 950/950b: the side windows were only +0.01 proud of the wall plane, so
+      // they Z-FOUGHT the plaster and the wall won at any real camera distance -
+      // the side walls read as BARE ("no windows on the side", user image 169),
+      // while the front windows (which sit ~0.3 proud) showed fine. Push the
+      // side windows a clear 0.16 proud so they always render on the wall.
+      const sideInset = halfW + 0.16;
       mkWindow(-sideInset, -sideZ, -Math.PI / 2);
       mkWindow(-sideInset, sideZ, -Math.PI / 2);
       mkWindow(sideInset, -sideZ, Math.PI / 2);
