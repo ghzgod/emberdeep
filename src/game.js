@@ -767,6 +767,22 @@ export class Game {
       // the live pmEntry, so this only matters on a true rebuild / save-reload).
       const rosalind = (this.dungeonMeshes.patronMeshes || []).find((p) => p.flirty);
       if (rosalind && (this._npcMem?.rosalind || []).some((f) => /adventurer is called/i.test(f))) rosalind._knowsName = true;
+      // 929a: she must NOT teleport downstairs. If you left her upstairs, she's
+      // absent from the tavern floor (hidden + non-interactable) and only "comes
+      // down" on her own after a while, so it reads as her walking down later
+      // rather than blinking in at the bar the instant you descend.
+      if (rosalind && this._rosalindUpstairs) {
+        rosalind._away = true;
+        if (rosalind.mesh) rosalind.mesh.visible = false;
+        clearTimeout(this._rosalindReturnTimer);
+        this._rosalindReturnTimer = setTimeout(() => {
+          if (!this.inTavern || this.inUpstairs) return;
+          const rp = (this.dungeonMeshes?.patronMeshes || []).find((p) => p.flirty);
+          if (rp) { rp._away = false; if (rp.mesh) rp.mesh.visible = true; }
+          this._rosalindUpstairs = false;
+          this.ui.floaters?.spawn({ x: rp?.x ?? 25, y: 1.6, z: rp?.z ?? 10 }, '🚪 Rosalind comes back down', 'crit');
+        }, 75000 + Math.random() * 45000); // 75-120s later she's back at the bar
+      }
     }
     // The REAL town outside the windows (Obsidian 852): Embervale is fully
     // deterministic (fixed seed), so build the actual town meshes around the
@@ -1953,6 +1969,7 @@ export class Game {
   _enterRosalindRoomUpstairs() {
     this.loadTavernUpstairs();
     this._sceneLock = true;
+    this._rosalindUpstairs = true; // 929a: she's up here now - not downstairs
     this.camZoom = 0.85; this._yawManualT = 0; // release the stair camera latch
     const bp = this.dungeonMeshes.rosalindBedPos || { x: 21.4, z: 20.5 };
     const npc = buildNpcModel('mage', 'Rosalind', {
@@ -6600,7 +6617,7 @@ export class Game {
           // No re-interact prompt mid-conversation (878): while her turn is in
           // flight (thinking pill up / choices pending) the pill would offer
           // "Chat up Rosalind" AGAIN over the active conversation.
-          if (this._flirtActive === pm || this.ui._flirtPm === pm) continue;
+          if (this._flirtActive === pm || this.ui._flirtPm === pm || pm._away) continue; // 929a: hidden = not here
           if (near(pm.x, pm.z, 1.8)) {
             candidate = pm.flirty
               ? { label: `Chat up ${pm.name || 'her'}`, icon: '💋', talk: true, action: () => this.flirtChat(pm) }
@@ -6673,7 +6690,7 @@ export class Game {
       add(candidate);
       const talkBlocked = this.npcSpeechActive();
       for (const pm of this.dungeonMeshes.patronMeshes || []) {
-        if (this._flirtActive === pm || this.ui._flirtPm === pm || talkBlocked) continue;
+        if (this._flirtActive === pm || this.ui._flirtPm === pm || talkBlocked || pm._away) continue;
         if (Math.hypot(pm.x - this.player.pos.x, pm.z - this.player.pos.z) > 2.2) continue;
         add(pm.flirty
           ? { label: `Chat up ${pm.name || 'her'}`, icon: '💋', talk: true, action: () => this.flirtChat(pm) }
