@@ -1636,7 +1636,7 @@ export function generateTavernUpstairs() {
 
 // a real doorway: two jambs + lintel with an open plank leaf hinged at one side
 // (Obsidian 831). Sits in an east-west wall, the leaf swung into the hallway.
-function makeUpstairsDoor(cx, cz, darkWood, plankMat) {
+function makeUpstairsDoor(cx, cz, darkWood, plankMat, north) {
   const g = new THREE.Group();
   const doorH = 2.2;
   for (const jx of [-1.0, 1.0]) {
@@ -1652,7 +1652,13 @@ function makeUpstairsDoor(cx, cz, darkWood, plankMat) {
   const handle = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8),
     new THREE.MeshStandardMaterial({ color: 0xcaa04a, metalness: 0.6, roughness: 0.4 }));
   handle.position.set(1.55, (doorH - 0.12) / 2, 0.06); hinge.add(handle);
-  hinge.rotation.y = -1.05; // swung ajar into the hall
+  // 938: doors open INWARD (into the bedroom), not out into the hallway - the
+  // old -1.05 swung the leaf into the central hall where you'd walk through it.
+  // Rows increase with +z, so north rooms sit at -z of the hall and south rooms
+  // at +z; a +z swing (-1.05) goes into the room for SOUTH rooms and into the
+  // hall for NORTH rooms, so flip the sign for north. Swung wide (~78 deg) so
+  // the leaf tucks alongside the room wall, clear of both the doorway and hall.
+  hinge.rotation.y = north ? 1.36 : -1.36;
   g.add(hinge);
   g.position.set(cx, 0, cz);
   return g;
@@ -1794,7 +1800,7 @@ export function buildTavernUpstairsInterior() {
     chest.position.set(r.cxW + 3.4, 0.3, bedZ); group.add(chest);
     // real door seated in the wall opening
     const dw = tileToWorld(r.doorX, r.doorRow);
-    group.add(makeUpstairsDoor(dw.x, dw.z, darkWood, plankMat));
+    group.add(makeUpstairsDoor(dw.x, dw.z, darkWood, plankMat, north));
     // corded hanging lantern above the room
     makeHangingLantern(r.cxW, r.czW, group, darkWood);
     if (fancy) {
