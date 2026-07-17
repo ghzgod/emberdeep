@@ -855,6 +855,7 @@ export class Game {
       // tavern tick for the whole stay - it only walks the surround group's
       // direct children, so it's cheap.
       this._cullTavernOutside = cullOutside;
+      this._tavernLoadedAt = performance.now(); // 953: gate the every-frame cull window
       for (const ms of [1000, 2000, 3500]) setTimeout(cullOutside, ms);
     } catch { this._tavernOutside = null; this._cullTavernOutside = null; /* windows fall back to their diorama */ }
     this.openedDoors = new Set();
@@ -6966,7 +6967,14 @@ export class Game {
     // can land inside the tavern volume at ANY time, so keep culling for the
     // whole stay instead of only during the first seconds after load.
     if (this.inTavern && !this.inUpstairs && this._cullTavernOutside && performance.now() > (this._cullNextAt || 0)) {
-      this._cullNextAt = performance.now() + 2500;
+      // 953: the exterior tavern ROOF (and nature props) stream in from async
+      // GLB loads over the first few seconds, AFTER the initial cull pass - so
+      // a late roof mesh flashed over the ceiling-less interior for a beat (the
+      // "snapshot of the roof on load" glitch). Cull EVERY FRAME during that
+      // streaming window so a just-arrived roof is hidden within one frame,
+      // then relax to the cheap 2.5s steady-state sweep for the rest of the stay.
+      const streaming = (performance.now() - (this._tavernLoadedAt || 0)) < 4000;
+      this._cullNextAt = performance.now() + (streaming ? 0 : 2500);
       this._cullTavernOutside();
     }
 
