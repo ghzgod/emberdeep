@@ -332,7 +332,7 @@ export class Game {
     // candidate poll).
     window.addEventListener('pointerdown', (e) => {
       if (this.state !== 'playing' || !this.interactable) return;
-      if (e.target && e.target.closest && e.target.closest('#interact-prompt')) return;
+      if (e.target && e.target.closest && e.target.closest('#interact-prompt, #interact-multi')) return;
       this._interactDismissed = this.interactable.label;
       this.setInteractable(null);
     }, { capture: true });
@@ -5370,6 +5370,12 @@ export class Game {
     // Enter opens chat input in multiplayer
     if (net.active && input.wasPressed('Enter')) { this.ui.openChatInput(); return; }
     if (input.wasPressed(this.settings.keybinds.interact)) { this.doInteract(); return; }
+    // 946: number keys pick the 2nd/3rd/4th option of a multi-option prompt
+    if (this.interactables && this.interactables.length > 1) {
+      for (let i = 1; i < Math.min(4, this.interactables.length); i++) {
+        if (input.wasPressed(`Digit${i + 1}`)) { this.doInteractIndex(i); return; }
+      }
+    }
     if (input.wasPressed('Escape')) { this.togglePause(true); return; }
 
     // ---- systems ----
@@ -6436,7 +6442,49 @@ export class Game {
     if (candidate && candidate.label === this._interactDismissed) candidate = null;
     else if (!candidate || candidate.label !== this._interactDismissed) this._interactDismissed = null;
 
-    this.setInteractable(candidate);
+    // 946/908c/917c: when the primary action is SOCIAL (sit / talk an NPC),
+    // surface EVERY nearby social option at once - Sit + Talk NPC1 + Talk NPC2 -
+    // instead of one-at-a-time. Non-social exclusives (portal/stairs/sleep/lie-
+    // down/couch) stay a single priority prompt. Ground-floor tavern only.
+    let interactOptions = null;
+    if (candidate && this.inTavern && !this.inUpstairs && /Talk to|Chat|Nudge|^Sit /.test(candidate.label)) {
+      const opts = [], seen = new Set();
+      const add = (o) => { if (o && !seen.has(o.label)) { seen.add(o.label); opts.push(o); } };
+      add(candidate);
+      const talkBlocked = this.npcSpeechActive();
+      for (const pm of this.dungeonMeshes.patronMeshes || []) {
+        if (this._flirtActive === pm || this.ui._flirtPm === pm || talkBlocked) continue;
+        if (Math.hypot(pm.x - this.player.pos.x, pm.z - this.player.pos.z) > 2.2) continue;
+        add(pm.flirty
+          ? { label: `Chat up ${pm.name || 'her'}`, icon: '💋', talk: true, action: () => this.flirtChat(pm) }
+          : { label: pm.drunk ? 'Nudge the drunk' : (pm.name ? `Talk to ${pm.name}` : 'Chat with the patron'), icon: '💬', talk: true, action: () => this.patronChat(pm) });
+      }
+      if (!talkBlocked && this.dungeonMeshes.barkeepPos && Math.hypot(this.dungeonMeshes.barkeepPos.x - this.player.pos.x, this.dungeonMeshes.barkeepPos.z - this.player.pos.z) < 3.8) {
+        add({ label: 'Talk to Magda', icon: '🍺', talk: true, action: () => this.barkeepChat() });
+      }
+      if (!this.seatedAt && performance.now() >= (this._seatCd || 0) && this.dungeonMeshes.seats) {
+        let best = null, bestD = 1.4;
+        for (const s of this.dungeonMeshes.seats) {
+          const d = Math.hypot(s.x - this.player.pos.x, s.z - this.player.pos.z);
+          if (d < bestD && !(this.dungeonMeshes.patronMeshes || []).some((pm) => Math.hypot(pm.x - s.x, pm.z - s.z) < 0.7)) { best = s; bestD = d; }
+        }
+        if (best) add({ label: best.kind === 'bar' ? 'Sit at the bar' : 'Sit down', icon: '🪑', action: () => {
+          if (performance.now() < (this._seatCd || 0)) return;
+          this.seatedAt = best; this._seatCd = performance.now() + 600;
+          this.player.pos.x = best.x; this.player.pos.z = best.z; audio.play('ui_click', { volume: 0.5 });
+        } });
+      }
+      if (opts.length >= 2) interactOptions = opts.slice(0, 4);
+    }
+
+    if (interactOptions) {
+      this.interactables = interactOptions;
+      this.interactable = interactOptions[0];
+      this.ui.showInteractMulti(interactOptions);
+    } else {
+      this.interactables = candidate ? [candidate] : null;
+      this.setInteractable(candidate);
+    }
     if (this.wanderer && this.inTown && !this.inTavern) this.wanderer.update(dt, this);
     if (this.inTown && !this.inTavern) this.updateVendors(dt);
 
@@ -7012,7 +7060,8 @@ export class Game {
 
   setInteractable(candidate) {
     this.interactable = candidate;
-    this.ui.showInteract(candidate);
+    if (!candidate) this.interactables = null;
+    this.ui.showInteract(candidate); // also hides the multi stack (946)
   }
 
   doInteract() {
@@ -7021,6 +7070,16 @@ export class Game {
       this.setInteractable(null);
       act();
     }
+  }
+
+  // 946: fire the Nth option of a multi-option interact prompt (keys 1/2/3 or a
+  // tap on that pill). Index 0 is the same as the F-key doInteract().
+  doInteractIndex(i) {
+    if (this.state !== 'playing') return;
+    const opt = this.interactables && this.interactables[i];
+    if (!opt) return;
+    this.setInteractable(null);
+    opt.action();
   }
 
   // ---------------- network ticks ----------------

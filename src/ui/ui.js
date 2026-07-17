@@ -1853,6 +1853,8 @@ export class UI {
   }
 
   showInteract(candidate) {
+    const multi = $('interact-multi');
+    if (multi) multi.classList.add('hidden'); // single prompt hides the 946 stack
     const el = $('interact-prompt');
     if (!candidate) { el.classList.add('hidden'); return; }
     // while an NPC line (subtitle) is up, don't stack the prompt behind it
@@ -1861,6 +1863,34 @@ export class UI {
     // touch devices (the whole pill is tappable there).
     const hint = isTouchDevice() ? 'Tap' : 'F';
     el.innerHTML = `${candidate.icon} ${candidate.label} <span class="key-chip">${hint}</span>`;
+    el.classList.remove('hidden');
+  }
+
+  // 946: a vertical stack of interact pills when several social options are in
+  // reach at once (Sit + Talk NPC1 + Talk NPC2). The first is the F-key / index-0
+  // action (same as the single prompt); the rest show 2/3/4 on desktop, all
+  // tappable on touch. Rebuilt only when the option labels actually change so
+  // per-frame polling doesn't thrash the DOM (and taps stay reliable).
+  showInteractMulti(options) {
+    const single = $('interact-prompt');
+    if (single) single.classList.add('hidden');
+    const el = $('interact-multi');
+    if (!el) return;
+    if (!$('subtitle').classList.contains('hidden')) { el.classList.add('hidden'); return; }
+    const sig = options.map((o) => o.label).join('|');
+    if (el._sig !== sig) {
+      el._sig = sig;
+      const touch = isTouchDevice();
+      el.innerHTML = '';
+      options.forEach((o, i) => {
+        const b = document.createElement('button');
+        b.className = 'interact-opt';
+        const chip = touch ? 'Tap' : (i === 0 ? 'F' : String(i + 1));
+        b.innerHTML = `${o.icon} ${o.label} <span class="key-chip">${chip}</span>`;
+        b.onclick = () => this.game.doInteractIndex(i);
+        el.appendChild(b);
+      });
+    }
     el.classList.remove('hidden');
   }
 

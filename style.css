@@ -765,6 +765,28 @@ body.touch-mode #interact-prompt { bottom: 44px; } /* low + centered, in line wi
   border-radius: 5px; padding: 1px 8px; margin-left: 8px; font-size: 12px; color: var(--gold);
 }
 @keyframes prompt-pulse { 0%, 100% { box-shadow: 0 4px 18px rgba(0,0,0,0.6), 0 0 8px rgba(232,192,90,0.15); } 50% { box-shadow: 0 4px 18px rgba(0,0,0,0.6), 0 0 18px rgba(232,192,90,0.4); } }
+/* 946: stacked multi-option interact prompt - a vertical column of pills sharing
+   the single prompt's low-centered anchor and pill styling. */
+#interact-multi {
+  position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column-reverse; align-items: center; gap: 7px;
+  pointer-events: none; z-index: 14;
+}
+body.touch-mode #interact-multi { bottom: 44px; }
+#interact-multi .interact-opt {
+  pointer-events: auto; cursor: pointer; font-family: inherit;
+  font-size: 15px; color: var(--parchment); padding: 9px 20px;
+  background: rgba(20, 14, 28, 0.92); border: 1px solid var(--gold); border-radius: 22px;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.6), 0 0 10px rgba(232,192,90,0.18);
+  white-space: nowrap;
+}
+/* the primary (first, F-key) option glows a touch brighter so it reads as the
+   default action */
+#interact-multi .interact-opt:first-child { border-color: var(--gold); animation: prompt-pulse 1.6s ease-in-out infinite; }
+#interact-multi .interact-opt .key-chip {
+  display: inline-block; background: #241a30; border: 1px solid var(--panel-border);
+  border-radius: 5px; padding: 1px 8px; margin-left: 8px; font-size: 12px; color: var(--gold);
+}
 /* On touch devices the chip reads "Tap" instead of a key (set in showInteract),
    so it stays visible - the pill itself is the button. */
 
