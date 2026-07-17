@@ -69,9 +69,13 @@ export function buildNpcModel(classId, name, opts = {}) {
       // setLocomotion takes 0..1; town NPCs amble at ~0.6 u/s, so /3 maps a
       // full amble to ~0.2 - clearly walking, without a sprint timescale.
       const s01 = Math.min(1, speed / 3);
-      if (hero.anim) hero.anim.setLocomotion(s01, dt, false);
+      // THE gliding bug (finally): buildAnimatedHero returns setLocomotion
+      // DIRECTLY on `hero` (not hero.anim), so the old `if (hero.anim)` guard
+      // was ALWAYS false and setLocomotion was NEVER called - every NPC stayed
+      // frozen on the idle clip while moving (walk clip isRunning=false, verified).
+      // Calling it directly switches the rig into its real WALK clip.
+      hero.setLocomotion(s01, dt, false);
       this.mixer.update(dt);
-      if (hero.gait) hero.gait(dt, s01, false);
     },
     // Cheap eyes-on-you: slerp the head bone a little toward a world point,
     // composed on top of the idle clip (same approach as enemyModel's
