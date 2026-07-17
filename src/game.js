@@ -1650,6 +1650,42 @@ export class Game {
     this._seatCd = performance.now() + 500;
   }
 
+  // 973: inside the tavern the hero SHEATHES their weapon on their back rather
+  // than brandishing it in hand - you don't walk into a social house waving a
+  // sword. Reparents the held blade from the hand-slot bone onto the SPINE bone
+  // in a back-slung pose (hilt over the shoulder, blade down the back), and
+  // restores it to the hand on leaving. Idempotent: re-calling with the same
+  // state is a no-op, so it's safe to drive every frame.
+  _setTavernSheathe(on) {
+    const p = this.player;
+    if (!p?.mesh) return;
+    if (on) {
+      if (this._sheathedWeapon) return;
+      let sword = null, spine = null;
+      p.mesh.traverse((o) => {
+        if (!spine && o.isBone && /^spine$/i.test(o.name || '')) spine = o;
+        if (!sword && o.isMesh && o.visible
+          && /1H_|2H_|sword|axe|mace|hammer|dagger|blade|spear|scythe|club/i.test(o.name || '')
+          && !/shield/i.test(o.name || '')) sword = o;
+      });
+      if (!sword || !spine) return;
+      this._sheathedWeapon = {
+        obj: sword, parent: sword.parent,
+        pos: sword.position.clone(), quat: sword.quaternion.clone(), scale: sword.scale.clone(),
+      };
+      p.mesh.updateMatrixWorld(true);
+      spine.add(sword);
+      sword.position.set(0.0, 0.30, -0.17); // upper back, behind the torso
+      sword.rotation.set(0.42, 0.0, -0.5);   // laid flat, hilt up over the shoulder
+    } else {
+      const s = this._sheathedWeapon;
+      if (!s) return;
+      s.parent.add(s.obj);
+      s.obj.position.copy(s.pos); s.obj.quaternion.copy(s.quat); s.obj.scale.copy(s.scale);
+      this._sheathedWeapon = null;
+    }
+  }
+
   // If the camera is zoomed right in, ease it back out when a conversation
   // starts so the speech bubble over the NPC's head is actually readable (858).
   _conversationZoom() {
@@ -7159,6 +7195,10 @@ export class Game {
         for (const o of this._lyWeaponHidden) o.visible = false;
       }
     }
+
+    // 973: keep the weapon slung on the back the whole time you're inside the
+    // tavern (incl. upstairs), drawn again the moment you step back outside.
+    this._setTavernSheathe(!!this.inTavern);
 
     // Seated on the fireside couch (716): pin to the seat, face the fire,
     // perch at cushion height; ANY movement input stands back up (stepping
