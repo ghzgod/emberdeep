@@ -47,34 +47,52 @@ export class Floaters {
     if (this._think) { this._think.el.remove(); this._think = null; }
   }
 
-  // Comic-style speech bubble ABOVE the speaker's head (Obsidian 780),
-  // replacing the fixed bottom subtitle bar for world NPCs. anchor is a LIVE
-  // position object (re-read every frame) so the bubble follows a moving
-  // speaker. Auto-expires after durationMs. One bubble at a time (speech is
-  // single-voice), so a new line supersedes the old.
+  // Comic-style speech bubble ABOVE the speaker's head (Obsidian 780). anchor is
+  // a LIVE position object (re-read every frame) so the bubble follows a moving
+  // speaker. MULTIPLE bubbles at once (921): keyed by the anchor object, so two
+  // different NPCs speaking around the same time each get their OWN bubble on
+  // their own timeline - a second speaker no longer erases the first. Re-calling
+  // with the same anchor updates that speaker's bubble in place (used by the
+  // linger extension in roaster.onEnd, 906). Capped so it can't clutter.
   showSpeech(anchor, speaker, text, durationMs = 4200) {
     if (!anchor) return;
-    if (!this._speech) {
+    if (!this._speeches) this._speeches = new Map();
+    let s = this._speeches.get(anchor);
+    if (!s) {
+      // cap simultaneous bubbles - evict the oldest if we're at the limit
+      if (this._speeches.size >= 4) {
+        let oldestK = null, oldestU = Infinity;
+        for (const [k, v] of this._speeches) if (v.until < oldestU) { oldestU = v.until; oldestK = k; }
+        if (oldestK) { this._speeches.get(oldestK).el.remove(); this._speeches.delete(oldestK); }
+      }
       const el = document.createElement('div');
       el.className = 'floater speech-bubble';
       el.innerHTML = '<span class="sb-speaker"></span><span class="sb-text"></span>';
       this.container.appendChild(el);
-      this._speech = { el, sp: el.querySelector('.sb-speaker'), tx: el.querySelector('.sb-text') };
+      s = { el, sp: el.querySelector('.sb-speaker'), tx: el.querySelector('.sb-text'), anchor };
+      this._speeches.set(anchor, s);
     }
-    this._speech.anchor = anchor;
-    this._speech.sp.textContent = speaker || '';
-    this._speech.tx.textContent = text || '';
-    this._speech.until = (this._now || 0) + durationMs / 1000;
-    this._speech.el.classList.remove('fading');
-    this.placeSpeech();
+    s.anchor = anchor;
+    s.sp.textContent = speaker || '';
+    s.tx.textContent = text || '';
+    s.until = (this._now || 0) + durationMs / 1000;
+    s.el.classList.remove('fading');
+    this.placeSpeech(s);
   }
 
-  hideSpeech() {
-    if (this._speech) { this._speech.el.remove(); this._speech = null; }
+  // hide one speaker's bubble (pass its anchor) or ALL of them (no arg).
+  hideSpeech(anchor) {
+    if (!this._speeches) return;
+    if (anchor) {
+      const s = this._speeches.get(anchor);
+      if (s) { s.el.remove(); this._speeches.delete(anchor); }
+    } else {
+      for (const s of this._speeches.values()) s.el.remove();
+      this._speeches.clear();
+    }
   }
 
-  placeSpeech() {
-    const s = this._speech;
+  placeSpeech(s) {
     if (!s || !s.anchor) return;
     // ~2.4 units above the anchor origin - clears the head and any hat
     this._v.set(s.anchor.x, (s.anchor.y ?? 0) + 2.4, s.anchor.z).project(this.camera);
@@ -176,11 +194,17 @@ export class Floaters {
     // The "speaking soon" pill's dots pulse via CSS keyframes (staggered
     // delays); just keep it pinned to its world anchor as the camera moves.
     if (this._think) this.placeThink();
-    // Speech bubble (780): track the head, expire after its duration.
+    // Speech bubbles (780/921): each speaker's bubble tracks its own head and
+    // expires on its OWN timeline (a fade in the last second), independent of
+    // the others - so two NPCs can talk at once and neither erases the other.
     this._now = (this._now || 0) + dt;
-    if (this._speech) {
-      if (this._now >= this._speech.until) this.hideSpeech();
-      else this.placeSpeech();
+    if (this._speeches) {
+      for (const [k, s] of this._speeches) {
+        const left = s.until - this._now;
+        if (left <= 0) { s.el.remove(); this._speeches.delete(k); continue; }
+        s.el.style.opacity = left < FADE ? (left / FADE).toFixed(2) : '';
+        this.placeSpeech(s);
+      }
     }
   }
 
