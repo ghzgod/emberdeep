@@ -1345,6 +1345,15 @@ h4.tt-legendary { color: var(--r-legendary); text-shadow: 1px 1px 2px #000, 0 0 
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
   font-size: 16px; flex-wrap: wrap; min-height: 44px;
 }
+/* character-name row (935): text field grows, Rename button stays compact */
+.name-edit { display: flex; align-items: center; gap: 8px; }
+.name-edit input {
+  width: 150px; min-height: 40px; padding: 4px 10px; box-sizing: border-box;
+  font-family: inherit; font-size: 15px; color: #f2e6c8;
+  background: #241a2e; border: 2px solid var(--panel-brown); border-radius: 5px;
+}
+.name-edit input:focus { outline: none; border-color: #caa04a; }
+.name-edit button.menu-btn.small { min-width: 0; padding: 6px 14px; }
 /* standalone action buttons sit centered at a consistent control height,
    instead of stretching edge-to-edge between label rows */
 .settings-rows > button.menu-btn { align-self: center; min-width: 260px; min-height: 44px; }
