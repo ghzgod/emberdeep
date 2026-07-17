@@ -6724,6 +6724,13 @@ export class Game {
             candidate = { label: 'Lie down', icon: '🛏️', action: () => {
               this._lyingBed = bp;
               audio.play('ui_click', { volume: 0.5 });
+              // 967: lying down is a CHOICE, never an auto-sleep. Offer both
+              // "sleep till morning" and "get up" right away so resting in a
+              // bed never fades you out against your will.
+              this.ui.showChoiceMenu('You lie back on the bed.', [
+                { label: '😴 Sleep till morning', act: () => this.sleepUntilMorning() },
+                { label: '🛏️ Get up', act: () => this._standFromBed() },
+              ]);
             } };
             break;
           }
