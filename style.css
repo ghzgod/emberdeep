@@ -765,6 +765,20 @@ body.touch-mode #interact-prompt { bottom: 44px; } /* low + centered, in line wi
   border-radius: 5px; padding: 1px 8px; margin-left: 8px; font-size: 12px; color: var(--gold);
 }
 @keyframes prompt-pulse { 0%, 100% { box-shadow: 0 4px 18px rgba(0,0,0,0.6), 0 0 8px rgba(232,192,90,0.15); } 50% { box-shadow: 0 4px 18px rgba(0,0,0,0.6), 0 0 18px rgba(232,192,90,0.4); } }
+/* 925: centered bedroom choice menu */
+#choice-menu {
+  position: fixed; inset: 0; z-index: 9998; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.55);
+}
+#choice-menu.hidden { display: none; }
+#choice-card {
+  background: var(--panel-grad); border: 2px solid var(--panel-brown); outline: 1px solid #000;
+  border-radius: 8px; box-shadow: var(--panel-shadows); padding: 20px 22px; min-width: 260px; max-width: 86vw;
+  text-align: center;
+}
+#choice-card h3 { margin: 0 0 14px; color: #ff9ac0; font-size: 17px; letter-spacing: 0.5px; text-shadow: 1px 1px 2px #000; }
+#choice-btns { display: flex; flex-direction: column; gap: 9px; }
+#choice-btns .choice-opt { min-height: 44px; font-size: 15px; }
 /* 946: stacked multi-option interact prompt - a vertical column of pills sharing
    the single prompt's low-centered anchor and pill styling. */
 #interact-multi {
