@@ -609,6 +609,15 @@ export function buildTavernInterior() {
         const BODY = 0.78;
         const heroBlock = nearestHero(keeper, 6);
         const wouldHit = (nx, nz) => heroBlock && Math.hypot(nx - heroBlock.x, nz - heroBlock.z) < BODY;
+        // 902: the served ale DRAINS over ~40s as the patron drinks it - the mug
+        // shrinks from full toward the dregs and its base stays on the table, so
+        // the round reads as actually being consumed rather than a static prop.
+        // A fresh full mug + pour cue on each visit is the "another?" loop.
+        if (st.servedMug) {
+          st.mugFill = Math.max(0.14, (st.mugFill == null ? 1 : st.mugFill) - dt / 40);
+          st.servedMug.scale.y = st.mugFill;
+          st.servedMug.position.y = 0.955 + 0.065 * st.mugFill; // base pinned to the table top
+        }
         if (st.mode === 'bar') {
           if (now >= st.nextVisitAt) { st.mode = 'toTable'; st.wp = 0; st.nextVisitAt = Infinity; }
           else {
@@ -661,7 +670,7 @@ export function buildTavernInterior() {
                     new THREE.CylinderGeometry(0.07, 0.07, 0.13, 8),
                     new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.4, roughness: 0.5 }));
                   mug.position.set(visitTable.x, 1.02, visitTable.z);
-                  group.add(mug); st.servedMug = mug;
+                  group.add(mug); st.servedMug = mug; st.mugFill = 1; // fresh full round (902)
                 }
               } else {
                 st.mode = 'bar'; st.paceTarget = randPace(); st.waitT = 2 + Math.random() * 2;
