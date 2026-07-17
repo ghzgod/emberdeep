@@ -732,12 +732,13 @@ export function buildTavernInterior() {
   // inside the wall as they were before.
   const shelfZ = 2.04;
   const shelfW = 8 * TILE;
-  // Raised 0.7 units from the original [1.32, 1.74, 2.16] (same spacing, so
-  // stock items keep their clearance from the shelf above): Magda's modeled
-  // body + the duckboard boost put her head at ~1.84, which the bottom two
-  // rows used to slice straight through from the overhead camera (user
-  // report). All three boards now clear y=2.0.
-  const shelfYs = [2.02, 2.44, 2.86];
+  // 971: lowered 0.3 back toward reachable height (from [2.02,2.44,2.86]) so the
+  // shelves read as something Magda can actually take a bottle from / set one
+  // back on, not a display rail above her reach. The bottom board sits at 1.72 -
+  // still just BELOW her ~1.84 head so it doesn't reslice her from the overhead
+  // camera (the reason 720 raised them), but low enough that her restock reach
+  // lands on it.
+  const shelfYs = [1.72, 2.14, 2.56];
   for (const sy of shelfYs) {
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(shelfW, 0.07, 0.28), boardMat);
     shelf.position.set(barCenter.x + TILE / 2, sy, shelfZ);
