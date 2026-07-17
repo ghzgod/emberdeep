@@ -746,7 +746,8 @@ export class Game {
     this.inTavern = true;
     this.inUpstairs = false;
     if (this._lyingBed) { this._lyingBed = null; if (this.player?.mesh) this.player.mesh.rotation.x = 0; }
-    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._roomRosalind = null; this._rosalindInBed = false; this._tavernVendorNpc = null; // cancel any in-flight walk/climb (873/923/928)
+    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._descendScene = null; this._roomRosalind = null; this._rosalindInBed = false; this._tavernVendorNpc = null; // cancel any in-flight walk/climb (873/923/928/972)
+    this._slideMug = null; // drop any in-flight bar drink (957) - its mesh dies with the torn-down group
     this._sceneLock = false;  // re-arm the stuck-failsafe off the scripted floor (874)
     this._stopFadeAudio?.();  // stop the lights-out audio if the player bails mid-scene (881)
     if (resume) {
@@ -1393,8 +1394,21 @@ export class Game {
   }
 
   // ---------------- tavern folk + notice board ----------------
+  // 957: Magda's voice, reused by every barkeep line.
+  _magdaSay(line, dur = 3800) {
+    const b = this.dungeonMeshes.barkeepPos;
+    if (this.dungeonMeshes.talkGate) this.dungeonMeshes.talkGate.magdaUntil = performance.now() + 7000;
+    roaster.sayGated(this, 'Magda the Barkeep', line,
+      { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, b, { priority: true, durationMs: dur });
+  }
+
   barkeepChat() {
     this._conversationZoom();
+    // 957: sitting AT THE BAR (not just standing nearby) turns "Talk to Magda"
+    // into actual bar service - a welcome + a drink menu she pours and slides
+    // to you - instead of the generic gossip line ("welcome, sit by the fire"
+    // while you're plainly on a bar stool). Standing patrons still get gossip.
+    if (this.seatedAt && this.seatedAt.kind === 'bar') { this._barDrinkService(); return; }
     const p = this.player;
     const n = this.playerName();
     const bodies = [];
@@ -1417,6 +1431,84 @@ export class Game {
     // the sober patron/af_sarah, or any enemy/boss cast in roaster.js).
     roaster.sayGated(this, 'Magda the Barkeep', line,
       { female: true, vi: 3, pitch: 1.15, rate: 0.95, kokoro: 'af_kore', kSpeed: 0.95 }, b, { priority: true });
+  }
+
+  // 957: bar service. Magda welcomes you and offers a drink menu; picking one
+  // has her call it back, then a mug slides down the counter to your seat and
+  // you drink it (a small hearth-warm heal). Declining is fine too.
+  _barDrinkService() {
+    this._magdaSay(this._pick([
+      'Welcome, love. What\'ll you have?',
+      'Evening. What can I pour you?',
+      'Sit yourself down. What\'ll it be?',
+    ]));
+    if (this._slideMug) return; // a drink's already on its way
+    const drinks = [
+      { label: '🍺 Honeyed ale', name: 'honeyed ale' },
+      { label: '🍺 Dark stout', name: 'dark stout' },
+      { label: '🍏 Spiced cider', name: 'spiced cider' },
+      { label: '🍷 Elderberry wine', name: 'elderberry wine' },
+    ];
+    const opts = drinks.map((d) => ({ label: d.label, act: () => this._pourDrink(d.name) }));
+    opts.push({ label: '🚫 Nothing for me', act: () => this._magdaSay(this._pick(['Suit yourself, love.', 'Holler if you change your mind.'])) });
+    // show the menu only AFTER she's greeted you (853/848: choices follow speech)
+    setTimeout(() => { if (this.seatedAt && this.seatedAt.kind === 'bar') this.ui.showChoiceMenu('What\'ll you have?', opts); }, 950);
+  }
+
+  _pourDrink(name) {
+    const seat = this.seatedAt;
+    if (!seat) return;
+    const b = this.dungeonMeshes.barkeepPos;
+    this._magdaSay(this._pick([`One ${name}, coming up.`, `${name[0].toUpperCase() + name.slice(1)}, good choice.`, `Pouring you a ${name}.`]));
+    const isWine = /wine|cider/.test(name);
+    // build the mug/goblet at Magda's side of the counter
+    const mug = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: isWine ? 0x6a2a3a : 0x9a6a3a, roughness: 0.5, metalness: isWine ? 0.2 : 0 });
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.075, 0.2, 10), bodyMat);
+    cup.position.y = 0.1; mug.add(cup);
+    if (!isWine) { // ale foam + handle
+      const foam = new THREE.Mesh(new THREE.CylinderGeometry(0.092, 0.092, 0.04, 10), new THREE.MeshStandardMaterial({ color: 0xf3ead2, roughness: 1 }));
+      foam.position.y = 0.21; mug.add(foam);
+      const handle = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.018, 6, 10), bodyMat);
+      handle.position.set(0.1, 0.1, 0); handle.rotation.y = Math.PI / 2; mug.add(handle);
+    }
+    const counterY = 1.12;
+    const from = { x: b.x, z: b.z + 0.35 };                 // Magda's inside edge
+    const to = { x: seat.x, z: (seat.z + b.z) / 2 };        // on the counter in front of you
+    mug.position.set(from.x, counterY, from.z);
+    this.dungeonMeshes.group.add(mug);
+    this._slideMug = { mesh: mug, from, to, y: counterY, t: 0, dur: 0.8, name, phase: 'pour' };
+  }
+
+  // 957: per-frame driver for the sliding mug (called from the tavern tick).
+  _updateSlideMug(dt) {
+    const s = this._slideMug;
+    if (!s) return;
+    if (s.phase === 'pour') {
+      s.t += dt;
+      const k = Math.min(1, s.t / s.dur);
+      const e = k * k * (3 - 2 * k); // smoothstep
+      s.mesh.position.x = s.from.x + (s.to.x - s.from.x) * e;
+      s.mesh.position.z = s.from.z + (s.to.z - s.from.z) * e;
+      if (k === 1) {
+        s.phase = 'rest'; s.t = 0;
+        audio.play('ui_click', { volume: 0.4 });
+        this._magdaSay(this._pick(['There you are, love.', 'On the house tonight. Enjoy.', 'Careful, it\'s got a kick.']));
+      }
+    } else if (s.phase === 'rest') {
+      s.t += dt;
+      if (s.t > 2.6) { // you drink it down
+        s.phase = 'done';
+        const p = this.player;
+        if (p.hp < p.maxHp) { p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.08); this.ui.floaters?.spawn({ x: p.pos.x, y: 1.6, z: p.pos.z }, '+ warmth', 'crit'); }
+        this.ui.floaters?.spawn?.({ x: p.pos.x, y: 1.9, z: p.pos.z }, '*drinks it down*', 'player');
+        s.fade = 0;
+      }
+    } else if (s.phase === 'done') {
+      s.fade += dt;
+      s.mesh.traverse((o) => { if (o.material) { o.material.transparent = true; o.material.opacity = Math.max(0, 1 - s.fade / 0.8); } });
+      if (s.fade >= 0.8) { this.dungeonMeshes.group.remove(s.mesh); this._slideMug = null; }
+    }
   }
 
   patronChat(pm) {
@@ -7050,6 +7142,7 @@ export class Game {
     if (this._stairScene) this._updateStairScene(dt);
     if (this._downStairScene) this._updateDownStairScene(dt); // walk DOWN (928)
     if (this._descendScene) this._updateDescendScene(dt); // 972: walk down the FIRST-FLOOR flight after arriving
+    if (this._slideMug) this._updateSlideMug(dt); // 957: Magda's drink sliding down the counter
 
     // Follow-upstairs walk (873): once upstairs, Rosalind LEADS the hero down
     // the hall to her room on foot (walk anim + footsteps for both), then the
