@@ -2084,7 +2084,17 @@ export class Game {
     p.scriptedSpeed = done ? 0 : (p.moveSpeed || 4);
     if (done) {
       this._downStairScene = null; p.scriptedSpeed = 0; p.pos.y = 0; this._sceneLock = false;
-      audio.play('door_open'); this.loadTavern();
+      audio.play('door_open');
+      this._quickFade(true); // hide the interior swap (like the up-climb)
+      this.loadTavern();
+      // 965: arrive at the walkable spot right at the FOOT of the up-stairs flight
+      // (not teleported to the tavern front door) - continues the walk-down. The
+      // stair tiles themselves are solid, so land on the clear floor just in front.
+      p.pos.set(29, 0, 21);
+      p.visualAngle = Math.PI / 2; // face into the room, off the stairs
+      this._stuckT = -0.6; // grace so the failsafe never ejects on the landing frame
+      this.camZoom = 0.85; this._yawManualT = 0;
+      this._quickFade(false);
     }
   }
 
