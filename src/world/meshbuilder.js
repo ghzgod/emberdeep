@@ -2558,6 +2558,52 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     // known and whose 7x5-tile footprint matches the interior's 4:3
     // perimeter as one tall story) IS the tavern now.
 
+    // 958: the tavern's namesake made real - a big STONE GOLEM asleep OUT BACK
+    // (north of the building, behind the door-facing south wall). Magda tells
+    // patrons "the sleeping golem's out back sleeping"; now it actually is.
+    // Built procedurally (blocky mossy stone, lying on its back, eyes shut) so
+    // it needs no async model load, with slow "breath" puffs drifting from its
+    // mouth (reusing the chimney-smoke animation channel) so it reads as alive.
+    {
+      const golem = new THREE.Group();
+      const stone = new THREE.MeshStandardMaterial({ color: 0x6d6f6a, roughness: 1 });
+      const moss = new THREE.MeshStandardMaterial({ color: 0x4a6b3a, roughness: 1 });
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.95, 3.0), stone); torso.position.y = 0.48;
+      const head = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.95, 1.05), stone); head.position.set(0, 0.52, -2.05);
+      golem.add(torso, head);
+      // closed eyes: two dark slits on the up-facing brow
+      const eyeGeo = new THREE.BoxGeometry(0.3, 0.05, 0.05);
+      const eyeMat = new THREE.MeshStandardMaterial({ color: 0x15140f, roughness: 1 });
+      const eL = new THREE.Mesh(eyeGeo, eyeMat); eL.position.set(-0.3, 0.99, -2.15);
+      const eR = eL.clone(); eR.position.x = 0.3; golem.add(eL, eR);
+      const armGeo = new THREE.BoxGeometry(0.6, 0.6, 2.2);
+      const aL = new THREE.Mesh(armGeo, stone); aL.position.set(-1.12, 0.34, 0.15);
+      const aR = aL.clone(); aR.position.x = 1.12; golem.add(aL, aR);
+      const legGeo = new THREE.BoxGeometry(0.62, 0.62, 1.7);
+      const lL = new THREE.Mesh(legGeo, stone); lL.position.set(-0.46, 0.33, 2.25);
+      const lR = lL.clone(); lR.position.x = 0.46; golem.add(lL, lR);
+      // moss reclaiming the long-sleeping stone
+      for (const [mx, my, mz, s] of [[-0.55, 0.96, -0.4, 0.55], [0.6, 0.96, 0.7, 0.6], [0.1, 1.0, 1.7, 0.5], [-0.7, 0.6, 1.4, 0.4]]) {
+        const patch = new THREE.Mesh(new THREE.BoxGeometry(s, 0.06, s * 0.8), moss);
+        patch.position.set(mx, my, mz); golem.add(patch);
+      }
+      const gx = 0.6, gz = -(D / 2 + 3.6); // just behind the north wall, off-centre
+      golem.position.set(gx, 0, gz); golem.rotation.y = 0.25;
+      tavern.add(golem);
+      if (smokePuffs) {
+        const breathGeo = new THREE.SphereGeometry(1, 6, 5);
+        for (let i = 0; i < 3; i++) {
+          const puff = new THREE.Mesh(breathGeo,
+            new THREE.MeshBasicMaterial({ color: 0xd2d8d2, transparent: true, opacity: 0.2 - i * 0.05 }));
+          puff.scale.setScalar(0.09 + i * 0.035);
+          const baseY = 1.0 + i * 0.22;
+          puff.position.set(gx, baseY, gz - 2.15); // above the shut mouth
+          tavern.add(puff);
+          smokePuffs.push({ mesh: puff, baseY, phase: (i / 3) * Math.PI * 2, speed: 0.16 + i * 0.03, kind: 'smoke' });
+        }
+      }
+    }
+
     tavern.position.set(cw.x, 0, cw.z);
     group.add(tavern);
   }
