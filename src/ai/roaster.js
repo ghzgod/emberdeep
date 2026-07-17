@@ -402,6 +402,78 @@ export class Roaster {
   // play through each speaker's own Kokoro voice; battery saver runs the
   // same conversation trees through the gendered Web Speech voices instead.
   composeTavernConvo() {
+    // 961/962: offline banter must not read as "recycled". We blend the
+    // hand-authored exchanges below with a COMBINATORIAL generator (topic
+    // templates x large slot banks = thousands of distinct exchanges) and
+    // keep a rolling no-repeat memory of recent opening lines, so the room
+    // almost never repeats itself without ever touching the LLM.
+    this._recentBanter = this._recentBanter || [];
+    const seen = (convo) => this._recentBanter.includes(convo[0].text);
+    let convo = null;
+    for (let tries = 0; tries < 5; tries++) {
+      const cand = Math.random() < 0.7 ? this._genTavernConvo() : this._cannedTavernConvo();
+      if (!seen(cand)) { convo = cand; break; }
+      convo = cand; // fall back to the last candidate if all recent
+    }
+    this._recentBanter.push(convo[0].text);
+    if (this._recentBanter.length > 40) this._recentBanter.shift();
+    return convo;
+  }
+
+  // 961: procedural table-talk. Each topic is a 3-turn template whose slots are
+  // filled from shared banks (creatures, places, townsfolk, goods, drinks...).
+  // Even one topic spans thousands of natural combinations, so the regulars
+  // gossip about fresh rumours every visit instead of a fixed loop.
+  _genTavernConvo() {
+    const P = this._pick.bind(this);
+    const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+    const CREAT = [
+      { p: 'imps', s: 'an imp' }, { p: 'goblins', s: 'a goblin' }, { p: 'kobolds', s: 'a kobold' },
+      { p: 'gnolls', s: 'a gnoll' }, { p: 'bog-hags', s: 'a bog-hag' }, { p: 'cave-bats', s: 'a cave-bat' },
+      { p: 'wraiths', s: 'a wraith' }, { p: 'dire rats', s: 'a dire rat' }, { p: 'will-o-wisps', s: 'a will-o-wisp' },
+    ];
+    const PLACE = ['the old mill', 'the north ridge', 'the sunken road', "Fenwick's well", 'the mine shafts',
+      'the river ford', 'the crossroads', 'the chapel ruin', "the miller's barn", 'the ridge path'];
+    const DOER = ['Fenwick', 'Torvald the smith', 'Zoltan the dice-man', 'Old Marta', "the miller's boy",
+      'Brother Cuthbert', 'the reeve', 'Widow Ashby', 'Cobb the tanner'];
+    // bare nouns (no leading article) - they follow a possessive: "${doer}'s ${val}"
+    const VAL = ['wheel of cheese', 'prize goat', 'three good hens', 'silver locket', 'barrel of cider',
+      'chapel bell', 'sack of silver', 'best boots'];
+    const GOOD = ['iron', 'salt', 'wool', 'candle-tallow', 'good rope', 'horseshoes', 'lamp oil'];
+    const ANIMAL = ['a goat', 'a passing hen', "the reeve's dog", 'a sleeping cat', "Marta's prize sow"];
+    const DRINK = ['honeyed ale', 'dark stout', 'spiced cider', 'elderberry wine', 'barley beer'];
+    const cr = P(CREAT), pl = P(PLACE), doer = P(DOER), val = P(VAL),
+      good = P(GOOD), animal = P(ANIMAL), drink = P(DRINK);
+    const TOPICS = [
+      () => [['patron', `Someone spotted ${cr.p} out past ${pl} again.`],
+        ['magda', `${cap(pl)}? Third traveler this week to say so.`],
+        ['drunk', `I'd wrestle ${cr.s}. Tiny arms, strong opinions.`]],
+      () => [['drunk', `${doer}'s ${val} went missing. Clean gone.`],
+        ['patron', `${cap(doer)} blames ${cr.p}. Always blames ${cr.p}.`],
+        ['magda', `Whoever took it can settle their tab first.`]],
+      () => [['magda', `Rain's coming - the road to ${pl} will be all mud by dawn.`],
+        ['patron', `Then another ${drink} while it passes, Magda.`],
+        ['drunk', `Mud, rain, ${drink} - all the same to me by the third cup.`]],
+      () => [['patron', `Price of ${good}'s gone mad. ${doer}'s fuming over it.`],
+        ['drunk', `${cap(good)}? I once built a shed with hope and spit.`],
+        ['magda', `That shed fell on ${animal}, Bram. We remember.`]],
+      () => [['patron', `${doer} was shouting at ${pl} again this morning.`],
+        ['magda', `${cap(doer)} shouts at everything. Last week it was ${animal}.`],
+        ['drunk', `In fairness, ${animal} probably started it.`]],
+      () => [['drunk', `One more floor below and I retire. I always say that.`],
+        ['magda', `The closest you've been to the dungeon is ${pl}, Bram.`],
+        ['patron', `Falling down the cellar steps isn't delving, love.`]],
+      () => [['patron', `New folk moved in out by ${pl}. Lanterns burning late.`],
+        ['magda', `Good. Send them my way - first ${drink}'s on the house.`],
+        ['drunk', `I'll welcome them. I'm very welcoming after a ${drink}.`]],
+      () => [['drunk', `A bard passed through singing of ${cr.p} on ${pl}.`],
+        ['patron', `It's an omen. Last time, ${doer}'s hens stopped laying.`],
+        ['magda', `Omen or not, ${cr.p} don't drink. Bad for business.`]],
+    ];
+    return P(TOPICS)().map(([who, text]) => ({ who, text }));
+  }
+
+  _cannedTavernConvo() {
     const C = [
       [['drunk', ["I swear the golem on the sign winked at me.", "That sign golem just winked. I saw it."]],
        ['patron', ["That's the ale winking, dear.", "Sure it did. And my herbs sing lullabies."]],
