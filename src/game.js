@@ -956,8 +956,10 @@ export class Game {
     this.inTown = true;
     this.inTavern = true;
     this.inUpstairs = true;
-    this.dungeon = generateTavernUpstairs();
-    this.dungeonMeshes = buildTavernUpstairsInterior();
+    // 968: `withRosalind` (set by the follow scene) unlocks her room; a solo
+    // visit leaves it shut + sealed.
+    this.dungeon = generateTavernUpstairs(opts);
+    this.dungeonMeshes = buildTavernUpstairsInterior(opts);
     this.scene.add(this.dungeonMeshes.group);
     this.openedDoors = new Set();
     const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
@@ -2283,7 +2285,7 @@ export class Game {
   // Upstairs half of the follow scene (873): transition up, build Rosalind at the
   // hall spawn, and hand off to _followScene which walks you both to her room.
   _enterRosalindRoomUpstairs() {
-    this.loadTavernUpstairs();
+    this.loadTavernUpstairs({ withRosalind: true }); // 968: her room is open when you arrive together
     this._sceneLock = true;
     this._rosalindUpstairs = true; // 929a: she's up here now - not downstairs
     this.camZoom = 0.85; this._yawManualT = 0; // release the stair camera latch
