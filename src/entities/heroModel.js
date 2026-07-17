@@ -565,7 +565,15 @@ function addHairMesh(mesh, headMesh, style, hex) {
   const h = bb.max.y - bb.min.y;
   const d = bb.max.z - bb.min.z;
   const cx = (bb.min.x + bb.max.x) / 2;
-  const mat = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.75, metalness: 0.05 });
+  // DoubleSide (913c): the ponytail tail below is TILTED (rotation.x) so it
+  // swings clear of the skull, and viewed from directly behind that tilt put
+  // the camera looking at the tail's geometry from an angle where its
+  // FrontSide-only faces got backface-culled - it rendered as a near-invisible
+  // sliver ("bun but no hanging tail", the user's exact report), confirmed by
+  // toggling the material to depthTest:false in-browser (the full tapered tail
+  // was there all along, just culled). DoubleSide costs nothing here (a thin
+  // tapered lathe, never seen edge-on-inverted) and fixes it outright.
+  const mat = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide });
   const group = new THREE.Group();
   // These rigs are stylized "chibi" proportions (an oversized head - the
   // Knight_Head bounding box alone measures roughly half the character's
@@ -617,15 +625,28 @@ function addHairMesh(mesh, headMesh, style, hex) {
     // seam/gap that read as a "connector" from the bun to the head). The cap
     // covers the crown/back so the bun sits IN the hair, not stuck on bare skin.
     const cz = (bb.min.z + bb.max.z) / 2;
+    // FULL 360 revolve, not a partial back+sides sweep (913c fix): the old
+    // Math.PI*0.35/1.30 partial sweep left the lathe's two phi-boundary edges
+    // OPEN (LatheGeometry never caps a partial sweep) right at the temples -
+    // from most angles that read as a thin dark triangular notch/seam cut into
+    // the hairline ("a weird artifact at the top visible only at some
+    // angles", the user's exact report; reproduced in-browser and traced to
+    // these open edges, not the bun knot). A full revolve has no boundary
+    // edges at all, so there is nothing to show through. The lowest ring
+    // (nape, w*0.20 radius) still isn't a true point, so it leaves a small
+    // open ring there too, but that only faces straight up from beneath the
+    // jaw - never visible from any normal camera angle - while the crown ring
+    // is pulled to near-zero radius so the TOP (the angle the user actually
+    // saw the artifact from) is a true closed point.
     const capPts = [
-      [w * 0.06, h * 0.05],   // near-closed at the crown
+      [Math.max(0.01, w * 0.015), h * 0.05], // true near-point at the crown - no open ring up top
       [w * 0.44, -h * 0.06],
       [w * 0.50, -h * 0.20],  // hugs the back of the skull
       [w * 0.42, -h * 0.34],
       [w * 0.20, -h * 0.44],  // stops high, at the nape
     ].map(([r, y]) => new THREE.Vector2(r, y));
     const cap = new THREE.Mesh(
-      new THREE.LatheGeometry(capPts, 18, Math.PI * 0.35, Math.PI * 1.30), // wrap the back+sides, open at the face
+      new THREE.LatheGeometry(capPts, 18), // full revolve - see comment above
       new THREE.MeshStandardMaterial({ color: hex, roughness: 0.9, metalness: 0.0, side: THREE.FrontSide }));
     cap.position.set(cx, bb.max.y - h * 0.05, cz);
     cap.castShadow = false; cap.receiveShadow = false; cap.frustumCulled = false;
@@ -637,48 +658,34 @@ function addHairMesh(mesh, headMesh, style, hex) {
     bun.castShadow = false; bun.receiveShadow = false; bun.frustumCulled = false;
     group.add(bun);
   } else if (style === 'long') {
-    // A draped back-SHELL swept around the rear half of the skull (lathe
-    // profile, same technique as the mage hood): crown-hugging at the top,
-    // bulging just past the skull's back, then tapering to a soft rounded
-    // tip about one head-height below (chibi shoulder length - see note
-    // above). The earlier flattened-cylinder panel rendered as a hard-edged
-    // rectangular SLAB from behind; a revolved profile drapes around the
-    // sides like real hair instead. LatheGeometry's phi=0 sits at +Z (the
-    // face), so sweeping [PI/2, 3PI/2] covers exactly the back half.
+    // A full-wig DRAPE (913c rewrite): a FULL 360 revolve around the head,
+    // same "closed-crown, near-zero pole" technique as the bun cap above,
+    // just carried much further down the back/sides/shoulders. The previous
+    // version sized its radii off `d` (head DEPTH, ~1.0) instead of `w` (head
+    // WIDTH, ~1.09) while positioning itself at the head's mid-depth (cz) -
+    // that made the whole shell smaller than the head's own half-width, so it
+    // sat almost entirely INSIDE the skull and was invisible from outside
+    // (confirmed in-browser: rendering it with depthTest:false revealed a
+    // correctly-shaped drape that the head mesh was simply swallowing/
+    // occluding whole - "doesn't render/appear at all", the user's exact
+    // report). Sizing off `w` instead - the same basis the bun cap already
+    // uses successfully - keeps the drape clearly outside the head surface.
+    // A FULL revolve (not the old partial back-sweep) also sidesteps the
+    // "open edge at the temples" artifact fixed on the bun cap above, and
+    // reads as a real curtain of hair framing the face from every side
+    // instead of a back-only panel.
     const cz = (bb.min.z + bb.max.z) / 2;
-    // Draped back-shell that now falls LONGER, past the neck and OVER the collar
-    // (Obsidian 811): stays wide down to ~1.3 head-heights so it rests on the
-    // shoulders instead of stopping at the neck, then tapers to a soft tip.
-    // Slimmed + tucked (image 124: the old profile bulged past the skull with a
-    // visible top rim and a flat mid-section - it read as a SHIELD/turtle shell
-    // strapped to the back, not hair). The rim now starts against the skull's
-    // own radius just below the crown and the curve tapers continuously.
-    // Narrow nape DRAPE, not a shell (865): even slimmed, the full back-half
-    // sweep at skull width still read as a SHIELD strapped to her back from
-    // behind. Sweep only the central ~115 degrees of the back, pull the radii
-    // in tighter/shorter, and squash it laterally so it reads as a sheet of
-    // hair falling from the crown down the nape - never silhouetting past the
-    // shoulders or covering the back.
-    // A short helmet-of-hair BOB that WRAPS the skull (images 136/140/141: the
-    // old partial back-panel lathe left OPEN EDGES that stuck up behind the head
-    // as a red fin, and swept too narrow so it read as a shield). Two fixes:
-    //   1) CLOSED CROWN: the profile starts at a near-zero radius at the top so
-    //      there is no protruding top rim to form a fin.
-    //   2) WRAP AROUND: LatheGeometry's phi=0 sits at +Z (the FACE), so sweeping
-    //      from 0.35PI to 1.65PI covers the whole BACK and both SIDES and leaves
-    //      only a ~125-degree gap at the face - the two open edges tuck against
-    //      the cheeks where they're hidden, instead of pointing out at the back.
-    // FrontSide (not DoubleSide) so the shell interior never shows through.
     const pts = [
-      [d * 0.06, h * 0.06],   // near-closed at the crown - no top fin
-      [d * 0.34, -h * 0.10],
-      [d * 0.42, -h * 0.30],  // widest at the back of the skull
-      [d * 0.38, -h * 0.48],
-      [d * 0.26, -h * 0.60],  // curls in below the jaw
-      [d * 0.10, -h * 0.66],
+      [Math.max(0.01, w * 0.02), h * 0.06],  // true near-point at the crown
+      [w * 0.40, -h * 0.05],
+      [w * 0.50, -h * 0.22],  // widest around ear/cheek height
+      [w * 0.46, -h * 0.45],
+      [w * 0.34, -h * 0.72],  // tapering past the shoulders (chibi shoulder length)
+      [w * 0.16, -h * 0.98],
+      [Math.max(0.01, w * 0.02), -h * 1.12], // tapered to a near-point tip
     ].map(([r, y]) => new THREE.Vector2(r, y));
     const shell = new THREE.Mesh(
-      new THREE.LatheGeometry(pts, 20, Math.PI * 0.35, Math.PI * 1.30),
+      new THREE.LatheGeometry(pts, 20), // full revolve - see comment above
       new THREE.MeshStandardMaterial({ color: hex, roughness: 0.9, metalness: 0.0, side: THREE.FrontSide }));
     shell.position.set(cx, bb.max.y - h * 0.05, cz);
     shell.castShadow = false; shell.receiveShadow = false; shell.frustumCulled = false;
