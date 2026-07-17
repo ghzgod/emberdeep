@@ -6046,6 +6046,20 @@ export class Game {
     const camYTarget = normalCamY + (target.y + EYE_Y - normalCamY) * eyeBlend;
     const rawDist = this.cameraOffset.z * zoom;
     const camDist = rawDist + Math.max(0, MIN_CLOSE_DIST - rawDist) * eyeBlend;
+    // 937: if the hero is HIDDEN behind a wall (walked into a corner), gently
+    // auto-rotate the camera until they're back in view. Gated to the ground
+    // tavern / open town (never upstairs - the corridor cam owns that), and
+    // never while manually orbiting, in a scripted scene, or shopping.
+    const occludeOk = ((this.inTavern && !this.inUpstairs) || (this.inTown && !this.inTavern))
+      && (this._yawManualT || 0) <= 0 && !this._sceneLock && !this._stairScene && !this._downStairScene && this.state === 'playing';
+    if (occludeOk) {
+      const clearAt = (yaw) => this.hasLineOfSight({ x: target.x + Math.sin(yaw) * camDist, z: target.z + Math.cos(yaw) * camDist }, target);
+      if (!clearAt(this.camYaw)) {
+        const dir = clearAt(this.camYaw + 0.35) ? 1 : (clearAt(this.camYaw - 0.35) ? -1 : (this._occludeDir || 1));
+        this._occludeDir = dir;
+        this.camYaw += dir * Math.min(1.8 * dt, 0.05); // gentle nudge toward a clear angle
+      } else { this._occludeDir = null; }
+    }
     const camX = target.x + Math.sin(this.camYaw) * camDist;
     const camZ = target.z + Math.cos(this.camYaw) * camDist;
     // Frame-rate-independent smoothing (1 - e^-kt), applied IDENTICALLY to the
