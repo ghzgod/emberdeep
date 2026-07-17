@@ -425,7 +425,7 @@ export class Roaster {
   // Even one topic spans thousands of natural combinations, so the regulars
   // gossip about fresh rumours every visit instead of a fixed loop.
   _genTavernConvo() {
-    const P = this._pick.bind(this);
+    const P = (a) => a[Math.floor(Math.random() * a.length)];
     const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
     const CREAT = [
       { p: 'imps', s: 'an imp' }, { p: 'goblins', s: 'a goblin' }, { p: 'kobolds', s: 'a kobold' },
