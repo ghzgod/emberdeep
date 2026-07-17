@@ -29,7 +29,7 @@ import { learner } from './ai/learner.js';
 import { roaster } from './ai/roaster.js';
 import { llm } from './ai/llm.js';
 import { STORIES } from './story.js';
-import { generateTavernInterior, buildTavernInterior, generateTavernUpstairs, buildTavernUpstairsInterior } from './world/tavern.js';
+import { generateTavernInterior, buildTavernInterior, generateTavernUpstairs, buildTavernUpstairsInterior, generateTavernCellar, buildTavernCellarInterior } from './world/tavern.js';
 import { Wanderer } from './entities/wanderer.js';
 import { TouchControls } from './core/touch.js';
 
@@ -260,6 +260,7 @@ export class Game {
     this.inTown = false;
     this.inTavern = false;
     this.inUpstairs = false; // tavern upstairs rooms (800)
+    this.inCellar = false; // tavern cellar (971)
     this.slotId = null;
     this.shopCooldown = 0;
     this.activeVendor = null;
@@ -745,8 +746,9 @@ export class Game {
     this.inTown = true;
     this.inTavern = true;
     this.inUpstairs = false;
+    this.inCellar = false;
     if (this._lyingBed) { this._lyingBed = null; if (this.player?.mesh) this.player.mesh.rotation.x = 0; }
-    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._descendScene = null; this._roomRosalind = null; this._rosalindInBed = false; this._tavernVendorNpc = null; // cancel any in-flight walk/climb (873/923/928/972)
+    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._descendScene = null; this._cellarDescendScene = null; this._cellarAscendScene = null; this._roomRosalind = null; this._rosalindInBed = false; this._tavernVendorNpc = null; // cancel any in-flight walk/climb (873/923/928/972/971)
     this._slideMug = null; // drop any in-flight bar drink (957) - its mesh dies with the torn-down group
     this._sceneLock = false;  // re-arm the stuck-failsafe off the scripted floor (874)
     this._stopFadeAudio?.();  // stop the lights-out audio if the player bails mid-scene (881)
@@ -998,6 +1000,39 @@ export class Game {
     }
   }
 
+  // ---------------- tavern cellar (Obsidian 971) ----------------
+  // The regulars tell Magda to "check the cellar" - a small stone storage room
+  // below the ground floor, reached by walking DOWN the real stairwell built
+  // into the tavern floor (see headDownToCellar/_updateCellarDescendScene) and
+  // left again by walking back UP the same steps (headUpFromCellar). Mirrors
+  // loadTavernUpstairs: shares inTavern (so the guarded per-frame tavern code
+  // no-ops safely down here) plus inCellar to swap the stair interact + label.
+  loadTavernCellar() {
+    this._stashTavern(); // the ground floor resumes exactly when you come back up (763)
+    this.teardownFloor();
+    this.inTown = true;
+    this.inTavern = true;
+    this.inUpstairs = false;
+    this.inCellar = true;
+    this.dungeon = generateTavernCellar();
+    this.dungeonMeshes = buildTavernCellarInterior();
+    this.scene.add(this.dungeonMeshes.group);
+    this.openedDoors = new Set();
+    const spawn = tileToWorld(this.dungeon.spawn.x, this.dungeon.spawn.y);
+    this.player.pos.set(spawn.x, 0, spawn.z);
+    this.setTownAtmosphere(true);
+    const theme = themeForFloor(1);
+    this.setupTorchLights({ ...theme, accent: 0xffb877 });
+    this.ui.minimap.setDungeon(this.dungeon);
+    this.ui.showFloorBanner('THE SLEEPING GOLEM', 'Cellar — barrels and cobwebs', true);
+    audio.stopMusic();
+    audio.startAmbience('tavern');
+    // no ambient table-talk down here (no patrons) - keep the shared driver a no-op
+    this._tavernConvoPlans = [];
+    this._tavernPlanIdx = 0;
+    this.stairsCooldown = 1.5;
+  }
+
   // 939: while upstairs in 18+ mode, if you're near an occupied guest room, a
   // muffled couple can be heard through the door every so often. Driven from the
   // upstairs tick; lines are canned + crude (18+), voiced low + shown as a
@@ -1038,7 +1073,8 @@ export class Game {
     this.inTown = true;
     this.inTavern = false;
     this.inUpstairs = false;
-    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._roomRosalind = null; this._rosalindInBed = false; this._tavernVendorNpc = null; this._sceneLock = false; // off the scripted floor (873/874/923/928)
+    this.inCellar = false;
+    this._followScene = null; this._stairScene = null; this._downStairScene = null; this._descendScene = null; this._cellarDescendScene = null; this._cellarAscendScene = null; this._roomRosalind = null; this._rosalindInBed = false; this._tavernVendorNpc = null; this._sceneLock = false; // off the scripted floor (873/874/923/928/971)
     this._stopFadeAudio?.(); // stop lights-out audio when leaving to town (881)
     const theme = themeForFloor(1);
     this.dungeon = generateTown();
@@ -2303,6 +2339,114 @@ export class Game {
     }
   }
 
+  // ---------------- tavern cellar stairs (Obsidian 971) ----------------
+  // 'Down to the cellar' interact: walk the player DOWN the ground-floor
+  // stairwell on foot (side camera, descending Y), exactly mirroring
+  // headDownstairsWalk/_updateDownStairScene - just descending into the
+  // cellar instead of down from the guest floor.
+  headDownToCellar() {
+    if (this._cellarDescendScene) return;
+    const sd = this.dungeonMeshes.stairsCellarPos;
+    if (!sd) { audio.play('door_open'); this.loadTavernCellar(); return; }
+    this._sceneLock = true;
+    this.camYaw = -Math.PI / 2; this._yawManualT = 999; this.camZoom = 0.6;
+    const hz0 = sd.z + 1.0; // lip -> hole north edge (see buildTavernInterior's stairsCellarPos)
+    this._cellarDescendScene = {
+      x: sd.x, topZ: hz0 + 0.25, bottomZ: hz0 + 0.25 + 7 * 0.34, run: 0.34, rise: 0.3, steps: 7,
+      pWalk: { x: this.player.pos.x, z: this.player.pos.z },
+    };
+  }
+
+  _updateCellarDescendScene(dt) {
+    const sc = this._cellarDescendScene;
+    if (!sc || !this.inTavern || this.inUpstairs || this.inCellar) return;
+    const p = this.player, pw = sc.pWalk;
+    const dx = sc.x - pw.x, dz = sc.bottomZ - pw.z, d = Math.hypot(dx, dz) || 1;
+    const done = d < 0.14;
+    if (!done) { const s = Math.min(d, 1.6 * dt); pw.x += dx / d * s; pw.z += dz / d * s; this._npcFootstep(pw.x, pw.z, dt, '_cellarDownStep'); }
+    p.pos.x = pw.x; p.pos.z = pw.z;
+    const i = Math.max(0, Math.min(sc.steps, (pw.z - sc.topZ) / sc.run));
+    p.pos.y = -i * sc.rise; // descend as they step down
+    p.aimAngle = Math.PI / 2; // face south/down
+    p.faceAimTimer = 0.2;
+    p.scriptedSpeed = done ? 0 : (p.moveSpeed || 4);
+    if (done) {
+      this._cellarDescendScene = null; p.scriptedSpeed = 0; p.pos.y = 0;
+      audio.play('door_open');
+      this._quickFade(true); // hide the interior swap (same trick as the guest-floor stairs)
+      this.loadTavernCellar();
+      this._quickFade(false);
+    }
+  }
+
+  // 'Back up' interact (from the cellar): climb the cellar's own stairs on
+  // foot (side camera, rising Y) then release onto the tavern floor at the
+  // stairwell's foot - a real climb, not a teleport, mirroring headUpstairsWalk.
+  headUpFromCellar() {
+    if (this._cellarAscendScene) return;
+    const su = this.dungeonMeshes.stairsUpPos || { x: this.player.pos.x, z: this.player.pos.z };
+    this._sceneLock = true;
+    this.camYaw = -Math.PI / 2; this._yawManualT = 999; this.camZoom = 0.6;
+    this._cellarAscendScene = {
+      // su is the OPEN-FLOOR approach anchor, one unit south of where the
+      // physical treads actually start (see buildTavernCellarInterior's
+      // stairGrp placement) - recover that edge the same way headDownToCellar
+      // recovers the hole edge from its own lip anchor.
+      stairX: su.x, approachZ: su.z, baseZ: su.z - 1.0, run: 0.34, rise: 0.3, steps: 7,
+      pWalk: { x: this.player.pos.x, z: this.player.pos.z },
+    };
+  }
+
+  _updateCellarAscendScene(dt) {
+    const sc = this._cellarAscendScene;
+    if (!sc || !this.inCellar) return;
+    const p = this.player, pw = sc.pWalk;
+    // walk to the stair column, then climb NORTH up the steps, rising in Y -
+    // the mirror image of _updateCellarDescendScene's descent.
+    if (!sc.aligned) {
+      // dist is the REAL distance (used for the arrival check); d is the
+      // divide-safe version for the direction unit vector. Using dist||1 for
+      // BOTH (like the tavern's own stepTo helper) breaks when the player is
+      // already standing exactly on the approach spot - as happens right
+      // after spawning in the cellar - since 0||1 reads as "1 unit away" and
+      // the align phase never completes.
+      const dx = sc.stairX - pw.x, dz = sc.approachZ - pw.z, dist = Math.hypot(dx, dz);
+      if (dist < 0.12) { sc.aligned = true; }
+      else {
+        const d = dist || 1;
+        const s = Math.min(dist, 2.2 * dt);
+        pw.x += dx / d * s; pw.z += dz / d * s;
+        this._npcFootstep(pw.x, pw.z, dt, '_cellarUpStep');
+      }
+      p.pos.x = pw.x; p.pos.z = pw.z; p.pos.y = 0;
+      if (dist >= 0.12) { p.aimAngle = Math.atan2(dz, dx); p.faceAimTimer = 0.2; }
+      p.scriptedSpeed = p.moveSpeed || 4;
+    } else {
+      const topZ = sc.baseZ - sc.steps * sc.run;
+      const dz = topZ - pw.z, d = Math.abs(dz);
+      const done = d < 0.06;
+      if (!done) { pw.z += Math.min(d, 1.8 * dt) * Math.sign(dz); this._npcFootstep(pw.x, pw.z, dt, '_cellarUpStep'); }
+      p.pos.x = pw.x; p.pos.z = pw.z;
+      const i = Math.max(0, Math.min(sc.steps, (sc.baseZ - pw.z) / sc.run));
+      p.pos.y = i * sc.rise;
+      p.aimAngle = -Math.PI / 2; // face north/up
+      p.faceAimTimer = 0.2;
+      p.scriptedSpeed = done ? 0 : (p.moveSpeed || 4);
+      if (done) {
+        this._cellarAscendScene = null; p.scriptedSpeed = 0; p.pos.y = 0;
+        audio.play('door_open');
+        this._quickFade(true);
+        this.loadTavern();
+        // arrive right at the cellar-stair foot on the tavern floor - walkable,
+        // no teleport-to-door (971).
+        const sp = this.dungeonMeshes.stairsCellarPos;
+        if (sp) { this.player.pos.set(sp.x, 0, sp.z); this.player.visualAngle = Math.PI / 2; }
+        this._stuckT = -0.6; this.camZoom = 0.85; this._yawManualT = 0; this._sceneLock = false;
+        this._quickFade(false);
+      }
+    }
+  }
+
   // Upstairs half of the follow scene (873): transition up, build Rosalind at the
   // hall spawn, and hand off to _followScene which walks you both to her room.
   _enterRosalindRoomUpstairs() {
@@ -3280,6 +3424,7 @@ export class Game {
 
   floorLabelText() {
     if (this.inUpstairs) return '🍺 The Sleeping Golem — Upstairs';
+    if (this.inCellar) return '🍺 The Sleeping Golem — Cellar';
     if (this.inTavern) return '🍺 The Sleeping Golem';
     if (this.inTown) return '🏘️ Embervale';
     if (this.floor > MAX_FLOOR) return `🌀 Depths ${this.floor}`;
@@ -6921,6 +7066,16 @@ export class Game {
         && near(this.dungeonMeshes.stairsDownPos.x, this.dungeonMeshes.stairsDownPos.z, 2.0)) {
         candidate = { label: 'Head downstairs', icon: '🪜', action: () => { this.stairsCooldown = 1.5; this.headDownstairsWalk(); } };
       }
+      // Cellar stairwell (Obsidian 971): "check the cellar" - descend from the
+      // ground-floor hole east of the bar, climb back up from down there.
+      if (!candidate && !this.inUpstairs && !this.inCellar && this.dungeonMeshes.stairsCellarPos && this.stairsCooldown <= 0
+        && near(this.dungeonMeshes.stairsCellarPos.x, this.dungeonMeshes.stairsCellarPos.z, 2.0)) {
+        candidate = { label: 'Down to the cellar', icon: '🪜', action: () => { this.stairsCooldown = 1.5; this.headDownToCellar(); } };
+      }
+      if (!candidate && this.inCellar && this.dungeonMeshes.stairsUpPos && this.stairsCooldown <= 0
+        && near(this.dungeonMeshes.stairsUpPos.x, this.dungeonMeshes.stairsUpPos.z, 2.0)) {
+        candidate = { label: 'Back up', icon: '🪜', action: () => { this.stairsCooldown = 1.5; this.headUpFromCellar(); } };
+      }
       // Lie down in a bed (Obsidian 842b): near any upstairs bed, offer to rest;
       // once lying the prompt is "Get up" (any movement also gets you up).
       if (!candidate && this.inUpstairs && !this._lyingBed && this.dungeonMeshes.bedPositions) {
@@ -7165,6 +7320,8 @@ export class Game {
     if (this._stairScene) this._updateStairScene(dt);
     if (this._downStairScene) this._updateDownStairScene(dt); // walk DOWN (928)
     if (this._descendScene) this._updateDescendScene(dt); // 972: walk down the FIRST-FLOOR flight after arriving
+    if (this._cellarDescendScene) this._updateCellarDescendScene(dt); // 971: walk down INTO the cellar
+    if (this._cellarAscendScene) this._updateCellarAscendScene(dt); // 971: walk back UP from the cellar
     if (this._slideMug) this._updateSlideMug(dt); // 957: Magda's drink sliding down the counter
 
     // Follow-upstairs walk (873): once upstairs, Rosalind LEADS the hero down

@@ -63,6 +63,13 @@ const HEARTH_TILES = [[14, 6]];
 // sit interaction still works - the player approaches from the fire side (tile
 // 13) and the sit action teleports them onto the seat.
 const COUCH_TILES = [[12, 6]];
+// Cellar stairwell hole (Obsidian 971): east of the bar, roughly centred
+// between the duckboard platform Magda works (row y=1, x4-10) and the
+// east-side window (world x=31, z~3.2/6.8) - clear of the bar, tables,
+// hearth, couch and the up-stairs (SE corner, tiles x=14 y7-9). Blocked so
+// the hero can't walk INTO the shaft; the real hole + flight is built in
+// buildTavernInterior below.
+const CELLAR_HOLE = { x: 13, y: 3 };
 
 export function generateTavernInterior() {
   const grid = Array.from({ length: H }, (_, y) =>
@@ -73,6 +80,7 @@ export function generateTavernInterior() {
   // block them so the hero can't walk through the steps, leaving (14,10) as the
   // approach/interact tile at the base.
   for (const [x, y] of [[14, 7], [14, 8], [14, 9]]) grid[y][x] = WALL;
+  grid[CELLAR_HOLE.y][CELLAR_HOLE.x] = WALL;
   // Per-tile floor HEIGHTS (898): the back-bar duckboard is a real 0.24-tall
   // platform, but the tavern never returned a heights grid so game.heightAt()
   // fell back to 0 everywhere and the hero CLIPPED THROUGH it. Row y=1 (the
@@ -127,10 +135,28 @@ export function buildTavernInterior() {
   const skinMat = new THREE.MeshStandardMaterial({ color: 0xd8ab88, roughness: 0.85 });
   const smokePuffs = [];
 
-  // floor planks (real plank texture: fitted boards, not the vertical staves)
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(W * TILE, 0.2, H * TILE), floorMat);
-  floor.position.set((W * TILE) / 2, -0.1, (H * TILE) / 2);
-  group.add(floor);
+  // floor planks (real plank texture: fitted boards, not the vertical staves),
+  // built as four bands around the cellar stairwell hole (971) instead of one
+  // solid slab - the same "cut a real hole" technique buildTavernUpstairsInterior
+  // uses for its own down-stairwell, so the flight below is genuinely visible
+  // through an opening rather than implied. Each band gets its OWN cloned
+  // texture with the repeat scaled to its size so the plank density matches
+  // the original single-slab look (no seam where tiling frequency jumps).
+  const cellarHw = tileToWorld(CELLAR_HOLE.x, CELLAR_HOLE.y);
+  const CHX0 = cellarHw.x - TILE / 2, CHX1 = cellarHw.x + TILE / 2;
+  const CHZ0 = cellarHw.z - TILE / 2, CHZ1 = cellarHw.z + TILE / 2;
+  const floorDensX = 6 / (W * TILE), floorDensZ = 4 / (H * TILE);
+  const addFloorSlab = (cx, cz, w, d) => {
+    if (w <= 0 || d <= 0) return;
+    const t = floorTex.clone(); t.needsUpdate = true; t.repeat.set(floorDensX * w, floorDensZ * d);
+    const m = new THREE.MeshStandardMaterial({ map: t, roughness: 0.92 });
+    const s = new THREE.Mesh(new THREE.BoxGeometry(w, 0.2, d), m);
+    s.position.set(cx, -0.1, cz); s.receiveShadow = true; group.add(s);
+  };
+  addFloorSlab((W * TILE) / 2, CHZ0 / 2, W * TILE, CHZ0);                                 // north of hole
+  addFloorSlab((W * TILE) / 2, (CHZ1 + H * TILE) / 2, W * TILE, H * TILE - CHZ1);         // south of hole
+  addFloorSlab(CHX0 / 2, (CHZ0 + CHZ1) / 2, CHX0, CHZ1 - CHZ0);                           // west band
+  addFloorSlab((CHX1 + W * TILE) / 2, (CHZ0 + CHZ1) / 2, W * TILE - CHX1, CHZ1 - CHZ0);   // east band
 
   // perimeter walls with a south door gap. Plaster above, a dark wooden wainscot
   // rail below so the room reads as timber-and-plaster, not bare stucco.
@@ -1605,6 +1631,40 @@ export function buildTavernInterior() {
   addShaft(30.3, 17.3, 2.5, 0.12);   // south edge
   addShaft(29.25, 16.15, 0.12, 2.3); // west edge (east is the building wall)
 
+  // ---- cellar stairwell (Obsidian 971): a real flight dropping SOUTH through
+  // the CELLAR_HOLE opening east of the bar, mirroring the upstairs down-
+  // stairwell technique (a lit well you look down into, not a teleport hole).
+  // headDownToCellar/_updateCellarDescendScene in game.js walk the hero down
+  // these exact steps before the scene swaps to the cellar.
+  const cDN = 7, cRise = 0.3, cRun = 0.34, cStepW = 1.7;
+  for (let i = 0; i < cDN; i++) {
+    const step = new THREE.Mesh(new THREE.BoxGeometry(cStepW, 0.14, cRun + 0.04), plankMat);
+    step.position.set(cellarHw.x, -cRise * (i + 1) + 0.07, CHZ0 + 0.25 + i * cRun);
+    step.receiveShadow = true; group.add(step);
+  }
+  const cWellBottomY = -cRise * cDN;
+  const cShaftMat = new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 1 });
+  const cShaftH = -cWellBottomY + 0.2, cWellDepth = CHZ1 - CHZ0 + 1.0;
+  for (const sx of [CHX0 - 0.02, CHX1 + 0.02]) {
+    const sw = new THREE.Mesh(new THREE.BoxGeometry(0.12, cShaftH, cWellDepth), cShaftMat);
+    sw.position.set(sx, cWellBottomY / 2, (CHZ0 + CHZ1) / 2 + 0.3); group.add(sw);
+  }
+  const cBackW = new THREE.Mesh(new THREE.BoxGeometry(CHX1 - CHX0 + 0.3, cShaftH, 0.12), cShaftMat);
+  cBackW.position.set(cellarHw.x, cWellBottomY / 2, CHZ1 + 0.55); group.add(cBackW);
+  // a warm lit floor + glow at the bottom so the opening reads as "cellar
+  // below", not a black pit
+  const cWellFloor = new THREE.Mesh(new THREE.BoxGeometry(CHX1 - CHX0 + 0.4, 0.12, cWellDepth), floorMat);
+  cWellFloor.position.set(cellarHw.x, cWellBottomY - 0.06, (CHZ0 + CHZ1) / 2 + 0.3); group.add(cWellFloor);
+  const cWellGlow = new THREE.PointLight(0xffb877, 7, 6, 1.8);
+  cWellGlow.position.set(cellarHw.x, cWellBottomY + 0.9, (CHZ0 + CHZ1) / 2 + 0.2); group.add(cWellGlow);
+  // newel posts flank the opening (964-style: framing, not blocking, the descent)
+  for (const px of [-0.9, 0.9]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 8), darkWood);
+    post.position.set(cellarHw.x + px, 0.45, CHZ0 - 0.06); group.add(post);
+  }
+  // interact anchor: the solid-floor lip just north of the hole
+  const stairsCellarPos = { x: cellarHw.x, z: CHZ0 - 1.0 };
+
   // flame refs removed (717): the sprite fire animates itself via its own
   // driver above; updateTorches only needs the light positions.
   const torchPositions = [
@@ -1645,6 +1705,7 @@ export function buildTavernInterior() {
     patronMeshes,
     hearthPos: { x: hw.x, z: hw.z }, // crackle-loop distance anchor (717)
     couchPos, // fireside sit spot (716)
+    stairsCellarPos, // 971: "Down to the cellar" interact anchor, north lip of the hole
   };
 }
 
@@ -1983,5 +2044,169 @@ export function buildTavernUpstairsInterior(opts = {}) {
     doorMeshes: new Map(), chestMeshes: [], stairsMesh: null,
     vendorMeshes: [], portalMesh: null, returnPortalMesh: null,
     smokePuffs: [], seats: [], patronMeshes: [],
+  };
+}
+
+// ---------------- tavern cellar (Obsidian 971) ----------------
+// The regulars tell Magda to "check the cellar" - a small stone storage room
+// below the ground floor, reached by walking DOWN the real stairwell built
+// into buildTavernInterior above (CELLAR_HOLE), not a teleport. Mirrors the
+// upstairs generate+build split exactly, including the guard-friendly empty
+// dungeonMeshes shape so the shared tavern per-frame code no-ops safely here.
+const CW = 10, CH = 10;
+// the flight itself (solid - no walking through the steps); the open tile at
+// (5,7) just south of it is the spawn + "Back up" interact anchor.
+const CELLAR_STAIR_TILES = [[5, 4], [5, 5], [5, 6]];
+// dressed prop clusters (wine rack, barrel stacks, crates) - solid so the
+// hero can't walk through them, same convention as the tavern's own furniture.
+const CELLAR_PROP_TILES = [[2, 2], [2, 3], [7, 2], [8, 2], [2, 7], [3, 7], [7, 7], [8, 7]];
+
+export function generateTavernCellar() {
+  const grid = Array.from({ length: CH }, (_, y) =>
+    new Array(CW).fill(0).map((_, x) =>
+      (x === 0 || y === 0 || x === CW - 1 || y === CH - 1) ? WALL : FLOOR));
+  for (const [x, y] of [...CELLAR_STAIR_TILES, ...CELLAR_PROP_TILES]) grid[y][x] = WALL;
+  return {
+    grid, size: Math.max(CW, CH), rooms: [],
+    spawn: { x: 5, y: 7 },      // open floor at the foot of the stairs
+    stairsUp: { x: 5, y: 7 },   // interact tile -> back up to the tavern
+    torches: [], chests: [], doors: [], enemies: [], boss: null,
+    town: true, tavernCellar: true, pits: [], stairs: null,
+  };
+}
+
+// a squat barrel (cask/keg) - the cellar's main dressing
+function makeBarrel(x, z, group, mat, bandMat, scale = 1) {
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.45 * scale, 0.4 * scale, 0.75 * scale, 12), mat);
+  barrel.position.set(x, 0.375 * scale, z);
+  barrel.castShadow = barrel.receiveShadow = true;
+  group.add(barrel);
+  for (const by of [0.16, 0.59]) {
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.455 * scale, 0.455 * scale, 0.06 * scale, 12), bandMat);
+    band.position.set(x, by * scale, z);
+    group.add(band);
+  }
+}
+
+// a stacked pair of shipping crates
+function makeCrateStack(x, z, group, mat, darkWood) {
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 0.7), mat);
+  base.position.set(x, 0.3, z); base.castShadow = base.receiveShadow = true; group.add(base);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), mat);
+  top.position.set(x + 0.05, 0.85, z - 0.05); top.rotation.y = 0.3; top.castShadow = true; group.add(top);
+  for (const yy of [0.3, 0.85]) {
+    for (const rot of [0, Math.PI / 2]) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(yy === 0.3 ? 0.74 : 0.54, 0.05, 0.05), darkWood);
+      slat.position.set(x, yy + (yy === 0.3 ? 0.32 : 0.27), z);
+      slat.rotation.y = rot; group.add(slat);
+    }
+  }
+}
+
+// a wine rack: a dark wood frame holding rows of bottles on their sides
+function makeWineRack(x, z, group, darkWood) {
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.4, 0.5), darkWood);
+  frame.position.set(x, 0.7, z); group.add(frame);
+  const bottleMat = new THREE.MeshStandardMaterial({ color: 0x1c3a24, roughness: 0.4, metalness: 0.1 });
+  for (let row = 0; row < 3; row++) {
+    for (let col = -1; col <= 1; col++) {
+      const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.4, 8), bottleMat);
+      bottle.rotation.z = Math.PI / 2;
+      bottle.position.set(x + col * 0.28, 0.35 + row * 0.42, z);
+      group.add(bottle);
+    }
+  }
+}
+
+export function buildTavernCellarInterior() {
+  const group = new THREE.Group();
+  const stoneTex = makeHearthStoneTexture();
+  stoneTex.repeat.set(3, 2);
+  const plankTex = makePlankTexture('#4a3624'); // darker, aged boards down here
+  const floorMat = new THREE.MeshStandardMaterial({ map: plankTex, roughness: 0.95 });
+  const wallMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 1 });
+  const darkWood = new THREE.MeshStandardMaterial({ color: 0x3a2c1c, roughness: 0.95 });
+  const barrelMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2c, roughness: 0.9 });
+  const bandMat = new THREE.MeshStandardMaterial({ color: 0x2a2420, metalness: 0.3, roughness: 0.7 });
+  const crateMat = new THREE.MeshStandardMaterial({ color: 0x5a4530, roughness: 0.9 });
+
+  // Baked lighting (mirrors buildTavernUpstairsInterior): dim + close so the
+  // cellar reads as genuinely buried, with the hanging lantern doing the
+  // actual work of lighting the room.
+  group.add(new THREE.HemisphereLight(0x8a7050, 0x100c08, 0.5));
+  group.add(new THREE.AmbientLight(0xffcf9a, 0.22));
+
+  // plank floor laid over the packed earth
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(CW * TILE, 0.2, CH * TILE), floorMat);
+  floor.position.set((CW * TILE) / 2, -0.1, (CH * TILE) / 2);
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  // stone + earth perimeter walls
+  const wallH = 2.6;
+  const wallGeo = new THREE.BoxGeometry(TILE, wallH, TILE);
+  for (let y = 0; y < CH; y++) for (let x = 0; x < CW; x++) {
+    if (!(x === 0 || x === CW - 1 || y === 0 || y === CH - 1)) continue;
+    const w = tileToWorld(x, y);
+    const seg = new THREE.Mesh(wallGeo, wallMat);
+    seg.position.set(w.x, wallH / 2, w.z);
+    seg.castShadow = seg.receiveShadow = true;
+    group.add(seg);
+  }
+
+  // dressing: wine rack (west), barrel cluster (NE), crates (SW), kegs (SE) -
+  // matching CELLAR_PROP_TILES so the collision grid lines up with what's drawn.
+  const wr = tileToWorld(2, 2), wr2 = tileToWorld(2, 3);
+  makeWineRack(wr.x, (wr.z + wr2.z) / 2, group, darkWood);
+  makeBarrel(tileToWorld(7, 2).x, tileToWorld(7, 2).z, group, barrelMat, bandMat);
+  makeBarrel(tileToWorld(8, 2).x, tileToWorld(8, 2).z, group, barrelMat, bandMat, 0.85);
+  makeCrateStack(tileToWorld(2, 7).x, tileToWorld(2, 7).z, group, crateMat, darkWood);
+  makeCrateStack(tileToWorld(3, 7).x, tileToWorld(3, 7).z, group, crateMat, darkWood);
+  makeBarrel(tileToWorld(7, 7).x, tileToWorld(7, 7).z, group, barrelMat, bandMat);
+  makeBarrel(tileToWorld(8, 7).x, tileToWorld(8, 7).z, group, barrelMat, bandMat, 0.85);
+  // a few loose, non-blocking barrels for clutter
+  makeBarrel(tileToWorld(4, 1).x + 0.6, tileToWorld(4, 1).z, group, barrelMat, bandMat, 0.8);
+  makeBarrel(tileToWorld(6, 8).x, tileToWorld(6, 8).z, group, barrelMat, bandMat, 0.9);
+
+  // ---- the stairs back up (foot at the open tile (5,7), rising north) ----
+  const cSteps = 7, cRise = 0.3, cRun = 0.34, cStepW = 1.7;
+  const stairX = tileToWorld(5, 5).x;   // flight column centre
+  const baseZ = tileToWorld(5, 6).z + TILE / 2; // boundary between the open foot tile and the first step
+  const stairGrp = new THREE.Group();
+  for (let i = 0; i < cSteps; i++) {
+    const tread = new THREE.Mesh(new THREE.BoxGeometry(cStepW, cRise, cRun + 0.03), floorMat);
+    tread.position.set(0, i * cRise + cRise / 2, -i * cRun);
+    tread.castShadow = tread.receiveShadow = true;
+    stairGrp.add(tread);
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(cStepW, cRise, 0.04), darkWood);
+    riser.position.set(0, i * cRise + cRise / 2, -i * cRun + cRun / 2);
+    stairGrp.add(riser);
+  }
+  stairGrp.position.set(stairX, 0, baseZ);
+  group.add(stairGrp);
+  // banister on the open (west) side
+  const railX = -(cStepW / 2 + 0.06);
+  for (let i = 0; i <= cSteps; i += 2) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.7, 8), darkWood);
+    post.position.set(stairX + railX, i * cRise + 0.35, baseZ - i * cRun);
+    group.add(post);
+  }
+
+  // the hanging lantern - the room's real light source
+  makeHangingLantern(tileToWorld(5, 3).x, tileToWorld(5, 3).z, group, darkWood);
+  makeHangingLantern(tileToWorld(7, 6).x, tileToWorld(7, 6).z, group, darkWood);
+
+  const stairsUpPos = tileToWorld(5, 7); // interact anchor: foot of the stairs
+
+  return {
+    group,
+    torchPositions: [],
+    stairsDownPos: null,
+    bedPositions: [],
+    // guard-friendly empties so the shared tavern per-frame code no-ops down here
+    doorMeshes: new Map(), chestMeshes: [], stairsMesh: null,
+    vendorMeshes: [], portalMesh: null, returnPortalMesh: null,
+    smokePuffs: [], seats: [], patronMeshes: [],
+    stairsUpPos, // 971: "Back up" interact anchor
   };
 }
