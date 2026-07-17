@@ -1043,11 +1043,17 @@ export function buildTavernInterior() {
   // stools stay in use, tables next, standing as the spare) rather than a fixed
   // seat, so the room fills differently each visit. Pools are built here so the
   // future crowd (781) can draw from the same set. ----
+  // 951: table seats now align with the ACTUAL stools built around each table
+  // (same radius 1.25 + same three angles as the stool loop below) so a patron
+  // who picks a table seat perches ON a stool instead of standing 1.5u behind
+  // it at ground level ("why do NPCs stand next to the table instead of sitting
+  // in the chairs"). perchY is raised for these seats (see the patron loop).
   const tableSeatSlots = [];
   for (const [tx, ty] of TABLE_TILES) {
     const tw = tileToWorld(tx, ty);
-    for (const a of [Math.PI * 0.5, -Math.PI * 0.5]) {
-      const sx = tw.x + Math.cos(a) * 1.5, sz = tw.z + Math.sin(a) * 1.5;
+    for (let s = 0; s < 3; s++) {
+      const a = (s / 3) * Math.PI * 2 + tx; // MATCHES the stool angles below
+      const sx = tw.x + Math.cos(a) * 1.25, sz = tw.z + Math.sin(a) * 1.25;
       tableSeatSlots.push({ x: sx, z: sz, yaw: Math.atan2(tw.x - sx, tw.z - sz), seat: 'table' });
     }
   }
@@ -1095,7 +1101,10 @@ export function buildTavernInterior() {
     // Bar patrons sit UP on the stool (pelvis at the seat, feet dangling toward
     // the footrail/footwell under the overhang); table + standing patrons keep
     // the ground-level lean (Obsidian 788).
-    const perchY = slot.seat === 'bar' ? 0.46 : 0.18;
+    // 951: table patrons now perch ON the stool (like bar patrons) instead of
+    // leaning at ground level. Bar stool seat sits a touch higher than a table
+    // stool, so table perch is a hair lower.
+    const perchY = slot.seat === 'bar' ? 0.46 : slot.seat === 'table' ? 0.4 : 0.18;
     patron.position.set(px, perchY, pz);
     patron.rotation.y = slot.yaw; // face the table, the bar counter, or the chosen standing angle
 

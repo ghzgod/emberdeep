@@ -7572,7 +7572,15 @@ export class Game {
                   this._npcRel[pk] = Math.min(5, (this._npcRel[pk] || 0) + 0.12);
                 }
               }
-              roaster.sayGated(this, spk.name, turn.text, spk.cast, spk.pos, { durationMs: 3400 });
+              // 951: EARSHOT gate - you only HEAR/READ the table-talk when
+              // you're close enough ("like in real life, if I'm within
+              // earshot"). Beyond ~6.5u the regulars still visibly converse
+              // (the look-at beats below run regardless), just silently, with
+              // no bubble or caption - walk over to eavesdrop.
+              const earD = Math.hypot(spk.pos.x - this.player.pos.x, spk.pos.z - this.player.pos.z);
+              if (earD <= 6.5) {
+                roaster.sayGated(this, spk.name, turn.text, spk.cast, spk.pos, { durationMs: 3400 });
+              }
               // Everyone in the exchange looks at whoever is talking, and
               // the speaker looks back at the nearest other participant
               // (Obsidian 750: they were chatting into the air).
