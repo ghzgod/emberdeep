@@ -1452,6 +1452,16 @@ export class UI {
     const adult18 = $('set-adult18');
     adult18.checked = !!s.adult18;
     adult18.onchange = async () => {
+      // 975: check a SHA-256 HASH of the typed password instead of the literal
+      // string, so the access word isn't sitting in plaintext in the shipped
+      // client JS / public repo. Not real security (a short password is still
+      // brute-forceable and the gated content ships client-side regardless) -
+      // just stops a casual view-source from handing over the password.
+      const sha256Hex = async (str) => {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+        return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+      };
+      const OK_HASH = '6a1bd39c0a2cef0d54f1b816faf3c02950522b40d115fc93df4fa22bbee662c9';
       if (adult18.checked) {
         const res = await this.confirmModal({
           title: '18+ Mature Content',
@@ -1460,9 +1470,10 @@ export class UI {
           cancelText: 'Cancel',
           password: true,
         });
-        if (!res || !res.confirmed || res.password !== '3mb3rvi113m0d3') {
+        const typedHash = (res && res.confirmed && res.password != null) ? await sha256Hex(res.password) : null;
+        if (!res || !res.confirmed || typedHash !== OK_HASH) {
           adult18.checked = false;
-          if (res && res.confirmed && res.password !== '3mb3rvi113m0d3') {
+          if (res && res.confirmed && typedHash !== OK_HASH) {
             this.confirmModal({ title: 'Incorrect password', message: '18+ mode was not enabled.', notice: true, confirmText: 'OK' });
           }
           return;
