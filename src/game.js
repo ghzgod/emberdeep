@@ -6447,20 +6447,29 @@ export class Game {
         this.camYaw += dir * Math.min(1.8 * dt, 0.05); // gentle nudge toward a clear angle
       } else { this._occludeDir = null; }
     }
-    let camX = target.x + Math.sin(this.camYaw) * camDist;
-    let camZ = target.z + Math.cos(this.camYaw) * camDist;
-    // 976: keep the camera INSIDE the tavern room. Orbiting in a far corner
-    // swung the camera out PAST the walls into the 974 tall occluder boxes (they
-    // seal the exterior above wall height), filling the view with black - you
-    // couldn't see yourself or the bar. Clamp the camera XZ to the room's inner
-    // bounds; the lookAt still tracks the hero, so they and the bar stay framed
-    // (the view just tips more top-down as it hugs the near wall in a corner).
+    // 976: keep the camera INSIDE the tavern room WITHOUT killing rotation.
+    // Orbiting in a far corner swung the camera out past the walls into the 974
+    // tall occluder boxes (black screen). The first fix HARD-CLAMPED the camera
+    // XZ, which pinned it against the wall and stopped it orbiting round. Instead
+    // PULL THE CAMERA IN along its orbit ray: shorten the distance so it stops at
+    // the room's inner bound, but keep it on the yaw ray - so you can still turn
+    // all the way around and see the bar; near a wall the camera just sits closer.
+    const camDir = { x: Math.sin(this.camYaw), z: Math.cos(this.camYaw) };
+    let camDistEff = camDist;
     if (this.inTavern && !this.inUpstairs && this.dungeon?.grid) {
-      const T = 2, M = 1.3;
+      const T = 2, M = 0.6;
       const gw = this.dungeon.grid[0].length, gh = this.dungeon.grid.length;
-      camX = Math.min(Math.max(camX, T + M), (gw - 1) * T - M);
-      camZ = Math.min(Math.max(camZ, T + M), (gh - 1) * T - M);
+      const xmin = T + M, xmax = (gw - 1) * T - M, zmin = T + M, zmax = (gh - 1) * T - M;
+      // distance along the orbit ray from the hero to where it exits the room box
+      let tExit = camDist;
+      if (camDir.x > 1e-4) tExit = Math.min(tExit, (xmax - target.x) / camDir.x);
+      else if (camDir.x < -1e-4) tExit = Math.min(tExit, (xmin - target.x) / camDir.x);
+      if (camDir.z > 1e-4) tExit = Math.min(tExit, (zmax - target.z) / camDir.z);
+      else if (camDir.z < -1e-4) tExit = Math.min(tExit, (zmin - target.z) / camDir.z);
+      camDistEff = Math.max(0.9, Math.min(camDist, tExit));
     }
+    const camX = target.x + camDir.x * camDistEff;
+    const camZ = target.z + camDir.z * camDistEff;
     // Frame-rate-independent smoothing (1 - e^-kt), applied IDENTICALLY to the
     // camera position and the look target. The old scheme eased position with
     // a linear min(1, 8*dt) factor but aimed lookAt at the player's EXACT spot
