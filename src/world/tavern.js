@@ -367,19 +367,25 @@ export function buildTavernInterior() {
   // "transparent door"). It sits ~2 units beyond the exit tile the player
   // stands on, so nothing ever clips it, and the leave-interaction plays its
   // door_open sound as before - the door just reads shut until you use it.
-  const leafH = wallH - 0.35;
-  const leaf = new THREE.Mesh(new THREE.BoxGeometry(gapWidth - 0.06, leafH, 0.1), darkWood);
-  leaf.position.set(gapCenterX, leafH / 2, gapZ + 0.8);
+  // 982: the leaf now sits at the wall's INNER face and is WIDER + TALLER than
+  // the opening, so from inside it fully SEALS the doorway - you no longer see
+  // the exterior grass past its edges / over its top / into the recess when you
+  // stand next to it (image 163). It still reads as a shut wooden door; leaving
+  // plays the door_open sound + fade as before, so nothing clips during exit.
+  const leafH = wallH - 0.08;
+  const leafZ = gapZ - 0.85; // inner face of the south wall (was gapZ+0.8, outer)
+  const leaf = new THREE.Mesh(new THREE.BoxGeometry(gapWidth + 0.18, leafH, 0.1), darkWood);
+  leaf.position.set(gapCenterX, leafH / 2, leafZ);
   // plank lines: two vertical grooves so it reads as boards, not a slab
   for (const gx of [-gapWidth / 6, gapWidth / 6]) {
     const groove = new THREE.Mesh(new THREE.BoxGeometry(0.03, leafH - 0.1, 0.11),
       new THREE.MeshStandardMaterial({ color: 0x33261a, roughness: 1 }));
-    groove.position.set(gapCenterX + gx, leafH / 2, gapZ + 0.8);
+    groove.position.set(gapCenterX + gx, leafH / 2, leafZ - 0.06);
     group.add(groove);
   }
   const leafHandle = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8),
     new THREE.MeshStandardMaterial({ color: 0xd8b04a, metalness: 0.6, roughness: 0.35 }));
-  leafHandle.position.set(gapCenterX + gapWidth / 2 - 0.3, 1.1, gapZ + 0.72);
+  leafHandle.position.set(gapCenterX + gapWidth / 2 - 0.3, 1.1, leafZ - 0.06);
   group.add(leaf, leafHandle);
 
   // ---- amber threshold glow just outside the gap: from inside, the exit
