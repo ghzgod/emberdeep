@@ -2538,7 +2538,7 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     // plot, under the kit's 8x14 round-tile roof. The existing proven facade
     // dressing (glowing windows, coherent door, hanging sign, day/night glow)
     // re-lands on the kit walls. Procedural shell stays if the kit can't load.
-    swapInModel(tavern, shell, ['mkWallStraight', 'mkRoof'], ([wallT, roofT]) => {
+    swapInModel(tavern, shell, ['mkWallStraight', 'mkWallGrid', 'mkRoof'], ([wallT, gridT, roofT]) => {
       if (!wallT || !roofT) return null;
       const kit = new THREE.Group();
       const STORY = 3.12;
@@ -2554,19 +2554,19 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // full storey. (The interior footprint is deliberately larger than the
       // plot - 'bigger on the inside' - so we match the STOREY COUNT + read, not
       // the exact tile footprint, which would dwarf the rest of the town.)
-      // 986: the front/back rings used to alternate in the decorative
-      // Wall_Plaster_WoodGrid tile (gridT), which is a real PIERCED lattice
-      // panel with no light or backing of its own — from town it read as a
-      // dark hollow hole straight through the building (user image 170),
-      // wholly separate from (and easily confused with) the actual glowing
-      // windows built by buildFacade below. Dropped in favour of the plain
-      // wallT panel everywhere: the only openings in the building now are
-      // the real, framed, vignette-backed windows.
+      // The front/back rings ALTERNATE the decorative Wall_Plaster_WoodGrid tile
+      // (gridT) - the tall half-timbered wood-framed panels the user specifically
+      // wants (they were briefly dropped for 986's hollow fix, but the user liked
+      // them and asked for them back). The "hollow see-through to sky" they used
+      // to cause (image 170) is now handled by the WARM-LIT interior liner below,
+      // which backs every gridT lattice with a real, glowing interior surface
+      // instead of empty space - so the panels read as lit windows into the
+      // tavern, not holes to the void.
       for (const y of [0, STORY]) {
         for (let i = 0; i < 7; i++) {
           const x = -6 + i * 2;
-          wallAt(wallT, x, halfD - 0.2, 0, y);        // front (south)
-          wallAt(wallT, x, -halfD + 0.2, Math.PI, y); // back (north)
+          wallAt(i % 2 ? (gridT || wallT) : wallT, x, halfD - 0.2, 0, y);        // front (south)
+          wallAt(i % 2 ? wallT : (gridT || wallT), x, -halfD + 0.2, Math.PI, y); // back (north)
         }
         for (let i = 0; i < 5; i++) {
           const z = -4 + i * 2;
@@ -2574,19 +2574,24 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
           wallAt(wallT, halfW - 0.2, z, -Math.PI / 2, y);   // east
         }
       }
-      // 986: the kit walls above are thin authored panels (some with a real
-      // PIERCED lattice pattern - Wall_Plaster_WoodGrid) and there is nothing
-      // else inside the ring, so any gap/lattice hole let the camera see
-      // straight through the "building" to the sky or the far wall (user
-      // image 170, "it's all hollow"). A single dark inset liner, just
-      // inside the real wall envelope and spanning both storeys, catches any
-      // such ray with a real interior-toned surface instead of empty space;
-      // the per-window vignettes built in mkWindow (buildFacade, above) then
-      // dress the actual window openings with a furnished, lit look.
-      const linerMat = new THREE.MeshStandardMaterial({ color: 0x241a12, roughness: 0.95 });
+      // The exterior building is a hollow shell, so the gridT WoodGrid lattice
+      // panels (and the framed windows) would otherwise show empty space / the
+      // sky (user image 170, "it's all hollow"). This liner IS the building's
+      // interior surface - one inset box spanning both storeys - but given a warm
+      // tavern-wood tone + a soft emissive so it reads as a LIT room, backed by a
+      // warm point light that fills the shell. So standing outside and looking
+      // through the wood windows/lattice you now see a glowing, occupied-looking
+      // tavern interior instead of a dark hole. (This is the achievable "see
+      // inside from outside": the REAL interior is a separate scene loaded only
+      // when you walk in, so its live NPCs cannot render out here.)
+      const linerMat = new THREE.MeshStandardMaterial({ color: 0x4a3320, roughness: 0.9, emissive: 0x2a1a0a, emissiveIntensity: 0.45 });
       const liner = new THREE.Mesh(new THREE.BoxGeometry(W - 0.9, STORY * 2 - 0.3, D - 0.9), linerMat);
       liner.position.set(0, STORY, 0);
       kit.add(liner);
+      // warm hearth-fill so the interior glows through every opening, day or night
+      const innerGlow = new THREE.PointLight(0xffb262, 9, 16, 1.5);
+      innerGlow.position.set(0, STORY, 0);
+      kit.add(innerGlow);
       // timber belt course marking the floor line between the two storeys
       const beltMat = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.9 });
       for (const [bw, bd, bx, bz] of [[W + 0.2, 0.2, 0, halfD - 0.1], [W + 0.2, 0.2, 0, -halfD + 0.1], [0.2, D + 0.2, -halfW + 0.1, 0], [0.2, D + 0.2, halfW - 0.1, 0]]) {
