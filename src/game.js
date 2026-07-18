@@ -6436,8 +6436,20 @@ export class Game {
         this.camYaw += dir * Math.min(1.8 * dt, 0.05); // gentle nudge toward a clear angle
       } else { this._occludeDir = null; }
     }
-    const camX = target.x + Math.sin(this.camYaw) * camDist;
-    const camZ = target.z + Math.cos(this.camYaw) * camDist;
+    let camX = target.x + Math.sin(this.camYaw) * camDist;
+    let camZ = target.z + Math.cos(this.camYaw) * camDist;
+    // 976: keep the camera INSIDE the tavern room. Orbiting in a far corner
+    // swung the camera out PAST the walls into the 974 tall occluder boxes (they
+    // seal the exterior above wall height), filling the view with black - you
+    // couldn't see yourself or the bar. Clamp the camera XZ to the room's inner
+    // bounds; the lookAt still tracks the hero, so they and the bar stay framed
+    // (the view just tips more top-down as it hugs the near wall in a corner).
+    if (this.inTavern && !this.inUpstairs && this.dungeon?.grid) {
+      const T = 2, M = 1.3;
+      const gw = this.dungeon.grid[0].length, gh = this.dungeon.grid.length;
+      camX = Math.min(Math.max(camX, T + M), (gw - 1) * T - M);
+      camZ = Math.min(Math.max(camZ, T + M), (gh - 1) * T - M);
+    }
     // Frame-rate-independent smoothing (1 - e^-kt), applied IDENTICALLY to the
     // camera position and the look target. The old scheme eased position with
     // a linear min(1, 8*dt) factor but aimed lookAt at the player's EXACT spot
