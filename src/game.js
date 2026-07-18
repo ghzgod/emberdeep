@@ -1533,7 +1533,9 @@ export class Game {
     }
     const counterY = 1.12;
     const from = { x: b.x, z: b.z + 0.35 };                 // Magda's inside edge
-    const to = { x: seat.x, z: (seat.z + b.z) / 2 };        // on the counter in front of you
+    // 983: slide the mug right up CLOSE to the player's seat edge (was the
+    // counter MIDPOINT, which left it out of reach in the middle of the bar).
+    const to = { x: seat.x, z: seat.z - 0.55 };             // on the counter just in front of you
     mug.position.set(from.x, counterY, from.z);
     this.dungeonMeshes.group.add(mug);
     this._slideMug = { mesh: mug, from, to, y: counterY, t: 0, dur: 0.8, name, phase: 'pour' };
@@ -1831,8 +1833,12 @@ export class Game {
       };
       p.mesh.updateMatrixWorld(true);
       spine.add(sword);
-      sword.position.set(0.0, 0.30, -0.17); // upper back, behind the torso
-      sword.rotation.set(0.42, 0.0, -0.5);   // laid flat, hilt up over the shoulder
+      // 984: slung LOW across the mid-back and further behind the torso, laid
+      // diagonally so the blade shows past the cape from behind - the old
+      // higher/closer pose (y0.30/z-0.17) poked the blade up through the FACE
+      // from the front and hid it behind the cape from the back.
+      sword.position.set(0.02, 0.14, -0.24);
+      sword.rotation.set(0.5, 0.0, -0.95);
     } else {
       const s = this._sheathedWeapon;
       if (!s) return;
