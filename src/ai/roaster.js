@@ -420,10 +420,14 @@ export class Roaster {
     return convo;
   }
 
-  // 961: procedural table-talk. Each topic is a 3-turn template whose slots are
-  // filled from shared banks (creatures, places, townsfolk, goods, drinks...).
-  // Even one topic spans thousands of natural combinations, so the regulars
-  // gossip about fresh rumours every visit instead of a fixed loop.
+  // 961/977: procedural table-talk. Each topic is a 3-turn template whose
+  // slots are filled from shared banks (creatures, places, townsfolk, goods,
+  // drinks...). Even one topic spans thousands of natural combinations, so
+  // the regulars gossip about fresh rumours every visit instead of a fixed
+  // loop. This is the SEATED regulars (drunk=Bram, a man; patron=the Tavern
+  // Patron, a woman; rosalind, a woman) talking to EACH OTHER - Magda the
+  // barkeep isn't at their table, so she's never a speaker or addressee here
+  // (she has her own serve-line system for when she IS present).
   _genTavernConvo() {
     const P = (a) => a[Math.floor(Math.random() * a.length)];
     const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -446,29 +450,29 @@ export class Roaster {
       good = P(GOOD), animal = P(ANIMAL), drink = P(DRINK);
     const TOPICS = [
       () => [['patron', `Someone spotted ${cr.p} out past ${pl} again.`],
-        ['magda', `${cap(pl)}? Third traveler this week to say so.`],
+        ['rosalind', `${cap(pl)}? Third traveler this week to say so.`],
         ['drunk', `I'd wrestle ${cr.s}. Tiny arms, strong opinions.`]],
       () => [['drunk', `${doer}'s ${val} went missing. Clean gone.`],
         ['patron', `${cap(doer)} blames ${cr.p}. Always blames ${cr.p}.`],
-        ['magda', `Whoever took it can settle their tab first.`]],
-      () => [['magda', `Rain's coming - the road to ${pl} will be all mud by dawn.`],
-        ['patron', `Then another ${drink} while it passes, Magda.`],
+        ['rosalind', `Boy, you better hope it turns up before he blames you.`]],
+      () => [['rosalind', `Rain's coming - the road to ${pl} will be all mud by dawn.`],
+        ['patron', `Then another ${drink} while it passes, love.`],
         ['drunk', `Mud, rain, ${drink} - all the same to me by the third cup.`]],
       () => [['patron', `Price of ${good}'s gone mad. ${doer}'s fuming over it.`],
         ['drunk', `${cap(good)}? I once built a shed with hope and spit.`],
-        ['magda', `That shed fell on ${animal}, Bram. We remember.`]],
+        ['rosalind', `That shed fell on ${animal}, Bram. We ALL remember, boy.`]],
       () => [['patron', `${doer} was shouting at ${pl} again this morning.`],
-        ['magda', `${cap(doer)} shouts at everything. Last week it was ${animal}.`],
+        ['rosalind', `${cap(doer)} shouts at everything. Last week it was ${animal}.`],
         ['drunk', `In fairness, ${animal} probably started it.`]],
       () => [['drunk', `One more floor below and I retire. I always say that.`],
-        ['magda', `The closest you've been to the dungeon is ${pl}, Bram.`],
-        ['patron', `Falling down the cellar steps isn't delving, love.`]],
+        ['rosalind', `The closest you've been to the dungeon is ${pl}, Bram.`],
+        ['patron', `Falling down the cellar steps isn't delving, lad.`]],
       () => [['patron', `New folk moved in out by ${pl}. Lanterns burning late.`],
-        ['magda', `Good. Send them my way - first ${drink}'s on the house.`],
+        ['rosalind', `Any of them handsome? Asking for the town's morale, girl.`],
         ['drunk', `I'll welcome them. I'm very welcoming after a ${drink}.`]],
       () => [['drunk', `A bard passed through singing of ${cr.p} on ${pl}.`],
         ['patron', `It's an omen. Last time, ${doer}'s hens stopped laying.`],
-        ['magda', `Omen or not, ${cr.p} don't drink. Bad for business.`]],
+        ['rosalind', `Settle down, lad, it's a song, not a curse.`]],
     ];
     return P(TOPICS)().map(([who, text]) => ({ who, text }));
   }
@@ -477,61 +481,67 @@ export class Roaster {
     const C = [
       [['drunk', ["I swear the golem on the sign winked at me.", "That sign golem just winked. I saw it."]],
        ['patron', ["That's the ale winking, dear.", "Sure it did. And my herbs sing lullabies."]],
-       ['magda', ["If the sign starts buying rounds, I'll worry.", "Long as it doesn't ask for a tab, we're fine."]]],
+       ['rosalind', ["Boy, you say that every single night.", "If the sign starts buying rounds, THEN I'll worry."]]],
       [['patron', ["Roads past the mill are crawling with imps again.", "Imps by the mill road again - thick as flies."]],
-       ['magda', ["Third traveler to say so this week.", "Aye, everyone's saying it. Bad season."]],
+       ['rosalind', ["Third traveler to say so this week, girl.", "Aye, everyone's saying it. Bad season."]],
        ['drunk', ["Imps? Wrestled one once. Tiny arms. Strong opinions.", "I fought an imp once. We're friends now. Sort of."]]],
-      [['magda', ["That's your third since noon, love.", "Your mug's emptier than my cellar again."]],
-       ['drunk', ["Counting's for tax men, Magda!", "A wizard told me ale counts as bread."]],
-       ['patron', ["He'll be singing by sundown.", "Somebody hide the lute before he finds it."]]],
+      [['rosalind', ["That's your third since noon, love.", "Your mug's emptier than my cellar again, Bram."]],
+       ['drunk', ["Counting's for tax men!", "A wizard told me ale counts as bread."]],
+       ['patron', ["He'll be singing by sundown, lad.", "Somebody hide the lute before he finds it."]]],
+      // Magda has her own serve-line system and stands at the bar, not the
+      // regulars' table (Obsidian 977). She stays a rare voice HERE - the
+      // play-loop drops these lines outright if she isn't actually near the
+      // group, so keeping a handful is safe.
       [['magda', ["Hearth's drawing nice tonight.", "Fire's behaving itself for once."]],
        ['patron', ["Best seat in Embervale, that couch.", "I'd trade my cart for an evening on that couch."]],
        ['drunk', ["I called it first! ...where's my mug.", "That couch and I have an understanding."]]],
       [['patron', ["Fenwick was shouting at the well again.", "Old Fenwick's arguing with the well. Again."]],
-       ['magda', ["He shouts at everything. Last week it was a chicken.", "The well never answers back. That's why he likes it."]],
+       ['rosalind', ["He shouts at everything, girl. Last week it was a chicken.", "The well never answers back. That's why he likes it."]],
        ['drunk', ["The chicken started it.", "In his defense, that chicken had a look."]]],
       [['drunk', ["One more floor, then I retire. I always say that.", "Someday I'll clear a floor myself. Someday."]],
-       ['magda', ["You've never set foot below, Bram.", "The closest you've been to the dungeon is the cellar."]],
+       ['rosalind', ["You've never set foot below, Bram.", "The closest you've been to the dungeon is the cellar, lad."]],
        ['patron', ["The stairs don't count, love.", "Falling down the cellar steps isn't delving."]]],
       // Rosalind joins the room's banter (Obsidian 857) - she was the only
       // regular who never spoke unless the player walked up to her.
       [['rosalind', ["Quiet night. Someone buy me something loud.", "Mmm, slow evening. Surprise me, someone."]],
-       ['magda', ["You've a tab longer than the bar, Ros.", "Your coin purse says otherwise, love."]],
+       ['patron', ["You've a tab longer than the bar, Ros.", "Your coin purse says otherwise, girl."]],
        ['drunk', ["I'd buy, but my coin's... resting.", "Put it on my tab! ...what do you mean 'no'."]]],
       [['patron', ["Some adventurer was eyeing the stairs earlier.", "Saw a hero poking about the stairwell."]],
        ['rosalind', ["Was he handsome? Asking for a friend.", "*sips* If they're pretty, send them my way."]],
-       ['magda', ["Behave, Ros. This is a respectable house.", "The rooms are for SLEEPING, Rosalind."]]],
-      [['rosalind', ["Magda, love, the fire's low and so am I.", "Another honeyed ale before I wilt, Magda."]],
-       ['magda', ["Coming, coming. Hold your garters.", "Patience, petal. The keg's not going anywhere."]],
-       ['patron', ["She'll wilt into someone's lap, more like.", "The lady wilts nightly, regular as the moon."]]],
+       ['patron', ["Behave, Ros. This is a respectable house.", "Settle down, lass - the rooms are for SLEEPING."]]],
+      [['rosalind', ["This fire's gone low and so have I.", "I could use another round before I wilt entirely."]],
+       ['patron', ["Wave Magda down, then, not us, love.", "We're not the barkeep, dear - go ask."]],
+       ['drunk', ["She'll wilt into someone's lap, more like.", "The lady wilts nightly, regular as the moon."]]],
       // 954: a much larger bank so the room doesn't loop the same six exchanges.
       [['patron', ["Harvest fair's coming. My turnips are the size of my head.", "Fair's near. I've a marrow that'd frighten a troll."]],
        ['drunk', ["I judged the marrows once. *hic* Ate the winner.", "One year I WAS the marrow. Long night."]],
-       ['magda', ["You judged nothing but the bottom of a cup, Bram.", "The only thing you've ever weighed is your tab."]]],
+       ['rosalind', ["You judged nothing but the bottom of a cup, Bram.", "Boy, the only thing you've ever weighed is your tab."]]],
       [['drunk', ["My cousin swears the mine's haunted now.", "They say lights move in the old mine shafts."]],
        ['patron', ["Everything's haunted after your cousin's had a few.", "That's not ghosts, that's the miners' lanterns."]],
-       ['magda', ["Haunted or not, their coin spends the same here.", "Ghosts don't drink. More's the pity for business."]]],
+       ['rosalind', ["Haunted or not, I'm not walking home past it alone, lad.", "Ghosts don't drink. More's the pity, girls."]]],
       [['magda', ["Rain's coming - my knee never lies.", "Sky's the colour of old pewter. Storm by dusk."]],
        ['patron', ["Then I'll take the long way home. Round the ale.", "Best wait it out here, then. Another round?"]],
        ['drunk', ["I love a storm! ...indoors. With a mug.", "Rain reminds me of soup. Everything reminds me of soup."]]],
       [['patron', ["Price of iron's gone mad. Torvald's fuming.", "Heard the smith's charging double for nails now."]],
        ['drunk', ["Nails? I built a whole shed with hope and spit.", "Who needs nails. I lash mine with regret."]],
-       ['magda', ["That shed fell on a goat, Bram. We remember.", "Your 'shed' is a rumour and a pile of splinters."]]],
+       ['rosalind', ["That shed fell on a goat, Bram. We ALL remember, boy.", "Your 'shed' is a rumour and a pile of splinters."]]],
       [['drunk', ["A bard passed through singing of a red comet.", "Some minstrel said the stars are rearranging."]],
        ['rosalind', ["A comet? How romantic. Someone hold my drink.", "Stars rearranging - like my plans every evening."]],
-       ['patron', ["It's an omen, mark me. Always is.", "Last comet, my hens stopped laying for a month."]]],
+       ['patron', ["It's an omen, mark me. Always is, boy.", "Last comet, my hens stopped laying for a month."]]],
       [['patron', ["The bridge toll went up again. Daylight robbery.", "They're taxing the river now, I swear it."]],
-       ['magda', ["Take the ford. Costs nothing but wet boots.", "Everyone taxes something. I tax the thirsty."]],
+       ['rosalind', ["Take the ford, love. Costs nothing but wet boots.", "Everyone taxes something these days, girl."]],
        ['drunk', ["I swam it once. Owe a fish an apology.", "The river and I have history. Cold history."]]],
       [['rosalind', ["Someone left flowers on my windowsill. No note.", "A secret admirer, or a very confused bee."]],
        ['drunk', ["Wasn't me! ...should it have been me?", "Flowers? I gave a girl a turnip once. It went poorly."]],
-       ['magda', ["Whoever it is, tell them to settle their tab first.", "Romance is fine. Cash is finer."]]],
+       ['patron', ["Whoever it is, they've got taste, dear.", "Romance is fine. Just don't let it go to your head, girl."]]],
+      // Magda kept for the safety-announcement beat (Obsidian 977) - the
+      // play-loop still drops it unless she's actually near the table.
       [['magda', ["Wolves came down from the ridge in the night.", "Sheep's spooked - something's prowling the north field."]],
        ['patron', ["I'll walk the ladies home, then. For safety.", "Best keep the shutters barred a few nights."]],
        ['drunk', ["I'd fight a wolf. I've got the beard for it.", "A wolf looked at me once. We both left."]]],
       [['patron', ["New family moved into the old mill house.", "Saw lanterns in the mill - someone's fixing it up."]],
-       ['magda', ["Good. That place has been dark too long.", "Send them my way. First round's on the house."]],
-       ['rosalind', ["Any of them handsome? For the town's morale.", "I'll go welcome them. Purely neighbourly, of course."]]],
+       ['drunk', ["Good. That place has been dark too long.", "I'll bring 'em a housewarming mug, personally."]],
+       ['rosalind', ["Any of them handsome? For the town's morale, boy.", "I'll go welcome them. Purely neighbourly, of course."]]],
       [['drunk', ["I've a system for the dice down at the market.", "Zoltan's stall is a scam and I love it dearly."]],
        ['patron', ["Your 'system' cost you a boot last week.", "The only thing you win at dice is regret."]],
        ['magda', ["Gamble in here and you'll owe me the table.", "Keep the dice outside. This is a drinking house."]]],

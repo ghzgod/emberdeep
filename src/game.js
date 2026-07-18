@@ -2848,10 +2848,15 @@ export class Game {
         .filter((k) => mem[k]?.length)
         .map((k) => `${k} is known for: ${mem[k].slice(-4).join('; ')}`).join('. ');
       const playerLine = mem.player.length ? ` They last saw the adventurer: ${mem.player.slice(-2).join('; ')}.` : '';
+      // 977: ambient table-talk is the SEATED REGULARS talking to EACH OTHER,
+      // not to the barkeep (Magda has her own serve system and stands at the
+      // bar, not their table - patrons addressing "Magda" from across the
+      // room read as broken). They know each other's sex and use gendered/
+      // relational address, PG-flavoured outside 18+ mode.
       const tone = this.settings.adult18
-        ? 'Tone: 18+ - the banter may be DARK, crazy or bawdy (grim war stories, black humor, filthy jokes, profanity fine) but above all genuinely FUNNY.'
-        : 'Tone: clean but genuinely FUNNY - dry wit, absurd gripes, running jokes.';
-      const sys = `Write ambient background banter for a fantasy tavern. Speakers: "magda" (no-nonsense barkeep), "drunk" (Bram, tipsy regular), "patron" (dry-witted regular), "rosalind" (playful flirt). ${tone}${memLine ? ` Shared memory to build on (weave a callback in when it fits): ${memLine}.` : ''}${playerLine} Reply ONLY JSON: {"turns":[{"who":"<magda|drunk|patron|rosalind>","text":"<one short spoken line, max 16 words, natural pronounceable words only - no Hmm/Mmm/Hmph/Pfft murmur sounds>"}],"learned":[{"who":"<speaker>","fact":"<optional: one SHORT new thing this exchange revealed about them>"}]} with EXACTLY 3 turns by different speakers. Do NOT reuse these earlier openers: ${used || '(none)'}`;
+        ? 'Tone: 18+ - the banter may be DARK, crazy, flirty or bawdy (grim war stories, black humor, filthy jokes, profanity fine, mild sexual innuendo OK) but NEVER graphic/explicit, and above all genuinely FUNNY.'
+        : 'Tone: clean but genuinely FUNNY - dry wit, absurd gripes, running jokes. Since these three know each other well, lean on PG relational quips when ribbing one another - things like "boy, you better stop", "girl, you crazy", "watch it, lad", "settle down, lass" - no profanity.';
+      const sys = `Write ambient background banter for a fantasy tavern, between three SEATED REGULARS who know each other well and are talking to EACH OTHER at their own table - NOT to the barkeep, who is busy across the room and takes no part in this chat. Speakers: "drunk" (Bram, tipsy regular, a man), "patron" (dry-witted regular, a woman), "rosalind" (playful flirt, a woman). They know each other's sex and address one another accordingly (lad, lass, boy, girl, love, dear, mate, etc. as fits the moment) - never by the name "Magda". ${tone}${memLine ? ` Shared memory to build on (weave a callback in when it fits): ${memLine}.` : ''}${playerLine} Reply ONLY JSON: {"turns":[{"who":"<drunk|patron|rosalind>","text":"<one short spoken line, max 16 words, natural pronounceable words only - no Hmm/Mmm/Hmph/Pfft murmur sounds>"}],"learned":[{"who":"<speaker>","fact":"<optional: one SHORT new thing this exchange revealed about them>"}]} with EXACTLY 3 turns by different speakers, all three from drunk/patron/rosalind. Do NOT reuse these earlier openers: ${used || '(none)'}`;
       // cache:false - ambient banter MUST stay fresh each time (887); the used-
       // openers list in the prompt already varies it, and we never want a
       // cached repeat of a whole exchange.
@@ -7763,7 +7768,24 @@ export class Game {
                 }
               }
             }
-            const spk = speakerOfAny(turn.who);
+            // Absent-Magda guard (Obsidian 977): ambient table-talk is between
+            // the SEATED regulars, not the barkeep - she has her own serve
+            // system and is only part of this banter when she's actually AT
+            // the table. If a turn is credited to her, or opens by naming her
+            // ("Magda, ..."), and she isn't near the group, drop the turn
+            // instead of playing a patron "talking" to an absent Magda (the
+            // offline banks still carry a few of her lines for when she is).
+            let skipTurn = false;
+            if (!turn._callout) {
+              const addressesMagda = turn.who === 'magda' || /^\s*Magda\b/i.test(turn.text || '');
+              if (addressesMagda) {
+                const bp = this.dungeonMeshes.barkeepPos;
+                const group = ['drunk', 'patron', 'rosalind'].map(speakerOfAny).filter(Boolean);
+                const near = bp && group.some((g) => Math.hypot(bp.x - g.pos.x, bp.z - g.pos.z) <= 3.5);
+                if (!near) skipTurn = true;
+              }
+            }
+            const spk = skipTurn ? null : speakerOfAny(turn.who);
             if (spk) {
               // 961(b): relationships WARM over pleasant banter. A normal (non-
               // callout) turn nudges up the bond between this speaker and the
@@ -7808,7 +7830,7 @@ export class Game {
                 }
               }
             }
-            this._convoGap = 1.2 + Math.random() * 0.8;
+            this._convoGap = skipTurn ? 0.05 : 1.2 + Math.random() * 0.8;
           }
         }
       } else if (visitorState?.mode === 'linger' && visitorState.group && !visitorState._greeted && !this.npcSpeechActive()) {
