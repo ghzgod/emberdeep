@@ -400,6 +400,17 @@ export function buildTavernInterior() {
   thresholdGlow.rotation.x = -Math.PI / 2;
   thresholdGlow.position.set(gapCenterX, 0.03, outerZ);
   group.add(thresholdGlow);
+  // 982b: even with the leaf sealing the opening head-on, at a STEEP close angle
+  // from inside you could still see the exterior surround (grass/trees) past the
+  // leaf's side edge through the wall gap. A wide, tall DARK panel a little way
+  // OUTSIDE the doorway blocks that exterior sightline from every angle - you
+  // just see dark "night beyond the door" until you actually step out (the exit
+  // fires on the tile + fade, so it never blocks leaving).
+  const exitBlock = new THREE.Mesh(
+    new THREE.BoxGeometry(gapWidth + 5, wallH + 1.5, 0.3),
+    new THREE.MeshBasicMaterial({ color: 0x120c07, fog: true }));
+  exitBlock.position.set(gapCenterX, (wallH + 1.5) / 2 - 0.4, outerZ + 1.1);
+  group.add(exitBlock);
   const thresholdLight = new THREE.PointLight(0xffb060, 15, 8, 2);
   thresholdLight.position.set(gapCenterX, 1.6, outerZ);
   group.add(thresholdLight);
