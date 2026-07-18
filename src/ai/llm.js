@@ -14,6 +14,17 @@
 // struggling endpoint or make the player wait on it.
 
 const ENDPOINT = 'https://api.llm7.io/v1/chat/completions';
+// 891: optional Mistral proxy Worker (worker/mistral-proxy.js) that holds the
+// real Mistral key SERVER-SIDE. When a Worker URL is configured - paste your
+// deployed https://…workers.dev URL below, or set localStorage
+// 'emberdeep-llm-worker' for a quick per-browser test - the router PREFERS it
+// (reliable, not rate-limited/Turnstile-gated like the free llm7 endpoint) and
+// falls back to llm7 if the Worker is unset or fails. Empty = current behavior.
+const WORKER_ENDPOINT = '';
+function workerUrl() {
+  try { const o = localStorage.getItem('emberdeep-llm-worker'); if (o) return o; } catch { /* no localStorage */ }
+  return WORKER_ENDPOINT;
+}
 // codestral-latest is the one model LLM7 still serves KEYLESS (all the gpt-5.x /
 // claude / deepseek models now 401 = require a key; devstral is 402 = paid).
 // It's a small, free, fast Mistral model (~0.6s) that handles casual dialogue
@@ -89,6 +100,30 @@ class LLM {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeout);
     try {
+      // 891: prefer the Mistral proxy Worker when configured - it holds the key
+      // server-side and isn't rate-limited/Turnstile-gated. On any failure we
+      // fall through to the keyless llm7 endpoint below (unchanged behavior).
+      const wurl = workerUrl();
+      if (wurl) {
+        const res = await fetch(wurl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages, temperature, max_tokens: maxTokens }),
+          signal: ctrl.signal,
+          cache: 'no-store',
+        }).catch(() => null);
+        if (res && res.ok) {
+          const data = await res.json().catch(() => null);
+          const text = data?.choices?.[0]?.message?.content;
+          if (typeof text === 'string' && text.trim()) {
+            this.fails = 0;
+            const out = text.trim();
+            if (cacheKey) this._cachePut(cacheKey, out);
+            return out;
+          }
+        }
+        // Worker unset/failed - fall through to llm7 rather than giving up.
+      }
       // Try each keyless model until one answers (free models 503 under load).
       for (const model of MODELS) {
         const res = await fetch(ENDPOINT, {
