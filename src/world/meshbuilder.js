@@ -2387,11 +2387,15 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
         // local space convention as the frame above (group positioned at the
         // pane, rotated by roty, local -Z = inward into the building) so it
         // sits correctly on every wall (front or side) with one function.
-        const vDepth = 0.4 * S;
+        const vDepth = 0.55 * S; // 990: deeper recess -> more "room", less shallow box
         const vign = new THREE.Group();
         vign.position.copy(win.position);
         vign.rotation.y = roty;
-        const vMat = new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 0.92 });
+        // 990: warm + softly self-lit so the nook reads as a LIT tavern room seen
+        // through the window from town (the user wants to look outside->in and see
+        // the inside), instead of a dark recess. The emissive keeps it glowing even
+        // in flat daylight when the hearth point light barely registers.
+        const vMat = new THREE.MeshStandardMaterial({ color: 0x4a3018, roughness: 0.9, emissive: 0x3a2208, emissiveIntensity: 0.5 });
         const vBack = new THREE.Mesh(new THREE.PlaneGeometry(0.66 * S, 0.62 * S), vMat);
         vBack.position.set(0, 0, -vDepth);
         const vSideGeo = new THREE.BoxGeometry(0.05 * S, 0.62 * S, vDepth);
@@ -2401,7 +2405,7 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
         const vCapT = new THREE.Mesh(vCapGeo, vMat); vCapT.position.set(0, 0.31 * S, -vDepth / 2);
         const vCapB = vCapT.clone(); vCapB.position.y = -0.31 * S;
         vign.add(vBack, vSideL, vSideR, vCapT, vCapB);
-        const hearth = new THREE.PointLight(0xffa552, 1.0, 1.4, 2);
+        const hearth = new THREE.PointLight(0xffb060, 1.9, 2.0, 2); // 990: warmer + brighter fill
         hearth.position.set(0, -0.05 * S, -vDepth * 0.55);
         vign.add(hearth);
         const kegV = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * S, 0.09 * S, 0.2 * S, 8),
