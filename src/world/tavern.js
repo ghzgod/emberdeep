@@ -1692,14 +1692,24 @@ export function buildTavernInterior() {
   // stairwell technique (a lit well you look down into, not a teleport hole).
   // headDownToCellar/_updateCellarDescendScene in game.js walk the hero down
   // these exact steps before the scene swaps to the cellar.
-  const cDN = 7, cRise = 0.3, cRun = 0.34, cStepW = 1.7;
+  // 985: FULL-WIDTH treads + solid RISERS so it reads as a real descending
+  // staircase you can SEE down into, and the flight itself OCCLUDES the void
+  // (the sunk exterior grass showed through the old 1.7-wide gappy steps as a
+  // "green void"). A top apron tread closes the gap at the floor rim.
+  const cDN = 7, cRise = 0.3, cRun = 0.34, cStepW = (CHX1 - CHX0) + 0.14;
+  const cShaftMat = new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 1 });
+  const cApron = new THREE.Mesh(new THREE.BoxGeometry(cStepW, 0.14, 0.55), plankMat);
+  cApron.position.set(cellarHw.x, 0.02, CHZ0 + 0.02); group.add(cApron);
+  const cApronR = new THREE.Mesh(new THREE.BoxGeometry(cStepW, cRise + 0.12, 0.05), cShaftMat);
+  cApronR.position.set(cellarHw.x, -0.12, CHZ0 + 0.29); group.add(cApronR);
   for (let i = 0; i < cDN; i++) {
-    const step = new THREE.Mesh(new THREE.BoxGeometry(cStepW, 0.14, cRun + 0.04), plankMat);
-    step.position.set(cellarHw.x, -cRise * (i + 1) + 0.07, CHZ0 + 0.25 + i * cRun);
-    step.receiveShadow = true; group.add(step);
+    const sy = -cRise * (i + 1) + 0.07, sz = CHZ0 + 0.25 + i * cRun;
+    const tread = new THREE.Mesh(new THREE.BoxGeometry(cStepW, 0.14, cRun + 0.04), plankMat);
+    tread.position.set(cellarHw.x, sy, sz); tread.receiveShadow = true; group.add(tread);
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(cStepW, cRise + 0.02, 0.05), cShaftMat);
+    riser.position.set(cellarHw.x, sy - cRise / 2, sz + (cRun + 0.04) / 2); group.add(riser);
   }
   const cWellBottomY = -cRise * cDN;
-  const cShaftMat = new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 1 });
   const cShaftH = -cWellBottomY + 0.2, cWellDepth = CHZ1 - CHZ0 + 1.0;
   for (const sx of [CHX0 - 0.02, CHX1 + 0.02]) {
     const sw = new THREE.Mesh(new THREE.BoxGeometry(0.12, cShaftH, cWellDepth), cShaftMat);
@@ -1713,11 +1723,19 @@ export function buildTavernInterior() {
   cWellFloor.position.set(cellarHw.x, cWellBottomY - 0.06, (CHZ0 + CHZ1) / 2 + 0.3); group.add(cWellFloor);
   const cWellGlow = new THREE.PointLight(0xffb877, 7, 6, 1.8);
   cWellGlow.position.set(cellarHw.x, cWellBottomY + 0.9, (CHZ0 + CHZ1) / 2 + 0.2); group.add(cWellGlow);
-  // newel posts flank the opening (964-style: framing, not blocking, the descent)
-  for (const px of [-0.9, 0.9]) {
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 8), darkWood);
-    post.position.set(cellarHw.x + px, 0.45, CHZ0 - 0.06); group.add(post);
+  // 985: a raked HANDRAIL down the west side of the flight (posts rising with
+  // the steps + a sloped rail) - replaces the old two bare "random poles" that
+  // just stuck up at the lip, so it reads as a real stair rail into the cellar.
+  const cRailX = CHX0 + 0.12;
+  for (let i = 0; i <= cDN; i += 2) {
+    const treadTopY = (i < cDN ? -cRise * i + 0.14 : cWellBottomY + 0.1);
+    const rp = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.85, 8), darkWood);
+    rp.position.set(cRailX, treadTopY + 0.42, CHZ0 + 0.25 + i * cRun); group.add(rp);
   }
+  const cRailLen = Math.hypot(cRise * cDN, cRun * cDN) + 0.2;
+  const cRail = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, cRailLen, 8), darkWood);
+  cRail.rotation.x = Math.atan2(cRise * cDN, cRun * cDN) + Math.PI / 2;
+  cRail.position.set(cRailX, -cRise * cDN / 2 + 0.55, CHZ0 + 0.25 + (cRun * cDN) / 2); group.add(cRail);
   // interact anchor: the solid-floor lip just north of the hole
   const stairsCellarPos = { x: cellarHw.x, z: CHZ0 - 1.0 };
 
