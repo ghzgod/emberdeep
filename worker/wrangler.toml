@@ -1,0 +1,9 @@
+# Cloudflare Worker config for the Emberdeep Mistral proxy (TODO 891).
+# Deploy from this directory:  npx wrangler deploy
+name = "emberdeep-mistral"
+main = "mistral-proxy.js"
+compatibility_date = "2024-11-01"
+
+# The Mistral API key is NOT stored here — it's an encrypted secret set with:
+#   npx wrangler secret put MISTRAL_API_KEY
+# (env.MISTRAL_API_KEY in mistral-proxy.js reads it at runtime.)
