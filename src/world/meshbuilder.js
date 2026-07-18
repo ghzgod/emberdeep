@@ -2217,10 +2217,34 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     const body = new THREE.Mesh(new THREE.BoxGeometry(W - 0.4, wallH2, D - 0.4), plaster);
     body.position.y = wallH2 / 2;
     shell.add(body);
-    // timber frame lines
+    // timber frame lines — evenly spaced across the front face, EXCEPT one
+    // of the 4 evenly-spaced X's used to land almost exactly on the LEFT
+    // front window (built by buildFacade/mkWindow below), drawing a vertical
+    // timber post straight across that window's frame/glass (Obsidian 987).
+    // The two front windows' X positions are re-derived here with the exact
+    // same formula buildFacade uses (doorX/margins) — both of buildFacade's
+    // calls below pass the same halfW=(W-0.4)/2 and S/DS=1.35/1.8, so this
+    // is the real window X, not a guess — then any beam whose X would land
+    // within a window's frame width is nudged clear of it.
+    const doorXFrame = W * 0.28, doorHalfWFrame = 0.6 * 1.8, halfWFrame = (W - 0.4) / 2;
+    const eastMarginFrame = halfWFrame - (doorXFrame + doorHalfWFrame);
+    const westMarginFrame = (doorXFrame - doorHalfWFrame) + halfWFrame;
+    let winFrame1X, winFrame2X;
+    if (eastMarginFrame > 0.9) {
+      winFrame1X = doorXFrame - Math.min(1.7, westMarginFrame - 0.5);
+      winFrame2X = doorXFrame + Math.min(1.6, eastMarginFrame - 0.3);
+    } else {
+      winFrame1X = doorXFrame - Math.min(1.3, westMarginFrame - 0.9);
+      winFrame2X = doorXFrame - Math.min(2.6, westMarginFrame - 0.5);
+    }
+    const winHalfFrame = 0.3 * 1.35 + 0.08; // window frame half-width + clearance gap
     for (let i = 0; i <= 3; i++) {
+      let bx = -W / 2 + 0.25 + (i * (W - 0.5)) / 3;
+      for (const wx of [winFrame1X, winFrame2X]) {
+        if (Math.abs(bx - wx) < winHalfFrame) bx = bx < wx ? wx - winHalfFrame : wx + winHalfFrame;
+      }
       const beam = new THREE.Mesh(new THREE.BoxGeometry(0.12, wallH2, 0.12), timber);
-      beam.position.set(-W / 2 + 0.25 + (i * (W - 0.5)) / 3, wallH2 / 2, D / 2 - 0.14);
+      beam.position.set(bx, wallH2 / 2, D / 2 - 0.14);
       shell.add(beam);
     }
     const beltBeam = new THREE.Mesh(new THREE.BoxGeometry(W - 0.3, 0.14, 0.12), timber);
@@ -2327,7 +2351,16 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // OWN size and its offset from the doorway/wall grow with the model.
       const add = (...m) => { objs.push(...m); tavern.add(...m); };
       const mkWindow = (x, z, roty) => {
+        // 986: the pane used to be a fully OPAQUE amber plane — flat and,
+        // from the side/at any angle, indistinguishable from a hollow hole
+        // in the wall (user images 169/170). Made translucent (real glass)
+        // so the furnished vignette built below shows through it, with
+        // enough tint left that it still reads as lit glass from a distance;
+        // the day/night driver (townGlows, kind:'basic') keeps recolouring
+        // it exactly as before, just now against a transparent base.
         const win = new THREE.Mesh(new THREE.PlaneGeometry(0.5 * S, 0.46 * S), glow.clone());
+        win.material.transparent = true;
+        win.material.opacity = 0.5;
         win.position.set(x, 1.32 * S, z);
         win.rotation.y = roty;
         // wood frame around the pane
@@ -2345,6 +2378,42 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
         mV.position.copy(win.position); mV.rotation.y = roty;
         mH.position.copy(win.position); mH.rotation.y = roty;
         add(win, frame, mV, mH);
+        // 986: a small recessed diorama just behind the pane — dark back/
+        // side walls (so it reads as a real room, not open space), a warm
+        // hearth-glow point light, and a couple of simple props (keg, plank,
+        // mug) — so peering through the window from town shows a furnished,
+        // lit tavern interior with real depth instead of a flat glowing
+        // rectangle or (worse) a hollow see-through box. Built in the SAME
+        // local space convention as the frame above (group positioned at the
+        // pane, rotated by roty, local -Z = inward into the building) so it
+        // sits correctly on every wall (front or side) with one function.
+        const vDepth = 0.4 * S;
+        const vign = new THREE.Group();
+        vign.position.copy(win.position);
+        vign.rotation.y = roty;
+        const vMat = new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 0.92 });
+        const vBack = new THREE.Mesh(new THREE.PlaneGeometry(0.66 * S, 0.62 * S), vMat);
+        vBack.position.set(0, 0, -vDepth);
+        const vSideGeo = new THREE.BoxGeometry(0.05 * S, 0.62 * S, vDepth);
+        const vSideL = new THREE.Mesh(vSideGeo, vMat); vSideL.position.set(-0.31 * S, 0, -vDepth / 2);
+        const vSideR = vSideL.clone(); vSideR.position.x = 0.31 * S;
+        const vCapGeo = new THREE.BoxGeometry(0.66 * S, 0.05 * S, vDepth);
+        const vCapT = new THREE.Mesh(vCapGeo, vMat); vCapT.position.set(0, 0.31 * S, -vDepth / 2);
+        const vCapB = vCapT.clone(); vCapB.position.y = -0.31 * S;
+        vign.add(vBack, vSideL, vSideR, vCapT, vCapB);
+        const hearth = new THREE.PointLight(0xffa552, 1.0, 1.4, 2);
+        hearth.position.set(0, -0.05 * S, -vDepth * 0.55);
+        vign.add(hearth);
+        const kegV = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * S, 0.09 * S, 0.2 * S, 8),
+          new THREE.MeshStandardMaterial({ color: 0x6b4c30, roughness: 0.85 }));
+        kegV.position.set(-0.16 * S, -0.21 * S, -vDepth * 0.8);
+        const plankV = new THREE.Mesh(new THREE.BoxGeometry(0.3 * S, 0.035 * S, 0.16 * S), timber);
+        plankV.position.set(0.12 * S, -0.26 * S, -vDepth * 0.7);
+        const mugV = new THREE.Mesh(new THREE.CylinderGeometry(0.022 * S, 0.022 * S, 0.045 * S, 6),
+          new THREE.MeshStandardMaterial({ color: 0x8a5a2e, roughness: 0.7 }));
+        mugV.position.set(0.1 * S, -0.235 * S, -vDepth * 0.63);
+        vign.add(kegV, plankV, mugV);
+        add(vign);
         // each pane has its own cloned material, so each needs its own
         // townGlows entry — the day/night driver walks the list per-mesh.
         const entry = { mesh: win, base: new THREE.Color(0xffb45e), kind: 'basic' };
@@ -2469,7 +2538,7 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
     // plot, under the kit's 8x14 round-tile roof. The existing proven facade
     // dressing (glowing windows, coherent door, hanging sign, day/night glow)
     // re-lands on the kit walls. Procedural shell stays if the kit can't load.
-    swapInModel(tavern, shell, ['mkWallStraight', 'mkWallGrid', 'mkRoof'], ([wallT, gridT, roofT]) => {
+    swapInModel(tavern, shell, ['mkWallStraight', 'mkRoof'], ([wallT, roofT]) => {
       if (!wallT || !roofT) return null;
       const kit = new THREE.Group();
       const STORY = 3.12;
@@ -2485,11 +2554,19 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
       // full storey. (The interior footprint is deliberately larger than the
       // plot - 'bigger on the inside' - so we match the STOREY COUNT + read, not
       // the exact tile footprint, which would dwarf the rest of the town.)
+      // 986: the front/back rings used to alternate in the decorative
+      // Wall_Plaster_WoodGrid tile (gridT), which is a real PIERCED lattice
+      // panel with no light or backing of its own — from town it read as a
+      // dark hollow hole straight through the building (user image 170),
+      // wholly separate from (and easily confused with) the actual glowing
+      // windows built by buildFacade below. Dropped in favour of the plain
+      // wallT panel everywhere: the only openings in the building now are
+      // the real, framed, vignette-backed windows.
       for (const y of [0, STORY]) {
         for (let i = 0; i < 7; i++) {
           const x = -6 + i * 2;
-          wallAt(i % 2 ? (gridT || wallT) : wallT, x, halfD - 0.2, 0, y);        // front (south)
-          wallAt(i % 2 ? wallT : (gridT || wallT), x, -halfD + 0.2, Math.PI, y); // back (north)
+          wallAt(wallT, x, halfD - 0.2, 0, y);        // front (south)
+          wallAt(wallT, x, -halfD + 0.2, Math.PI, y); // back (north)
         }
         for (let i = 0; i < 5; i++) {
           const z = -4 + i * 2;
@@ -2497,6 +2574,19 @@ function buildTownDecor(group, dungeon, smokePuffs, townGlows = [], breakables =
           wallAt(wallT, halfW - 0.2, z, -Math.PI / 2, y);   // east
         }
       }
+      // 986: the kit walls above are thin authored panels (some with a real
+      // PIERCED lattice pattern - Wall_Plaster_WoodGrid) and there is nothing
+      // else inside the ring, so any gap/lattice hole let the camera see
+      // straight through the "building" to the sky or the far wall (user
+      // image 170, "it's all hollow"). A single dark inset liner, just
+      // inside the real wall envelope and spanning both storeys, catches any
+      // such ray with a real interior-toned surface instead of empty space;
+      // the per-window vignettes built in mkWindow (buildFacade, above) then
+      // dress the actual window openings with a furnished, lit look.
+      const linerMat = new THREE.MeshStandardMaterial({ color: 0x241a12, roughness: 0.95 });
+      const liner = new THREE.Mesh(new THREE.BoxGeometry(W - 0.9, STORY * 2 - 0.3, D - 0.9), linerMat);
+      liner.position.set(0, STORY, 0);
+      kit.add(liner);
       // timber belt course marking the floor line between the two storeys
       const beltMat = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.9 });
       for (const [bw, bd, bx, bz] of [[W + 0.2, 0.2, 0, halfD - 0.1], [W + 0.2, 0.2, 0, -halfD + 0.1], [0.2, D + 0.2, -halfW + 0.1, 0], [0.2, D + 0.2, halfW - 0.1, 0]]) {
