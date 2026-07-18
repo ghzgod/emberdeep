@@ -794,6 +794,17 @@ export class Game {
     // houses/trees/lanes you walk outside), with true depth and parallax.
     // Anything that would intrude INSIDE the room's footprint is culled per
     // top-level child (bounding-box test); town-spanning ground/roads stay.
+    // Freeze-time consistency (988): the town day/night clock is paused while
+    // inside (updateDayNight early-returns in the tavern) and resumes at the same
+    // value on exit, so capture the day amount at entry and light BOTH the
+    // surround and the through-window sky to it - otherwise looking OUT the window
+    // showed a fixed dusk while stepping OUT showed the real daytime: two
+    // mismatched worlds. Computed before the try so setTownAtmosphere (below) has
+    // it even if the surround build fails.
+    {
+      const _phase = (this.townClock % Game.DAY_NIGHT_PERIOD) / Game.DAY_NIGHT_PERIOD;
+      this._tavernDayAmt = 0.5 - 0.5 * Math.cos(_phase * Math.PI * 2 + Math.PI);
+    }
     try {
       const town = generateTown();
       const outside = buildDungeonMeshes(town, themeForFloor(1));
@@ -847,8 +858,20 @@ export class Game {
           if (!groundLike && _bb.intersectsBox(roomRect)) o.visible = false;
         });
       };
-      // moonlit-dusk fill so the village reads through the panes at night
-      outside.group.add(new THREE.HemisphereLight(0x8fa0c8, 0x0c0c14, 0.4));
+      // Light the surround at the SAME time of day the player entered (988): sun
+      // + hemisphere lerp on the entry dayAmt - bright warm daylight by day, cool
+      // moonlight at night - so the village seen through the panes matches the
+      // town you just walked in from (and will walk back out into).
+      {
+        const da = this._tavernDayAmt, lp = (a, b, t) => a + (b - a) * t;
+        const hemi = new THREE.HemisphereLight(0x8fa0c8, 0x0c0c14, lp(0.4, 1.05, da));
+        hemi.color.setRGB(lp(0.36, 0.86, da), lp(0.40, 0.90, da), lp(0.56, 0.98, da));
+        outside.group.add(hemi);
+        const sun = new THREE.DirectionalLight(0xffffff, lp(0.05, 1.15, da));
+        sun.color.setRGB(lp(0.42, 1.0, da), lp(0.48, 0.94, da), lp(0.66, 0.82, da));
+        sun.position.set(14, 22, 8);
+        outside.group.add(sun);
+      }
       this.scene.add(outside.group);
       this._tavernOutside = outside.group;
       cullOutside();
@@ -3155,9 +3178,25 @@ export class Game {
   setTownAtmosphere(on) {
     if (on && this.inTavern) {
       // Warm, lamplit tavern: amber ambient so the wood and back-bar glow, and
-      // a soft hearth-coloured glow that follows the player through the room.
-      this.scene.background = new THREE.Color(0x1a1109);
-      this.scene.fog = new THREE.Fog(0x1a1109, 22, 46);
+      // a soft hearth-coloured glow that follows the player through the room. The
+      // SKY seen through the windows/door must match the real town's time of day
+      // (988), so tint the background+fog by the entry dayAmt (deep indigo night
+      // -> slate-blue day) instead of a fixed dusk-brown. The interior still reads
+      // cozy from the warm ambient + hearth glow + torch lights up close.
+      const da = this._tavernDayAmt ?? 0;
+      const lp = (a, b, t) => a + (b - a) * t;
+      const sky = new THREE.Color(
+        lp(0x0e / 255, 0x5a / 255, da), lp(0x12 / 255, 0x74 / 255, da), lp(0x24 / 255, 0x9c / 255, da));
+      this.scene.background = sky;
+      this.scene.fog = new THREE.Fog(sky.clone(), lp(20, 24, da), lp(46, 58, da));
+      // The over-wall soffit (tavern.js 'TavernSoffit') seals the town out of the
+      // zoomed-out view, but it was a FIXED dark-brown lid - so looking up/out a
+      // window hit brown, and zooming out showed a brown ceiling, both while it
+      // was DAYTIME outside (988). Match it to the sky so the whole region above
+      // the walls reads as the same time-of-day sky, and the windows show real
+      // daylight through the top of the opening. Added to the scene before this
+      // runs (loadTavern:765), so the traverse finds it on fresh + resume loads.
+      this.scene.traverse((o) => { if (o.name === 'TavernSoffit') o.material.color.copy(sky); });
       this.ambient.color.setHex(0xffb066);
       this.ambient.intensity = 0.82;
       this.playerLight.color.setHex(0xffcf9a);
@@ -3460,8 +3499,15 @@ export class Game {
       'The Sunless Court':  { fog: 0x0e0a1c, near: 15, far: 36 },
       'The Abyssal Throne': { fog: 0x07121a, near: 12, far: 30 },
     }[theme.name] || { fog: 0x08060c, near: 16, far: 36 };
-    this.scene.background = new THREE.Color(atmo.fog);
-    this.scene.fog = new THREE.Fog(atmo.fog, atmo.near, atmo.far);
+    // The tavern's sky/fog is owned by setTownAtmosphere - it's tinted to the
+    // real town's time of day (988) so the view through the windows/door matches
+    // the daytime/night you walked in from. Only the dungeon floors take the
+    // per-act murk here (this runs AFTER setTownAtmosphere in every tavern path,
+    // so without this guard it clobbered the time-of-day sky with dungeon black).
+    if (!this.inTavern) {
+      this.scene.background = new THREE.Color(atmo.fog);
+      this.scene.fog = new THREE.Fog(atmo.fog, atmo.near, atmo.far);
+    }
 
     const maxLights = { low: 5, medium: 10, high: 18 }[this.settings.quality] || 10;
     const count = Math.min(maxLights, this.dungeonMeshes.torchPositions.length);
