@@ -688,7 +688,7 @@ export function buildTavernInterior() {
                   group.add(bot); st.restockBottle = bot;
                 }
                 const p = Math.min(1, (1.4 - Math.max(0, st.waitT)) / 1.4); // 0..1 across the pause
-                const shelf = { x: keeper.position.x, y: 1.72, z: 2.18 };            // on the bottom board
+                const shelf = { x: keeper.position.x, y: 1.4, z: 2.18 };             // on the (lowered 980) bottom board
                 const hand = { x: keeper.position.x, y: 1.15, z: keeper.position.z - 0.45 }; // at her chest, facing the shelf
                 let k, tilt = 0;
                 if (p < 0.35) k = p / 0.35;                                          // lift off the shelf
@@ -783,13 +783,13 @@ export function buildTavernInterior() {
   // inside the wall as they were before.
   const shelfZ = 2.04;
   const shelfW = 8 * TILE;
-  // 971: lowered 0.3 back toward reachable height (from [2.02,2.44,2.86]) so the
-  // shelves read as something Magda can actually take a bottle from / set one
-  // back on, not a display rail above her reach. The bottom board sits at 1.72 -
-  // still just BELOW her ~1.84 head so it doesn't reslice her from the overhead
-  // camera (the reason 720 raised them), but low enough that her restock reach
-  // lands on it.
-  const shelfYs = [1.72, 2.14, 2.56];
+  // 971/980: lowered again toward true arm's-reach ([1.72,2.14,2.56] was still
+  // above her reach per the user). The bottom board now sits at 1.4 - about
+  // Magda's chest/hand height on the duckboard - so grabbing a bottle and
+  // setting it back reads naturally; the boards sit at the north WALL face
+  // (z 2.04) BEHIND her (she works at z~3.1), so even the mid board at 1.8 sits
+  // behind + below her head silhouette rather than slicing it from overhead.
+  const shelfYs = [1.4, 1.8, 2.2];
   for (const sy of shelfYs) {
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(shelfW, 0.07, 0.28), boardMat);
     shelf.position.set(barCenter.x + TILE / 2, sy, shelfZ);
