@@ -588,7 +588,22 @@ export function buildTavernInterior() {
     const barZ = keeperPos.z;
     const paceLeftX = barCenter.x + TILE / 2 - 3.2;   // 11.8 — clear of the cask at ~10.4
     const paceRightX = barCenter.x + TILE / 2 + 3.0;  // 18.0 — clear of the kegs at ~19.1/19.9
-    const roundX = barCenter.x + TILE / 2 - 6.9;      // 0.9 clear of the bar's left edge (x=9) so her body never clips the corner (719)
+    // 979: the counter's REAL footprint, computed from its actual mesh extents
+    // (barTop is the widest slab: barW+0.2 wide, 1.55 deep, centred barZ+0.12
+    // in this file's OUTER barZ/barCenter.z, since the local `barZ` above
+    // shadows it). Previously `roundX` was a hand-picked constant left over
+    // from when the bar was 6 tiles wide ("0.9 clear of x=9") — the bar was
+    // later widened to 7 tiles (barW 6->7, Obsidian 898) and nobody moved
+    // roundX, so it ended up only ~0.2 clear of the counter's NEW edge and
+    // she clipped straight through the corner on every table visit. Deriving
+    // it from the live mesh geometry means it can never go stale again.
+    const BAR_MARGIN = 0.4; // her body's clearance buffer around the counter
+    const barAabbX0 = barX - (barW + 0.2) / 2 - BAR_MARGIN;
+    const barAabbX1 = barX + (barW + 0.2) / 2 + BAR_MARGIN;
+    const barAabbZ0 = barCenter.z + 0.12 - 1.55 / 2 - BAR_MARGIN;
+    const barAabbZ1 = barFrontEdge + BAR_MARGIN;
+    const inBar = (x, z) => x > barAabbX0 && x < barAabbX1 && z > barAabbZ0 && z < barAabbZ1;
+    const roundX = barAabbX0 - 0.3; // a further half-step past the margin, well onto the open floor tile
     const visitTable = tileToWorld(3, 4);
     const path = [
       { x: roundX, z: barZ, y: 0.24 },            // walk to the bar's end, still on the duckboard
@@ -710,10 +725,18 @@ export function buildTavernInterior() {
               const ang = Math.atan2(dx, dz);
               const nx = keeper.position.x + Math.sin(ang) * step;
               const nz = keeper.position.z + Math.cos(ang) * step;
-              if (wouldHit(nx, nz)) {
-                // player is blocking this way — pace to the FAR end instead (go
-                // around the other direction), and pause a beat before setting off
-                st.paceTarget = { x: Math.abs(paceLeftX - heroBlock.x) > Math.abs(paceRightX - heroBlock.x) ? paceLeftX : paceRightX, z: barZ };
+              // 979: the pace lane runs behind the counter and never crosses
+              // its footprint by design, but guard it anyway (belt-and-braces
+              // — same rule that protects the table-visit path below) so a
+              // future tweak to the lane can never make her clip the bar.
+              if (wouldHit(nx, nz) || inBar(nx, nz)) {
+                // player is blocking this way (or, belt-and-braces, the step
+                // would clip the counter) — pace to the FAR end instead (go
+                // around the other direction), and pause a beat before setting off.
+                // heroBlock may be null when it's the counter guard that fired,
+                // so fall back to reversing away from the current pace target.
+                const awayFrom = heroBlock ? heroBlock.x : keeper.position.x;
+                st.paceTarget = { x: Math.abs(paceLeftX - awayFrom) > Math.abs(paceRightX - awayFrom) ? paceLeftX : paceRightX, z: barZ };
                 st.waitT = 0.4;
               } else {
                 keeper.position.x = nx; keeper.position.z = nz; keeper.rotation.y = ang;
@@ -756,9 +779,11 @@ export function buildTavernInterior() {
             const ang = Math.atan2(dx, dz);
             const nx = keeper.position.x + Math.sin(ang) * step;
             const nz = keeper.position.z + Math.cos(ang) * step;
-            // 943: hold at the waypoint rather than clip through the hero; she
-            // resumes the moment the player steps out of her path.
-            if (!wouldHit(nx, nz)) {
+            // 943/979: hold at the waypoint rather than clip through the hero
+            // OR the bar counter; she resumes the moment the obstruction clears
+            // (the hand-picked waypoints already route around the counter, but
+            // this is the hard guard that stops her ever stepping into it).
+            if (!wouldHit(nx, nz) && !inBar(nx, nz)) {
               keeper.position.x = nx; keeper.position.z = nz; keeper.rotation.y = ang;
               // ease across the small duckboard-height step rather than popping
               keeper.position.y += (target.y - keeper.position.y) * Math.min(1, dt * 2);
