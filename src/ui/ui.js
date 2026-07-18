@@ -1472,12 +1472,14 @@ export class UI {
         });
         const typedHash = (res && res.confirmed && res.password != null) ? await sha256Hex(res.password) : null;
         if (!res || !res.confirmed || typedHash !== OK_HASH) {
+          // 978: a WRONG (or cancelled) password says NOTHING - just silently
+          // leave 18+ off. No "incorrect password" modal.
           adult18.checked = false;
-          if (res && res.confirmed && typedHash !== OK_HASH) {
-            this.confirmModal({ title: 'Incorrect password', message: '18+ mode was not enabled.', notice: true, confirmText: 'OK' });
-          }
           return;
         }
+        // 978: a CORRECT password shows a brief confirmation the player OKs,
+        // THEN unlocks - so there's clear positive feedback that it worked.
+        await this.confirmModal({ title: '18+ Unlocked', message: 'Password accepted — mature content is now enabled.', notice: true, confirmText: 'OK' });
       }
       s.adult18 = adult18.checked;
       this.game.saveSettings();
