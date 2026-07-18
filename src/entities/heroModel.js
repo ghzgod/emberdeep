@@ -557,6 +557,28 @@ function addTownEyeDiscs(mesh) {
 // neck-to-crown distance. Returns the built THREE.Group (already added to
 // `mesh`), or null for 'short' (no-op, handled by the caller before this is
 // even invoked) or if there's no head geometry to measure.
+// 981: cut the FRONT off a full-360 lathe hair shell so it doesn't wrap over
+// the face/forehead. We keep the exact same (liked) revolved shape but drop the
+// triangles whose centroid points toward +Z (the face) - within ±frontHalf of
+// straight-ahead. The remaining boundary is the surface's own natural curved
+// rim (not a flat open edge), so there's no "temple notch" fin - it just leaves
+// the face clear while the back + sides stay covered. Mutates geo in place.
+function cutHairFront(geo, frontHalf) {
+  const idx = geo.getIndex(); const pos = geo.getAttribute('position');
+  if (!idx || !pos) return geo;
+  const keep = [];
+  for (let t = 0; t < idx.count; t += 3) {
+    const a = idx.getX(t), b = idx.getX(t + 1), c = idx.getX(t + 2);
+    const mx = (pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3;
+    const mz = (pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3;
+    // angle from straight-ahead (+Z, the face). Drop the front cone.
+    if (Math.abs(Math.atan2(mx, mz)) >= frontHalf) keep.push(a, b, c);
+  }
+  geo.setIndex(keep);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 function addHairMesh(mesh, headMesh, style, hex) {
   if (!headMesh || style === 'short') return null;
   headMesh.geometry.computeBoundingBox();
@@ -646,7 +668,7 @@ function addHairMesh(mesh, headMesh, style, hex) {
       [w * 0.20, -h * 0.44],  // stops high, at the nape
     ].map(([r, y]) => new THREE.Vector2(r, y));
     const cap = new THREE.Mesh(
-      new THREE.LatheGeometry(capPts, 18), // full revolve - see comment above
+      cutHairFront(new THREE.LatheGeometry(capPts, 28), Math.PI * 0.42), // 981: revolve, then cut the face-side away
       new THREE.MeshStandardMaterial({ color: hex, roughness: 0.9, metalness: 0.0, side: THREE.FrontSide }));
     cap.position.set(cx, bb.max.y - h * 0.05, cz);
     cap.castShadow = false; cap.receiveShadow = false; cap.frustumCulled = false;
@@ -685,7 +707,7 @@ function addHairMesh(mesh, headMesh, style, hex) {
       [Math.max(0.01, w * 0.02), -h * 1.12], // tapered to a near-point tip
     ].map(([r, y]) => new THREE.Vector2(r, y));
     const shell = new THREE.Mesh(
-      new THREE.LatheGeometry(pts, 20), // full revolve - see comment above
+      cutHairFront(new THREE.LatheGeometry(pts, 28), Math.PI * 0.42), // 981: revolve, then cut the face-side away
       new THREE.MeshStandardMaterial({ color: hex, roughness: 0.9, metalness: 0.0, side: THREE.FrontSide }));
     shell.position.set(cx, bb.max.y - h * 0.05, cz);
     shell.castShadow = false; shell.receiveShadow = false; shell.frustumCulled = false;
