@@ -407,9 +407,9 @@ export function buildTavernInterior() {
   // just see dark "night beyond the door" until you actually step out (the exit
   // fires on the tile + fade, so it never blocks leaving).
   const exitBlock = new THREE.Mesh(
-    new THREE.BoxGeometry(gapWidth + 5, wallH + 1.5, 0.3),
+    new THREE.BoxGeometry(gapWidth + 10, wallH + 3, 0.3),
     new THREE.MeshBasicMaterial({ color: 0x120c07, fog: true }));
-  exitBlock.position.set(gapCenterX, (wallH + 1.5) / 2 - 0.4, outerZ + 1.1);
+  exitBlock.position.set(gapCenterX, (wallH + 3) / 2 - 0.8, outerZ + 0.5);
   group.add(exitBlock);
   const thresholdLight = new THREE.PointLight(0xffb060, 15, 8, 2);
   thresholdLight.position.set(gapCenterX, 1.6, outerZ);
